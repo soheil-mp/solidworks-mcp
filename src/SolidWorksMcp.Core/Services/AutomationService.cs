@@ -48,12 +48,18 @@ public sealed class AutomationService(SwSession session)
                 File.WriteAllText(macro, VbaText.Wrap(code, outFile, docName), Encoding.ASCII);
                 int err = 0;
                 bool ok = ctx.App.RunMacro2(macro, module, "main", 0, out err);
-                var lines = File.Exists(outFile) ? File.ReadAllLines(outFile, Encoding.Latin1) : [];
+                var lines = ReadShared(outFile);
                 bool compiled = lines.Length > 0 && lines[0] == "started";
                 var output = lines.Skip(1).Where(l => l.StartsWith("O|")).Select(l => VbaText.Unescape(l[2..])).ToList();
                 string? trapped = lines.LastOrDefault(l => l.StartsWith("ERR "));
                 bool completed = lines.Contains("OK");
                 var dlg = ctx.Op.FirstErrorDialog;
+                if (!compiled && dlg is null && !EngineAlive(ctx, dir))
+                    throw new SwException(ErrorCodes.VbaError,
+                        "SOLIDWORKS' macro engine is not running any macros right now (even a one-line test macro failed): an earlier macro " +
+                        "is probably still suspended inside it.",
+                        "Tell the user: in SOLIDWORKS, open Tools > Macro > Edit… and use Run > Reset in the VBA editor, or restart SOLIDWORKS " +
+                        "(save work first). Until then use the dedicated tools instead of vba_run.");
                 string? error = trapped?[4..]
                                 ?? (dlg is not null ? $"Runtime error (dialog answered with End): {dlg.Dialog.Text}" : null)
                                 ?? (!compiled ? $"The macro did not run: probably a syntax error (RunMacro2 returned {ok}, error {err})." : null)
@@ -86,5 +92,51 @@ public sealed class AutomationService(SwSession session)
                 try { File.Delete(outFile); } catch { /* temp */ }
             }
         }, RunOptions.Read(doc) with { Timeout = timeout, DialogRules = [DialogRules.VbaRuntimeError], OptionalDoc = true }, ct);
+    }
+
+    /// <summary>
+    /// Runs a trivial macro to tell "the user's code doesn't compile" (silent in SOLIDWORKS) from "the engine accepts no
+    /// macros at all" (a previous macro left suspended in the VBA engine).
+    /// </summary>
+    private static bool EngineAlive(SwContext ctx, string dir)
+    {
+        string module = "swmcp_canary_" + Guid.NewGuid().ToString("N")[..8];
+        string macro = Path.Combine(dir, module + ".swb"), outFile = Path.Combine(dir, module + ".out");
+        try
+        {
+            File.WriteAllText(macro,
+                "Sub main()\r\n    Dim fn As Integer\r\n    fn = FreeFile\r\n    Open " + "\"" + outFile.Replace("\"", "\"\"") + "\"" +
+                " For Output As #fn\r\n    Print #fn, \"alive\"\r\n    Close #fn\r\nEnd Sub\r\n", Encoding.ASCII);
+            ctx.App.RunMacro2(macro, module, "main", 0, out int _);
+            return ReadShared(outFile).Contains("alive");
+        }
+        catch { return false; }
+        finally
+        {
+            try { File.Delete(macro); } catch { /* temp */ }
+            try { File.Delete(outFile); } catch { /* temp */ }
+        }
+    }
+
+    /// <summary>
+    /// Reads the macro's output file even while SOLIDWORKS still holds it open (a macro stopped by the error dialog's
+    /// End button never reaches its Close statement).
+    /// </summary>
+    private static string[] ReadShared(string path)
+    {
+        if (!File.Exists(path)) return [];
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var r = new StreamReader(fs, Encoding.Latin1);
+                return r.ReadToEnd().Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.Length > 0).ToArray();
+            }
+            catch (IOException) when (attempt < 10)
+            {
+                Thread.Sleep(100);
+            }
+        }
     }
 }

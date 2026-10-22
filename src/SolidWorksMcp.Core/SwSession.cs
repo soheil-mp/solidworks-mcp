@@ -178,6 +178,12 @@ public sealed class SwSession : IDisposable
                 throw new SwException(ErrorCodes.Busy, "SOLIDWORKS kept rejecting the call because it is busy.",
                     "Wait for SOLIDWORKS to finish (check dialog_list for a modal dialog), then retry.", ex);
             }
+            catch (Exception ex) when (ComArgs.IsServerFault(ex))
+            {
+                throw new SwException(ErrorCodes.Internal, $"SOLIDWORKS raised an internal error during '{operation}' (RPC_E_SERVERFAULT).",
+                    "SOLIDWORKS is still running. Check the model state (feature_list / model_info) before continuing; if this repeats, " +
+                    "the operation isn't supported in this state.", ex);
+            }
         }, options.Timeout ?? Options.DefaultTimeout, options.DialogRules, cancellationToken);
     }
 
