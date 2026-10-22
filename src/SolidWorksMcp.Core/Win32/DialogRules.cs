@@ -15,4 +15,12 @@ public static class DialogRules
 
     /// <summary>"Do you want to save Simulation data?" when closing a document with studies: save.</summary>
     public static readonly DialogRule SimulationSaveYes = new("Simulation", "save", "Yes", "Simulation save prompt (saving)");
+
+    /// <summary>
+    /// "Make Dimension Driven?" (a new sketch dimension would over-define the sketch; shown while system option 100
+    /// "prompt to set driven state" is on): cancel, so the dimension is not added. sketch_dimension_add then reports
+    /// the refusal. Title unverified live.
+    /// </summary>
+    public static readonly DialogRule OverdefiningDimension =
+        new("^Make Dimension Driven", null, "cancel", "over-defining dimension prompt (dimension not added)");
 }
