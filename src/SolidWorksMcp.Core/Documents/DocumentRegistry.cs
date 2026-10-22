@@ -36,6 +36,10 @@ internal sealed class DocumentRegistry
         public string How { get; set; } = "";
         public DateTime SinceUtc { get; init; } = DateTime.UtcNow;
         public int? StampAfterLastOp { get; set; }
+        /// <summary>doc_undo's limit: server writes that changed the document since anyone else last changed it.</summary>
+        public int ServerWrites { get; set; }
+        /// <summary>The update stamp right after the last counted server write (the count holds only while it matches).</summary>
+        public int? ServerWritesStamp { get; set; }
         /// <summary>The sketch the server opened and is editing (null when none).</summary>
         public string? ServerSketch { get; set; }
         /// <summary>The last sketch the server finished in this document (feature tools default to it).</summary>
