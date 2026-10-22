@@ -203,6 +203,14 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
     origin placed at y = −17.5. Correct it with `Component2.Transform2` (a `MathTransform` built from a 16-element array:
     rotation 0..8, translation 9..11, scale 12).
   - **The first component is fixed automatically.**
+  - VERIFIED again from C# (2026-10-22): a 40 x 10 x 20 part whose box center is (20, 5, -10) mm, inserted at
+    (100, 200, 300) mm, got the translation (80, 195, 310) mm; `Transform2.ArrayData` = rotation 0..8, translation
+    9..11 (m), scale 12.
+- **Coordinate spaces in assemblies** (VERIFIED): bodies from `IComponent2.GetBodies3` report their geometry in the
+  component's **part space**. That covers `IBody2.GetBodyBox`, `IFace2.GetClosestPointOn` and the surface and curve
+  parameters. `IComponent2.GetBox(false, false)` is in **assembly space**. Point queries must therefore map the
+  assembly point into component space with the inverse of the component transform, then map results back. The
+  server's `TopoQuery` does this.
 - **Mates** (VERIFIED for planes). Select entity 1 and entity 2 on mark 1, then
   `IAssemblyDoc.AddMate5(type, align, flip, d, dMax, dMin, gearNum, gearDen, angle, angMax, angMin, forPositioningOnly,
   lockRotation, widthOption, out int errorStatus)` (15). An error status of 1 means no error.
