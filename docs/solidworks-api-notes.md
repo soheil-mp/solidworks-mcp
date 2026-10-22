@@ -348,7 +348,17 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
   `Environ("TEMP")` and `Array()` work.
 - **Late binding** exposes only the default interface (ellipse methods give error 438). `face.Select4` and line
   `GetStartPoint2` work.
-- **Locale.** `Print` and `Format` use the decimal comma; `Str()` uses a dot.
+- **Locale.** `Print` and `Format` use the decimal comma; `Str()` uses a dot (and drops the leading zero: `.025`).
+- **A macro can wedge the engine** (seen 2026-10-22). After a macro created an assembly, called `AddComponent5`, and
+  assigned an object to `comp.Transform2` without `Set`:
+  - `RunMacro2` returned while that macro still held its output file open;
+  - from then on **every** `RunMacro2` returned False with error 0, and nothing ran;
+  - `GetCurrentMacroPathName` raised `RPC_E_SERVERFAULT`.
+
+  Recovery: reset the VBA project or restart SOLIDWORKS. `vba_run` detects this with a canary macro and says so,
+  instead of reporting a syntax error. Always use `Set` for object assignments.
+- `Print #` output is ANSI. The `vba_run` wrapper's `Echo` escapes non-ASCII characters as `\uXXXX`, and string
+  literals with non-ASCII characters are rewritten to `ChrW()`, so the macro file is pure ASCII.
 
 ## 16. Win32 dialog handling
 - **Discovery.** SolidWorks dialogs are top-level `#32770` windows owned by the SLDWORKS.exe process.
