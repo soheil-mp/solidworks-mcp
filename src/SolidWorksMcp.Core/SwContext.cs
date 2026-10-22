@@ -25,6 +25,7 @@ public enum DocAccess
 internal sealed class SwContext
 {
     private IModelDoc2? _doc;
+    private int? _stampAtBind; // writes: the document's update stamp when the operation started
 
     public SwContext(SwSession session, ISldWorks app, OperationContext op)
     {
@@ -93,6 +94,7 @@ internal sealed class SwContext
                 Warn($"Re-activated '{entry.Title}' (the active document was '{(active is null ? "none" : DocumentRegistry.SafeTitle(active))}').");
             }
             int stamp = doc.GetUpdateStamp();
+            _stampAtBind = stamp;
             if (entry.StampAfterLastOp is int last && last != stamp)
                 Warn($"'{entry.Title}' was modified outside this server since its last change (by the user?).");
         }
@@ -106,7 +108,19 @@ internal sealed class SwContext
         try
         {
             var e = Documents.Find(_doc);
-            if (e is not null) e.StampAfterLastOp = _doc.GetUpdateStamp();
+            if (e is not null)
+            {
+                int now = _doc.GetUpdateStamp();
+                // doc_undo's limit: count writes that changed the document, restarting after a change by anyone else.
+                // An operation that leaves no undo step accounts for itself by setting ServerWritesStamp to the stamp.
+                if (e.ServerWritesStamp != now)
+                {
+                    bool chained = e.ServerWritesStamp is int s && s == _stampAtBind;
+                    e.ServerWrites = (chained ? e.ServerWrites : 0) + (now != _stampAtBind ? 1 : 0);
+                    e.ServerWritesStamp = now;
+                }
+                e.StampAfterLastOp = now;
+            }
         }
         catch { /* the document may have been closed by the operation */ }
     }
