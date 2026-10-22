@@ -15,4 +15,18 @@ public static class DialogRules
 
     /// <summary>"Do you want to save Simulation data?" when closing a document with studies: save.</summary>
     public static readonly DialogRule SimulationSaveYes = new("Simulation", "save", "Yes", "Simulation save prompt (saving)");
+
+    /// <summary>
+    /// FeatureWorks' "proceed with feature recognition?" after an import (no preference prevents it): decline, keeping the
+    /// imported body as it is. doc_open imports only. The text is not verified live yet.
+    /// </summary>
+    public static readonly DialogRule ImportFeatureRecognitionNo =
+        new("SOLIDWORKS|FeatureWorks", "feature recognition", "No", "FeatureWorks feature-recognition prompt after an import (declined)");
+
+    /// <summary>
+    /// "Run Import Diagnostics?" after an import, normally prevented by options 291/690 being off during doc_open: decline.
+    /// The text is not verified live yet.
+    /// </summary>
+    public static readonly DialogRule ImportDiagnosticsNo =
+        new("SOLIDWORKS", @"Import\s*Diagnos", "No", "Import Diagnostics prompt after an import (declined)");
 }
