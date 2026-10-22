@@ -79,8 +79,11 @@ Start SOLIDWORKS, then ask the agent something like *"Check the SOLIDWORKS statu
 with rounded corners and two 6 mm holes, then show me a screenshot."*
 
 ### Smart App Control / Application Control
-If Windows blocks the unsigned `solidworks-mcp.exe`, register the DLL through the Microsoft-signed `dotnet` host:
-`claude mcp add --scope user solidworks -- dotnet "<folder>\solidworks-mcp.dll"`.
+Windows Smart App Control judges each unsigned binary by its hash, and it can block a freshly built
+`solidworks-mcp.exe` or `SolidWorksMcp.Core.dll` with "An Application Control policy has blocked this file" (Code
+Integrity event 3077). Rebuild or re-publish to get a new binary with a new verdict: `tools\install.ps1` produces a new
+one each time. If the exe itself is blocked, you can also register the DLL through the Microsoft-signed `dotnet` host:
+`claude mcp add --scope user solidworks -- dotnet "<folder>\solidworks-mcp.dll"`. Signed releases will avoid this.
 
 ## Tools
 The tools are grouped into toolsets: session, documents, inspect, sketch, features, reference, export, properties and

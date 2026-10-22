@@ -19,6 +19,14 @@ if (args.Contains("--version"))
 }
 if (args.Contains("--check-catalog"))
     return CatalogCheck.Run();
+if (Array.IndexOf(args, "--tools-md") is int mdAt and >= 0)
+{
+    // solidworks-mcp --tools-md docs/tools.md   (UTF-8 file; the console code page would mangle characters)
+    string target = mdAt + 1 < args.Length ? args[mdAt + 1] : "tools.md";
+    File.WriteAllText(target, CatalogCheck.Markdown(), new System.Text.UTF8Encoding(false));
+    Console.Error.WriteLine($"Wrote {Path.GetFullPath(target)}");
+    return 0;
+}
 
 // Empty builder: no appsettings.json / environment / command-line configuration from the client's working directory,
 // and no default logging providers (the default console logger writes to stdout).
