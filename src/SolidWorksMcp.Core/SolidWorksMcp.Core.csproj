@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>SolidWorksMcp.Core</RootNamespace>
+    <AssemblyName>SolidWorksMcp.Core</AssemblyName>
+    <!-- COM interop: never trim. -->
+    <IsTrimmable>false</IsTrimmable>
+  </PropertyGroup>
+
+  <!-- The SolidWorks interop assemblies come from the local SolidWorks installation and are embedded
+       (NoPIA), so no Dassault Systemes binaries are committed to or shipped by this repository.
+       Only this assembly touches SolidWorks COM types; its public API exposes plain DTOs. -->
+  <ItemGroup>
+    <Reference Include="SolidWorks.Interop.sldworks">
+      <HintPath>$(SolidWorksInteropDir)SolidWorks.Interop.sldworks.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swconst">
+      <HintPath>$(SolidWorksInteropDir)SolidWorks.Interop.swconst.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.cosworks">
+      <HintPath>$(SolidWorksInteropDir)SolidWorks.Interop.cosworks.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+    </Reference>
+  </ItemGroup>
+
+  <!-- With embedded interop types the compiler imports every VARIANT as 'dynamic', which would silently turn typed
+       COM calls into late-bound ones. Removing Microsoft.CSharp (the dynamic binder) from the compile makes any
+       accidental 'dynamic' use a build error (CS0656); cast VARIANT results to object and use ComArgs instead. -->
+  <Target Name="ForbidDynamic" AfterTargets="ResolveTargetingPackAssets">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Filename)' == 'Microsoft.CSharp'" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SolidWorksMcp.LiveTests" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,41 @@
+## Build output
+bin/
+obj/
+artifacts/
+publish/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+TestResults/
+
+## Local scratch / test output
+*.swp~
+~$*
+scratch/
+tests/**/output/
+
+## SolidWorks interop assemblies must never be committed (they come from the local install)
+SolidWorks.Interop.*.dll
+
+## Dassault Systemes material must never be committed: typelib / API dumps, help files, binlogs (they record local
+## paths and environment), native SOLIDWORKS files and release artifacts.
+*_api.txt
+*_dump.txt
+swconst_enums.txt
+swcommands.txt
+*.tlb
+*.chm
+*.binlog
+*.sldprt
+*.SLDPRT
+*.sldasm
+*.SLDASM
+*.slddrw
+*.SLDDRW
+*.slddrt
+*.sldlfp
+*.nupkg
+*.mcpb
+release/

@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Offline tests: no SOLIDWORKS needed to build or run (CI). The interop-free Core files are compiled in as linked
+       sources, so this project never references the SolidWorks interop assemblies. If one of these files starts using
+       SolidWorks types, this build breaks — on purpose. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>SolidWorksMcp.UnitTests</RootNamespace>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageReference Include="xunit.v3" Version="4.0.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\SolidWorksMcp.Core\GlobalUsings.cs" Link="Core\GlobalUsings.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\SwException.cs" Link="Core\SwException.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\SwOptions.cs" Link="Core\SwOptions.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Com\ComArgs.cs" Link="Core\Com\ComArgs.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Com\OleMessageFilter.cs" Link="Core\Com\OleMessageFilter.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Com\OperationContext.cs" Link="Core\Com\OperationContext.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Com\StaDispatcher.cs" Link="Core\Com\StaDispatcher.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Files\PathPolicy.cs" Link="Core\Files\PathPolicy.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Geometry\AxisSpec.cs" Link="Core\Geometry\AxisSpec.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Geometry\ResolvedInfo.cs" Link="Core\Geometry\ResolvedInfo.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Geometry\Units.cs" Link="Core\Geometry\Units.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Geometry\Vec3.cs" Link="Core\Geometry\Vec3.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Geometry\Xform.cs" Link="Core\Geometry\Xform.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Imaging\Png.cs" Link="Core\Imaging\Png.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Model\EntityRef.cs" Link="Core\Model\EntityRef.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Model\GeometryDtos.cs" Link="Core\Model\GeometryDtos.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Model\SketchEntity.cs" Link="Core\Model\SketchEntity.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Model\ToolResult.cs" Link="Core\Model\ToolResult.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Prefs\PreferenceJournal.cs" Link="Core\Prefs\PreferenceJournal.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Prefs\SystemPrefIds.cs" Link="Core\Prefs\SystemPrefIds.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Services\VbaText.cs" Link="Core\Services\VbaText.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Win32\DialogRules.cs" Link="Core\Win32\DialogRules.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Win32\DialogWatchdog.cs" Link="Core\Win32\DialogWatchdog.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Win32\Dialogs.cs" Link="Core\Win32\Dialogs.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Win32\NativeMethods.cs" Link="Core\Win32\NativeMethods.cs" />
+  </ItemGroup>
+
+</Project>

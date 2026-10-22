@@ -1,0 +1,25 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <Version>0.1.0</Version>
+    <Authors>solidworks-mcp contributors</Authors>
+    <Copyright>Copyright (c) 2026 solidworks-mcp contributors</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Product>solidworks-mcp</Product>
+    <!-- SolidWorks install folder (contains api\redist\SolidWorks.Interop.*.dll).
+         Override with the SOLIDWORKS_DIR environment variable or /p:SolidWorksDir=... -->
+    <SolidWorksDir Condition="'$(SolidWorksDir)' == '' and '$(SOLIDWORKS_DIR)' != ''">$(SOLIDWORKS_DIR)</SolidWorksDir>
+    <!-- Otherwise ask the registry (newest release first), then fall back to the default install folder. -->
+    <SolidWorksDir Condition="'$(SolidWorksDir)' == ''">$([MSBuild]::GetRegistryValueFromView('HKEY_LOCAL_MACHINE\SOFTWARE\SolidWorks\SOLIDWORKS 2026\Setup', 'SolidWorks Folder', null, RegistryView.Registry64))</SolidWorksDir>
+    <SolidWorksDir Condition="'$(SolidWorksDir)' == ''">$([MSBuild]::GetRegistryValueFromView('HKEY_LOCAL_MACHINE\SOFTWARE\SolidWorks\SOLIDWORKS 2025\Setup', 'SolidWorks Folder', null, RegistryView.Registry64))</SolidWorksDir>
+    <SolidWorksDir Condition="'$(SolidWorksDir)' == ''">$([MSBuild]::GetRegistryValueFromView('HKEY_LOCAL_MACHINE\SOFTWARE\SolidWorks\SOLIDWORKS 2024\Setup', 'SolidWorks Folder', null, RegistryView.Registry64))</SolidWorksDir>
+    <SolidWorksDir Condition="'$(SolidWorksDir)' == ''">$([MSBuild]::GetRegistryValueFromView('HKEY_LOCAL_MACHINE\SOFTWARE\SolidWorks\SOLIDWORKS 2023\Setup', 'SolidWorks Folder', null, RegistryView.Registry64))</SolidWorksDir>
+    <SolidWorksDir Condition="'$(SolidWorksDir)' == ''">C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\</SolidWorksDir>
+    <SolidWorksDir Condition="!HasTrailingSlash('$(SolidWorksDir)')">$(SolidWorksDir)\</SolidWorksDir>
+    <SolidWorksInteropDir>$(SolidWorksDir)api\redist\</SolidWorksInteropDir>
+  </PropertyGroup>
+</Project>

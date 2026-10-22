@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SolidWorksMcp.Core/SolidWorksMcp.Core.csproj" />
+    <Project Path="src/SolidWorksMcp.Server/SolidWorksMcp.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SolidWorksMcp.UnitTests/SolidWorksMcp.UnitTests.csproj" />
+    <Project Path="tests/SolidWorksMcp.LiveTests/SolidWorksMcp.LiveTests.csproj" />
+  </Folder>
+</Solution>
