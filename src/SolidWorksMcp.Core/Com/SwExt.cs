@@ -8,7 +8,7 @@ namespace SolidWorksMcp.Core.Com;
 /// imports those as <c>dynamic</c>; Core forbids dynamic (see the ForbidDynamic target), so every such result is
 /// cast to <c>object</c> here and converted with <see cref="ComArgs"/>. Prefer these over calling the raw members.
 /// </summary>
-internal static class SwExt
+internal static partial class SwExt
 {
     // ---- documents
     public static ISelectionMgr Sel(this IModelDoc2 doc) => (ISelectionMgr)(object)doc.SelectionManager;
