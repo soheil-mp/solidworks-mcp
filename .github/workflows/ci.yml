@@ -1,0 +1,26 @@
+name: ci
+
+# Runs on GitHub-hosted Windows without SOLIDWORKS: the repository guard, the offline unit tests (which compile the
+# interop-free Core sources) and Python syntax checks. Core/Server need a SOLIDWORKS installation to compile and are
+# built and live-tested on a maintainer machine.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Repository guard (no Dassault binaries, dumps or local paths)
+        run: python tools/check_repo.py
+      - name: Python syntax
+        run: python -m py_compile tools/mcp_client.py tools/mcp_smoke.py tools/check_repo.py
+      - name: Unit tests (offline)
+        run: dotnet test --project tests/SolidWorksMcp.UnitTests/SolidWorksMcp.UnitTests.csproj

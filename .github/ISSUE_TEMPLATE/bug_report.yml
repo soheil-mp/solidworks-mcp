@@ -1,0 +1,28 @@
+name: Bug report
+description: Something doesn't work as documented
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: sw_status output
+      description: Ask the agent to run sw_status and paste the JSON (remove anything confidential).
+      render: json
+  - type: input
+    id: versions
+    attributes:
+      label: SOLIDWORKS version and server version
+      placeholder: "SOLIDWORKS 2025 SP1.2, solidworks-mcp 0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log excerpt
+      description: From %LOCALAPPDATA%\solidworks-mcp\logs (the lines around the failing call).
+      render: text

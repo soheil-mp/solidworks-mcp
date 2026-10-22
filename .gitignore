@@ -39,3 +39,6 @@ swcommands.txt
 *.nupkg
 *.mcpb
 release/
+
+## Agent worktrees and local tool state
+.claude/
