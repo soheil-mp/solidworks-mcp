@@ -1,4 +1,11 @@
 <Project>
+  <!-- Smart App Control judges every unsigned binary by its hash and sometimes blocks a fresh build (CodeIntegrity
+       event 3077, policy 0283ac0f-...). Non-deterministic non-Release builds get a new hash on every rebuild, so simply
+       rebuilding gets a new verdict. (Set here, not in .props: Configuration isn't defined yet when .props is read.) -->
+  <PropertyGroup>
+    <Deterministic Condition="'$(Configuration)' != 'Release'">false</Deterministic>
+  </PropertyGroup>
+
   <!-- ModelContextProtocol.Core ships an analyzer (XML-doc -> [Description] source generator). Application Control /
        Smart App Control blocks it on some machines (warning CS8034), which also makes tool descriptions machine-dependent.
        Every tool uses explicit [Description] attributes, so remove it everywhere (ExcludeAssets does not work here). -->

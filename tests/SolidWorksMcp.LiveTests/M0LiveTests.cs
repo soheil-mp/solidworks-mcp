@@ -100,7 +100,7 @@ public class M0LiveTests(LiveFixture fx) : LiveTest(fx)
         await sk.AddAsync(doc, [new SketchEntity { Kind = "circle", Center = [0, 0], DiameterMm = 10 }]);
         var r = await new FeatureService(S).ExtrudeAsync(new ExtrudeRequest { Doc = doc, Cut = true, End = "through_all" });
         Assert.Equal(-Math.PI * 25 * 20, r.Verified.VolumeDeltaMm3, 1e-2);
-        Assert.Equal([0, 1, 0], r.DirectionModel);
+        Assert.Equal([0, 1, 0], r.DirectionModel!);
     }
 
     [Fact]

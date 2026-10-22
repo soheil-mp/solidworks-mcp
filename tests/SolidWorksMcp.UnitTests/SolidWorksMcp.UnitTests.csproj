@@ -8,7 +8,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <RootNamespace>SolidWorksMcp.UnitTests</RootNamespace>
-    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <NoWarn>$(NoWarn);CA1416;xUnit1051</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

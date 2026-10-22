@@ -553,7 +553,9 @@ These build the host without the transport and check:
 - all four annotations set, and OpenWorld false except for VBA;
 - camelCase parameter names with unit suffixes;
 - snake_case string enums;
-- a `tools/list` size budget (60 KB total, 2 KB per tool);
+- a `tools/list` size budget: at most 6 KB per tool and 1.5 KB per tool on average. The EntityRef schema is inlined
+  wherever a tool takes geometry, so `SchemaCompactor` drops its field descriptions there (the instructions explain the
+  fields once) along with `"default": null`. Clients that load every tool up front can trim the list with toolsets;
 - instructions present, and under 4,096 characters;
 - banned members absent (by reflection over the embedded interop members);
 - no `I`-prefixed in-process members.

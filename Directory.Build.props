@@ -6,10 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <Version>0.1.0</Version>
-    <!-- Smart App Control judges every unsigned binary by its hash and sometimes blocks a fresh build (CodeIntegrity
-         event 3077, policy 0283ac0f-...). Non-deterministic Debug builds get a new hash on every rebuild, so simply
-         rebuilding gets a new verdict. Release builds stay deterministic. -->
-    <Deterministic Condition="'$(Configuration)' == 'Debug'">false</Deterministic>
     <Authors>solidworks-mcp contributors</Authors>
     <Copyright>Copyright (c) 2026 solidworks-mcp contributors</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

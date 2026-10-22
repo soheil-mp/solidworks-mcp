@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
 using SolidWorksMcp.Core;
 
 namespace SolidWorksMcp.Server.Hosting;
@@ -46,5 +47,15 @@ public static class ServerSetup
                 f.AddCallToolFilter(Toolsets.CallFilter(sets, readOnly));
                 f.AddCallToolFilter(ToolErrorFilter.Create());
             });
+        // After the SDK has collected the tools (they are singletons): compact their schemas once.
+        builder.Services.PostConfigure<McpServerOptions>(o =>
+        {
+            foreach (var t in o.ToolCollection ?? []) SchemaCompactor.Apply(t.ProtocolTool);
+        });
     }
+
+    /// <summary>The tools as the server lists them (after <see cref="SchemaCompactor"/>).</summary>
+    public static List<Tool> ListedTools(IServiceProvider services) =>
+        services.GetRequiredService<Microsoft.Extensions.Options.IOptions<McpServerOptions>>().Value.ToolCollection?
+            .Select(t => t.ProtocolTool).ToList() ?? [];
 }

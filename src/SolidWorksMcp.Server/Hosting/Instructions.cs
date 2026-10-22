@@ -17,9 +17,12 @@ public static class Instructions
         3. Points: [x,y,z] = model mm. Sketch tools also take [x,y] sketch-local mm; on the top plane sketch (x,y) is
            model (x,0,-y), so model points [x,y,z] are often easier (they are projected onto the sketch plane).
         4. Geometry references: {"id":"F3"} from face_list / edge_list or a feature result (newFaces);
-           {"at":[x,y,z]} = the nearest face/edge/vertex; {"name":"Sketch1"|"Fillet1"|"top"}; list parameters also
-           take queries, e.g. edges:[{"where":{"curve":"line","parallelTo":"y"},"expect":4}].
-           No selection state carries over between calls.
+           {"at":[x,y,z]} = the nearest face/edge/vertex (within tolMm, default 0.01; strict:true refuses a
+           farther nearest match); {"name":"Sketch1"|"Fillet1"|"top"}; a query (face_list / edge_list 'where'
+           fields), e.g. edges:[{"where":{"curve":"line","parallelTo":"y"},"expect":4}]. Optional fields: type
+           (face|edge|vertex|plane|axis|point|sketch|sketch_segment|sketch_point|feature|body|component|origin;
+           usually inferred), component (assemblies: 'at' is then in that part's coordinates), sketch (the
+           owner of a sketch segment or point; default the open sketch). No selection carries over between calls.
         5. Documents: tools act on the session's target document (set by doc_new or doc_activate) or on 'doc'.
            You may change only documents you created. To change a document the user already had open, ask the
            user, then call doc_activate {doc, allowEdit:true} (a backup copy is made). Never close, discard or

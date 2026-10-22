@@ -16,7 +16,40 @@ public class ContractTests
         var problems = CatalogCheck.Problems(out int count, out int bytes);
         Assert.True(problems.Count == 0, string.Join(Environment.NewLine, problems));
         Assert.True(count >= 20, $"only {count} tools registered");
-        Assert.True(bytes < 120 * 1024, $"tools/list is {bytes} bytes");
+        Assert.True(bytes / count <= CatalogCheck.AverageToolBudget, $"tools/list is {bytes} bytes for {count} tools");
+    }
+
+    [Fact]
+    public void EntityRef_schemas_are_compacted_and_documented_once()
+    {
+        var builder = Microsoft.Extensions.Hosting.Host.CreateEmptyApplicationBuilder(new());
+        ServerSetup.Configure(builder, fileLog: false);
+        using var host = builder.Build();
+        int refs = 0;
+        foreach (var tool in ServerSetup.ListedTools(host.Services))
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(tool.InputSchema.GetRawText())!;
+            foreach (var o in Objects(node).Where(SchemaCompactor.IsEntityRef))
+            {
+                refs++;
+                Assert.All(o["properties"]!.AsObject(), p => Assert.False(p.Value!.AsObject().ContainsKey("description"), $"{tool.Name}: EntityRef.{p.Key} kept its description"));
+            }
+            Assert.DoesNotContain("\"default\":null", tool.InputSchema.GetRawText());
+        }
+        Assert.True(refs >= 10, $"only {refs} EntityRef schemas found; did EntityRef change shape?");
+        // The instructions explain every field instead.
+        Assert.All(SchemaCompactor.EntityRefFields, f => Assert.Contains(f, Instructions.Text));
+    }
+
+    private static IEnumerable<System.Text.Json.Nodes.JsonObject> Objects(System.Text.Json.Nodes.JsonNode? n)
+    {
+        if (n is System.Text.Json.Nodes.JsonObject o)
+        {
+            yield return o;
+            foreach (var p in o) foreach (var c in Objects(p.Value)) yield return c;
+        }
+        else if (n is System.Text.Json.Nodes.JsonArray a)
+            foreach (var v in a) foreach (var c in Objects(v)) yield return c;
     }
 
     [Fact]
