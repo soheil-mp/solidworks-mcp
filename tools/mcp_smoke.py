@@ -86,12 +86,18 @@ def near(actual, expected: float, rel: float = 1e-4) -> bool:
     return actual is not None and abs(actual - expected) <= rel * max(1.0, abs(expected))
 
 
-def saved_part(c: McpClient, name: str, width: float, height: float, depth: float, centered: bool = True) -> str:
-    """Setup (not counted): a saved block part, centered on the origin in x and z; returns its path."""
+def saved_part(c: McpClient, name: str, width: float, height: float, depth: float, centered: bool = True,
+               dimensioned: bool = False) -> str:
+    """Setup (not counted): a saved block part, centered on the origin in x and z; returns its path. With dimensioned,
+    the sketch gets its width and height dimensions (drawings only insert model dimensions that the sketch has)."""
     c.call("doc_new", {"name": name})
     try:
         c.call("sketch_start", {"on": {"name": "top"}})
-        c.call("sketch_add", {"entities": [{"kind": "rectangle", "center": [0, 0], "widthMm": width, "heightMm": height}]})
+        added = c.call("sketch_add", {"entities": [{"kind": "rectangle", "center": [0, 0], "widthMm": width, "heightMm": height}]})
+        if dimensioned:
+            sides = added["entities"][0]["sides"]
+            c.call("sketch_dimension_add", {"entities": [{"name": sides["bottom"]}], "kind": "linear", "valueMm": width})
+            c.call("sketch_dimension_add", {"entities": [{"name": sides["left"]}], "kind": "vertical", "valueMm": height})
         c.call("feature_extrude", {"depthMm": depth, "end": "mid_plane"} if centered else {"depthMm": depth})
         r = c.call("doc_save", {"mode": "as", "path": f"{name}.sldprt", "overwrite": True})
         return r.get("savedTo") or r["document"]["path"]
@@ -184,7 +190,7 @@ def scenario_assembly(c: McpClient):
 
 def scenario_drawing(c: McpClient):
     """A drawing of a saved 100x60x20 block: standard views, model dimensions, a PDF."""
-    path = saved_part(c, "smoke_drawing_block", 100, 60, 20, centered=False)
+    path = saved_part(c, "smoke_drawing_block", 100, 60, 20, centered=False, dimensioned=True)
     b = Budget(c, "drawing", 10)
     pdf = None
     try:

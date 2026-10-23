@@ -966,7 +966,8 @@ public sealed class DrawingService(SwSession session)
                 Hint = added > 0 ? null :
                     "No model dimensions were inserted. The model's sketch and feature dimensions may not be marked for drawing, may already " +
                     "be shown in another view (each appears once), or may not be parallel to these views (iso views get none). " +
-                    "Add sketch dimensions in the part (sketch_dimension_add), or dimension edges directly with drw_dimension_add.",
+                    "Add sketch dimensions in the part (sketch_dimension_add), or dimension edges directly with drw_dimension_add. " +
+                    "In testing, a long SOLIDWORKS session sometimes stopped inserting model annotations until SOLIDWORKS was restarted.",
             };
         }, RunOptions.Write(doc) with { Timeout = Longer(session, 120) }, ct);
 
@@ -1518,7 +1519,8 @@ public sealed class DrawingService(SwSession session)
                 Doc = ctx.Title(d), Added = added, Views = counts,
                 Hint = added > 0 ? null :
                     "No center marks were added: the views show no holes face-on (center marks go on circular edges seen as circles), " +
-                    "or the holes already have them.",
+                    "or the holes already have them. In testing, a long SOLIDWORKS session sometimes stopped adding center marks until " +
+                    "SOLIDWORKS was restarted.",
             };
         }, RunOptions.Write(doc) with { Timeout = Longer(session, 90) }, ct);
 

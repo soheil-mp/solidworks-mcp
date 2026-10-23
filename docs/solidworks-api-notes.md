@@ -318,6 +318,10 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
 - **View objects** (VERIFIED). Methods on the `IView` objects `ISheet.GetViews` / `IDrawingDoc.GetViews` return
   (`GetAnnotations`, `AutoInsertCenterMarks2`, counts) did nothing; the same calls on views from `GetFirstView` /
   `GetNextView` work. A heavily used session can also stop listing a view's annotations: restart SOLIDWORKS.
+- **Session state (open issue).** After other modeling in the same session (here: a plate with a fillet, holes and a
+  screenshot), `AutoInsertCenterMarks2` and `InsertModelAnnotations3` sometimes stopped adding anything, and new views
+  listed no annotations, until SOLIDWORKS was restarted. Neither alone reproduced it (two screenshots, or the plate
+  without a screenshot); forcing a rebuild and `UpdateViewDisplayGeometry` didn't help. Cause unknown.
 - **Don't pick to confirm** (VERIFIED). A `SelectByID2` pick at a sheet point (to confirm a cut line or detail circle)
   deactivated the parent view; the entity then went to the sheet's sketch and `CreateSectionViewAt5` /
   `CreateDetailViewAt4` made nothing. Draw with the view active and `AddToDB` on, in sheet coordinates (m), and select
