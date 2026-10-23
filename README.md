@@ -9,9 +9,9 @@ is written in C# against SolidWorks' official COM API.
 > **Unofficial.** This project is not affiliated with, endorsed by or supported by Dassault Systèmes. SOLIDWORKS is a
 > trademark of Dassault Systèmes SolidWorks Corporation.
 
-> **Status: 0.1.0 pre-release, under active development.** Every tool is built to the rules below and passes the
-> offline contract tests. Not every tool has passed its live tests against SOLIDWORKS yet; the
-> [live status](#live-test-status) table says which areas have.
+> **Status: 0.1.0 pre-release.** Every tool passes the offline contract tests and the live tests against a real
+> SOLIDWORKS 2025 ([live status](#live-test-status), [known issues](#known-issues)). Other SOLIDWORKS versions are
+> untested; please report what you find.
 
 Why another SolidWorks MCP server? It was built from the lessons of testing every tool of an earlier server, where
 about 115 of 187 tools were broken or silently wrong.
@@ -113,15 +113,38 @@ the server.
 | automation (1) | `vba_run` (off by default) |
 
 ### Live test status
-Each area has live tests that drive a real SOLIDWORKS and check the result against an exact answer (volumes, positions,
-file headers). Areas that haven't passed them yet may still have wrong recipes; please report what you find.
+Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check the result against an exact answer
+(volumes, positions, angles, file headers, restored system options). All 315 pass:
 
 | Area | Live tests |
 |---|---|
-| Core: session, documents, inspection, sketch, extrude, fillet, screenshots, dialogs | passing |
-| Sketch editing | passing (57) |
-| Part features, feature management, reference geometry, measurement, properties, export/import | written, being run |
-| Sweep/loft/helix/draft/rib, bodies, surfaces, sheet metal, assembly, drawing, simulation | written, being run |
+| Core: session, documents, inspection, sketch, extrude, fillet, screenshots, dialogs | 17 |
+| Sketch editing | 57 |
+| Part features (revolve, chamfer, shell, Hole Wizard, patterns, mirror) | 33 |
+| Feature management, dimensions, rebuild, undo | 23 |
+| Reference geometry and measurement | 39 |
+| Materials, properties, equations, configurations, appearance | 14 |
+| Export and import | 20 |
+| Sweep, loft, helix, draft, rib, cosmetic thread | 25 |
+| Bodies, surfaces, sheet metal | 42 |
+| Assembly | 14 |
+| Drawing | 22 |
+| Simulation (static) | 9 |
+
+The golden scenarios in `tools/mcp_smoke.py` (drawing, plate, enclosure, edit, assembly) run through the real MCP
+protocol within their call budgets, each with an exact oracle (volumes, interference, inserted dimensions, a PDF).
+
+### Known issues
+- **Long sessions slow SOLIDWORKS down.** After a few hundred documents in one SOLIDWORKS session (heavy agent use or
+  the test suite), creating and closing documents can take 20 s to minutes. Restart SOLIDWORKS.
+- **Drawing annotations in a long session.** `drw_center_marks` and `drw_dimensions_auto` sometimes stop adding
+  anything after other modeling in the same session, until SOLIDWORKS is restarted (cause unknown; their hints say so).
+- **A hung call, once.** In the final test run, one drawing test never returned (SOLIDWORKS stayed responsive and showed
+  no dialog) until its process was stopped; it passed when run again. If a call seems stuck, check `sw_status`, then
+  restart the MCP server, and SOLIDWORKS if needed.
+- **STEP AP242** may come out as AP203 depending on the installation's license; the export then refuses with
+  `NOT_SUPPORTED` instead of passing the file off as AP242.
+- **Tapped holes** are made as their tap-drill holes, without thread geometry, unless `SWMCP_EXPERIMENTAL=1`.
 
 A typical modelling loop:
 

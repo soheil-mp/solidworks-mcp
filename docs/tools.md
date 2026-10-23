@@ -532,7 +532,7 @@ Helix / spiral curve (springs, threads, coils) from a sketch with one circle (ce
 
 ### `feature_hole` — Hole Wizard holes
 
-Hole Wizard holes at points on planar faces, drilled against the face normal: drill, clearance (fit), counterbore, countersink, tapped. One HoleWzd feature per point. Verified per hole: a coaxial cylinder of the planned diameter (blind: the requested depth, without the drill tip) and volume removed; on any failure all holes are rolled back. The drill recipe is live-verified; clearance, counterbore and countersink are newer (their faces are checked); tapped is made as its tap-drill hole unless SWMCP_EXPERIMENTAL=1.
+Hole Wizard holes at points on planar faces, drilled against the face normal: drill, clearance (fit), counterbore, countersink, tapped. One HoleWzd feature per point. Verified per hole: a coaxial cylinder of the planned diameter (blind: the requested depth, without the drill tip) and volume removed; on any failure all holes are rolled back. Drill, clearance, counterbore, countersink and through_all are live-verified; tapped is made as its tap-drill hole (no thread geometry) unless SWMCP_EXPERIMENTAL=1.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -1160,7 +1160,7 @@ Projected view of a parent view on one side of it (the sheet's first/third-angle
 
 ### `drw_view_section` — Section view
 
-Section view (A-A) along a straight cut line across the parent view, in sheet mm; the line must cross the whole part (see modelBoxMm in drw_info). Verified: a section view looking along the cutting-plane normal, with hatched cut faces; otherwise removed.
+Section view (A-A) along a straight cut line across the parent view, in sheet mm; the line must cross the whole part (see modelBoxMm in drw_info). Verified: a section view looking along the cutting-plane normal, showing the cut extents; otherwise removed.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|

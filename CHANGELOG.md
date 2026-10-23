@@ -40,3 +40,12 @@
   - automation: `vba_run` (off by default).
 - Tests: unit tests, offline contract tests, live tests per area with exact oracles, and `tools/mcp_smoke.py` with the
   golden scenarios (plate, enclosure, edit, assembly, drawing).
+- Live-tested against SOLIDWORKS 2025 SP1.2: 315 live tests across all areas pass. Fixes found that way include:
+  - coupled system options (STL quality with deviation and angle) are saved and restored as one group, also after a
+    crash (an STL export had left a user's STL quality at coarse);
+  - Hole Wizard holes are placed exactly (a model-space ray pick) and through-all holes work;
+  - the standard material databases are found, so materials and simulation work;
+  - body_split goes through Intersect; surface_knit can close a surface into a solid; sheet-metal reverse works;
+  - drawing views, sections, details, BOMs, model-edge dimensions and sheet scales work;
+  - measurements with arcs report the minimum distance; assembly mates report their real entity kinds.
+

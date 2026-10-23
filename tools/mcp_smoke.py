@@ -250,8 +250,10 @@ def main() -> int:
     scenario = sys.argv[sys.argv.index("--scenario") + 1] if "--scenario" in sys.argv else None
     with McpClient(exe) as c:
         protocol(c)
-        scenarios = {"plate": scenario_plate, "enclosure": scenario_enclosure, "edit": scenario_edit,
-                     "assembly": scenario_assembly, "drawing": scenario_drawing}
+        # Drawing first: in a session that already did other modeling, SOLIDWORKS sometimes stops adding model
+        # dimensions and center marks until it is restarted (README, known issues).
+        scenarios = {"drawing": scenario_drawing, "plate": scenario_plate, "enclosure": scenario_enclosure,
+                     "edit": scenario_edit, "assembly": scenario_assembly}
         for name in (list(scenarios) if scenario == "all" else (scenario.split(",") if scenario else [])):
             try:
                 scenarios[name](c)
