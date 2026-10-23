@@ -48,15 +48,34 @@ public sealed record AsmInsertRequest
 public sealed record AsmMateRequest
 {
     public string? Doc { get; init; }
-    /// <summary>coincident | concentric | parallel | perpendicular | tangent | distance | angle | lock.</summary>
+    /// <summary>
+    /// coincident | concentric | parallel | perpendicular | tangent | distance | angle | lock | symmetric | width | hinge |
+    /// gear | rack_pinion.
+    /// </summary>
     public string? Type { get; init; }
     public EntityRef? A { get; init; }
     public EntityRef? B { get; init; }
+    /// <summary>width: the first tab face; hinge: the first coincident entity.</summary>
+    public EntityRef? C { get; init; }
+    /// <summary>width: the second tab face; hinge: the second coincident entity.</summary>
+    public EntityRef? D { get; init; }
+    /// <summary>symmetric: the symmetry plane.</summary>
+    public EntityRef? Plane { get; init; }
     /// <summary>closest | aligned | anti_aligned.</summary>
     public string? Alignment { get; init; } = "closest";
     public bool Flip { get; init; }
     public double? DistanceMm { get; init; }
     public double? AngleDeg { get; init; }
+    /// <summary>distance: a limit mate between these (distanceMm is where it starts).</summary>
+    public double? MinMm { get; init; }
+    public double? MaxMm { get; init; }
+    /// <summary>angle: a limit mate between these.</summary>
+    public double? MinDeg { get; init; }
+    public double? MaxDeg { get; init; }
+    /// <summary>gear: [a, b], e.g. tooth counts or pitch diameters (a turns b/a times as fast).</summary>
+    public IReadOnlyList<double>? Ratio { get; init; }
+    /// <summary>rack_pinion: rack travel per pinion revolution (π × pitch diameter).</summary>
+    public double? PitchMm { get; init; }
     public bool KeepOnFailure { get; init; }
 }
 
@@ -392,31 +411,92 @@ public sealed partial class AssemblyService(SwSession session)
     {
         var (type, typeName) = AsmParse.MateType(q.Type);
         var (align, _) = AsmParse.Alignment(q.Alignment);
-        double dist = 0, ang = 0;
-        if (typeName == "distance")
-        {
-            if (q.DistanceMm is not double dm || !double.IsFinite(dm) || dm <= 0)
-                throw SwException.InvalidArgument("type 'distance' needs distanceMm > 0.", "For 0 mm use type 'coincident'.");
-            dist = Units.M(dm);
-        }
-        else if (q.DistanceMm is not null)
-            throw SwException.InvalidArgument($"distanceMm only applies to type 'distance' (got '{typeName}').");
-        if (typeName == "angle")
-        {
-            if (q.AngleDeg is not double ad || !double.IsFinite(ad) || ad <= 0 || ad > 180)
-                throw SwException.InvalidArgument("type 'angle' needs angleDeg greater than 0 and at most 180.", "For 0° use type 'parallel'.");
-            ang = Units.Rad(ad);
-        }
-        else if (q.AngleDeg is not null)
-            throw SwException.InvalidArgument($"angleDeg only applies to type 'angle' (got '{typeName}').");
+        var spec = MateSpecOf(typeName, q);
         if (q.A is null || q.B is null)
             throw SwException.InvalidArgument("'a' and 'b' are required: the two entities to mate.",
                 "E.g. a:{component:'base-1', name:'top'}, b:{component:'lid-1', name:'top'}; faces: {component:'lid-1', at:[x,y,z]} (part mm).");
-        return session.RunAsync("asm_mate_add", ctx => MateAdd(ctx, q, type, typeName, align, dist, ang),
+        return session.RunAsync("asm_mate_add", ctx => MateAdd(ctx, q, type, typeName, align, spec),
             RunOptions.Write(q.Doc) with { Timeout = Long(90) }, ct);
     }
 
-    private static AsmMateAddResult MateAdd(SwContext ctx, AsmMateRequest q, int type, string typeName, int align, double dist, double ang)
+    /// <summary>The validated numbers of a mate (m, rad); Limits marks a limit distance or angle mate.</summary>
+    private sealed record MateSpec(double Dist, double Ang, double MinD, double MaxD, double MinA, double MaxA, double[] Ratio, double Pitch, bool Limits);
+
+    private static MateSpec MateSpecOf(string t, AsmMateRequest q)
+    {
+        void Only(string what, bool given, params string[] types)
+        {
+            if (given && !types.Contains(t))
+                throw SwException.InvalidArgument($"'{what}' only applies to type {string.Join(" or ", types)} (got '{t}').");
+        }
+        Only("c", q.C is not null, "width", "hinge");
+        Only("d", q.D is not null, "width", "hinge");
+        Only("plane", q.Plane is not null, "symmetric");
+        Only("distanceMm", q.DistanceMm is not null, "distance");
+        Only("angleDeg", q.AngleDeg is not null, "angle");
+        Only("minMm", q.MinMm is not null, "distance");
+        Only("maxMm", q.MaxMm is not null, "distance");
+        Only("minDeg", q.MinDeg is not null, "angle");
+        Only("maxDeg", q.MaxDeg is not null, "angle");
+        Only("ratio", q.Ratio is not null, "gear");
+        Only("pitchMm", q.PitchMm is not null, "rack_pinion");
+        double dist = 0, ang = 0, minD = 0, maxD = 0, minA = 0, maxA = 0, pitch = 0;
+        double[] ratio = [];
+        bool limits = false;
+        switch (t)
+        {
+            case "distance":
+            {
+                if (q.DistanceMm is not double dm || !double.IsFinite(dm) || dm <= 0)
+                    throw SwException.InvalidArgument("type 'distance' needs distanceMm > 0.", "For 0 mm use type 'coincident'.");
+                dist = Units.M(dm);
+                if (q.MinMm is not null || q.MaxMm is not null)
+                {
+                    if (q.MinMm is not double lo || q.MaxMm is not double hi || !double.IsFinite(lo) || !double.IsFinite(hi) || lo < 0 || lo >= hi)
+                        throw SwException.InvalidArgument("A limit distance needs minMm and maxMm with 0 <= minMm < maxMm.");
+                    if (dm < lo || dm > hi) throw SwException.InvalidArgument($"distanceMm {dm} must lie between minMm {lo} and maxMm {hi} (where the mate starts).");
+                    (minD, maxD, limits) = (Units.M(lo), Units.M(hi), true);
+                }
+                break;
+            }
+            case "angle":
+            {
+                if (q.AngleDeg is not double ad || !double.IsFinite(ad) || ad <= 0 || ad > 180)
+                    throw SwException.InvalidArgument("type 'angle' needs angleDeg greater than 0 and at most 180.", "For 0° use type 'parallel'.");
+                ang = Units.Rad(ad);
+                if (q.MinDeg is not null || q.MaxDeg is not null)
+                {
+                    if (q.MinDeg is not double lo || q.MaxDeg is not double hi || !double.IsFinite(lo) || !double.IsFinite(hi) || lo < 0 || lo >= hi || hi > 180)
+                        throw SwException.InvalidArgument("A limit angle needs minDeg and maxDeg with 0 <= minDeg < maxDeg <= 180.");
+                    if (ad < lo || ad > hi) throw SwException.InvalidArgument($"angleDeg {ad} must lie between minDeg {lo} and maxDeg {hi}.");
+                    (minA, maxA, limits) = (Units.Rad(lo), Units.Rad(hi), true);
+                }
+                break;
+            }
+            case "width" or "hinge":
+                if (q.C is null || q.D is null)
+                    throw SwException.InvalidArgument(t == "width"
+                        ? "type 'width' needs a, b (the two width faces) and c, d (the two tab faces between them)."
+                        : "type 'hinge' needs a, b (round faces or axes to make concentric) and c, d (planar faces to make coincident).");
+                break;
+            case "symmetric":
+                if (q.Plane is null) throw SwException.InvalidArgument("type 'symmetric' needs 'plane': the symmetry plane, e.g. {name:'right'}.");
+                break;
+            case "gear":
+                if (q.Ratio is not { Count: 2 } r || r.Any(v => !double.IsFinite(v) || v <= 0))
+                    throw SwException.InvalidArgument("type 'gear' needs ratio [a, b]: two positive numbers, e.g. the tooth counts [20, 40].");
+                ratio = [q.Ratio[0], q.Ratio[1]];
+                break;
+            case "rack_pinion":
+                if (q.PitchMm is not double p || !double.IsFinite(p) || p <= 0)
+                    throw SwException.InvalidArgument("type 'rack_pinion' needs pitchMm: how far the rack travels per pinion revolution (π × pitch diameter).");
+                pitch = Units.M(p);
+                break;
+        }
+        return new MateSpec(dist, ang, minD, maxD, minA, maxA, ratio, pitch, limits);
+    }
+
+    private static AsmMateAddResult MateAdd(SwContext ctx, AsmMateRequest q, int type, string typeName, int align, MateSpec spec)
     {
         var asm = ctx.Assembly();
         var d = (IModelDoc2)asm;
@@ -424,12 +504,27 @@ public sealed partial class AssemblyService(SwSession session)
         bool isLock = typeName == "lock";
         var a = ResolveMateRef(ctx, d, asm, q.A!, "a", isLock);
         var b = ResolveMateRef(ctx, d, asm, q.B!, "b", isLock);
+        MateRef? mc = q.C is null ? null : ResolveMateRef(ctx, d, asm, q.C, "c", false);
+        MateRef? md = q.D is null ? null : ResolveMateRef(ctx, d, asm, q.D, "d", false);
+        MateRef? mp = q.Plane is null ? null : ResolveMateRef(ctx, d, asm, q.Plane, "plane", false);
         if (SameEntity(a, b)) throw SwException.InvalidArgument($"'a' and 'b' are the same entity ({a.Label}).");
-        if (a.Comp is null && b.Comp is null)
-            throw SwException.InvalidArgument($"Neither 'a' ({a.Label}) nor 'b' ({b.Label}) belongs to a component.",
-                "Name the component in the reference, e.g. {component:'bracket-1', name:'top'} or {component:'bracket-1', at:[x,y,z]}.");
-        if (a.Comp is not null && b.Comp is not null && Eq(a.Comp.Name2, b.Comp.Name2))
-            throw SwException.InvalidArgument($"'a' and 'b' are both in '{a.Comp.Name2}'; a mate joins two different components (or a component and the assembly's planes).");
+        if (typeName == "width")
+        {
+            // The width faces belong to one component, the tab faces to another.
+            if (mc is not null && md is not null && SameEntity(mc, md)) throw SwException.InvalidArgument($"'c' and 'd' are the same entity ({mc.Label}).");
+            if (a.Comp is not null && mc!.Comp is not null && Eq(a.Comp.Name2, mc.Comp.Name2))
+                throw SwException.InvalidArgument($"The width faces (a, b) and the tab faces (c, d) are all in '{a.Comp.Name2}'; the tab belongs to another component.");
+        }
+        else
+        {
+            if (a.Comp is null && b.Comp is null)
+                throw SwException.InvalidArgument($"Neither 'a' ({a.Label}) nor 'b' ({b.Label}) belongs to a component.",
+                    "Name the component in the reference, e.g. {component:'bracket-1', name:'top'} or {component:'bracket-1', at:[x,y,z]}.");
+            if (a.Comp is not null && b.Comp is not null && Eq(a.Comp.Name2, b.Comp.Name2))
+                throw SwException.InvalidArgument($"'a' and 'b' are both in '{a.Comp.Name2}'; a mate joins two different components (or a component and the assembly's planes).");
+            if (mc is not null && md is not null && mc.Comp is not null && md.Comp is not null && Eq(mc.Comp.Name2, md.Comp.Name2))
+                throw SwException.InvalidArgument($"'c' and 'd' are both in '{mc.Comp.Name2}'; the coincident pair joins the two components too.");
+        }
 
         using var prefs = ctx.SystemPrefs();
         prefs.Toggle(SystemPrefIds.ShowErrorsEveryRebuild, false);
@@ -440,15 +535,29 @@ public sealed partial class AssemblyService(SwSession session)
 
         d.ClearSelection2(true);
         int status;
-        Mate2? api;
+        object? api;
+        var refs = new List<(MateRef R, string Arg)> { (a, "a"), (b, "b") };
+        if (mc is not null) refs.Add((mc, "c"));
+        if (md is not null) refs.Add((md, "d"));
+        if (mp is not null) refs.Add((mp, "plane"));
+        bool byData = AsmParse.ByData(typeName, spec.Limits);
+        var attempts = new List<string>();
         try
         {
-            SelectForMate(ctx, d, a, false, "a");
-            SelectForMate(ctx, d, b, true, "b");
-            int selected = d.Sel().GetSelectedObjectCount2(-1);
-            if (selected != 2)
-                throw new SwException(ErrorCodes.FeatureFailed, $"Selecting {a.Label} and {b.Label} gave {selected} selected objects instead of 2.");
-            api = asm.AddMate5(type, align, q.Flip, dist, dist, dist, 0, 0, ang, ang, ang, false, false, 0, out status);
+            foreach (var (r, arg) in refs) SelectForMate(ctx, d, r, refs[0].R != r, arg);
+            var sm = d.Sel();
+            int selected = sm.GetSelectedObjectCount2(-1);
+            if (selected != refs.Count)
+                throw new SwException(ErrorCodes.FeatureFailed, $"Selecting {string.Join(", ", refs.Select(x => x.R.Label))} gave {selected} selected objects instead of {refs.Count}.");
+            if (byData)
+            {
+                var objs = Enumerable.Range(1, selected).Select(i => (object?)sm.GetSelectedObject6(i, -1)).ToArray();
+                api = CreateMateByData(asm, typeName, align, q.Flip, spec, objs, attempts, out status);
+            }
+            else
+            {
+                api = asm.AddMate5(type, align, q.Flip, spec.Dist, spec.Dist, spec.Dist, 0, 0, spec.Ang, spec.Ang, spec.Ang, false, false, 0, out status);
+            }
         }
         finally
         {
@@ -457,14 +566,16 @@ public sealed partial class AssemblyService(SwSession session)
         d.EditRebuild3();
 
         var created = Mates(d).Where(m => !before.Contains(m.Name)).ToList();
-        string label = $"{typeName} mate between {a.Label} and {b.Label}";
+        string label = $"{(spec.Limits ? "limit " : "")}{typeName} mate between {a.Label} and {b.Label}" +
+                       (mc is not null ? $" ({mc.Label}, {md!.Label})" : "") + (mp is not null ? $" about {mp.Label}" : "");
         string hint = MateHint(typeName, status, a, b);
         if (created.Count == 0)
         {
             var back = RestoreMoved(ctx, asm, rawBefore);
             throw new SwException(ErrorCodes.FeatureFailed,
                 $"asm_mate_add: SOLIDWORKS created no {label}" +
-                (status != (int)swAddMateError_e.swAddMateError_NoError ? $" (it reported {AsmParse.MateStatus(status)})" : api is null ? " (AddMate5 returned nothing)" : "") +
+                (status != (int)swAddMateError_e.swAddMateError_NoError ? $" (it reported {AsmParse.MateStatus(status)})" : api is null ? " (the API returned nothing)" : "") +
+                (attempts.Count > 0 ? $" [{string.Join("; ", attempts)}]" : "") +
                 (back.Count > 0 ? $"; moved {string.Join(", ", back)} back." : "."), hint);
         }
 
@@ -496,10 +607,10 @@ public sealed partial class AssemblyService(SwSession session)
                 else
                 {
                     if (err != 0) ctx.Warn($"'{main.Name}' has rebuild warning {err} ({FeatureVerifier.ErrorName(err)}).");
-                    checks.Add($"{main.Name} ({typeName}) created and solved without errors");
+                    checks.Add($"{main.Name} ({(spec.Limits ? "limit " : "")}{typeName}) created and solved without errors");
                     var problems = isLock
                         ? LockIntent(ctx, a, b, fa0, fb0, checks)
-                        : AsmMateIntent.Check(typeName, ToAsm(ctx, a), ToAsm(ctx, b), dist, ang, checks);
+                        : MateIntent(ctx, typeName, a, b, mc, md, mp, spec, main, checks);
                     if (problems.Count > 0) problem = string.Join("; ", problems);
                 }
             }
@@ -522,9 +633,10 @@ public sealed partial class AssemblyService(SwSession session)
             .Select(c => c.Name2).ToList();
         var counts = MateCounts(d);
         var infos = new List<AsmComponentInfo>();
-        foreach (var c in new[] { a.Comp, b.Comp })
+        foreach (var c in new[] { a.Comp, b.Comp, mc?.Comp, md?.Comp })
             if (c is not null && !infos.Any(i => Eq(i.Name, c.Name2))) infos.Add(Info(ctx, c, counts));
         d.GraphicsRedraw2();
+        var resolved = refs.Select(x => x.R.R.Info(x.Arg)).ToList();
         return new AsmMateAddResult
         {
             Doc = ctx.Title(d),
@@ -532,8 +644,156 @@ public sealed partial class AssemblyService(SwSession session)
             Verified = checks,
             Components = infos,
             Moved = moved.Count > 0 ? moved : null,
-            Resolved = [a.R.Info("a"), b.R.Info("b")],
+            Resolved = resolved,
         };
+    }
+
+    /// <summary>
+    /// The mates IAssemblyDoc.CreateMate makes from a definition (IAssemblyDoc.CreateMateData), as SOLIDWORKS' own
+    /// examples do: the selected entities go into the data, with the mate's numbers. Entity arrays are tried as VARIANT
+    /// arrays first, then as IDispatch wrappers.
+    /// </summary>
+    private static object? CreateMateByData(IAssemblyDoc asm, string typeName, int align, bool flip, MateSpec spec, object?[] objs,
+        List<string> attempts, out int status)
+    {
+        status = (int)swAddMateError_e.swAddMateError_NoError;
+        int type = AsmParse.MateType(typeName).Type;
+        foreach (var (how, wrap) in new (string, Func<IEnumerable<object?>, object>)[]
+                 {
+                     ("VARIANT array", xs => xs.ToArray()),
+                     ("IDispatch array", xs => ComArgs.DispatchArray(xs.OfType<object>())),
+                 })
+        {
+            try
+            {
+                object? data = asm.CreateMateData(type);
+                switch (data)
+                {
+                    case IGearMateFeatureData g:
+                        g.EntitiesToMate = wrap(objs[..2]);
+                        g.GearRatioNumerator = spec.Ratio[0];
+                        g.GearRatioDenominator = spec.Ratio[1];
+                        g.Reverse = flip;
+                        break;
+                    case IRackPinionMateFeatureData rp:
+                        // One entity per role: a is the rack (a straight edge), b the pinion (a round face).
+                        rp.EntitiesToMate[(int)swRackPinionMateEntityType_e.swRackPinionMateEntityType_Rack] = objs[0];
+                        rp.EntitiesToMate[(int)swRackPinionMateEntityType_e.swRackPinionMateEntityType_Pinion] = objs[1];
+                        rp.DiameterType = (int)swRackPinionMateDistanceOptions_e.swRackTravelPerRevolution;
+                        rp.DiameterVal = spec.Pitch;
+                        rp.Reverse = flip;
+                        break;
+                    case ISymmetricMateFeatureData sy:
+                        sy.EntitiesToMate = wrap(objs[..2]);
+                        sy.SymmetryPlane = objs[2];
+                        sy.MateAlignment = align;
+                        break;
+                    case IWidthMateFeatureData w:
+                        w.WidthSelection = wrap(objs[..2]);
+                        w.TabSelection = wrap(objs[2..4]);
+                        w.ConstraintType = (int)swMateWidthOptions_e.swMateWidth_Centered;
+                        break;
+                    case IHingeMateFeatureData h:
+                        h.EntitiesToMate[(int)swHingeMateEntityType_e.swHingeMateEntityType_Concentric] = wrap(objs[..2]);
+                        h.EntitiesToMate[(int)swHingeMateEntityType_e.swHingeMateEntityType_Coincident] = wrap(objs[2..4]);
+                        h.AngleSelection = false;
+                        h.MateAlignment = align;
+                        break;
+                    case IDistanceMateFeatureData dm:
+                        dm.EntitiesToMate = wrap(objs[..2]);
+                        dm.Distance = spec.Dist;
+                        dm.IsAdvancedMate = true;
+                        dm.MinimumDistance = spec.MinD;
+                        dm.MaximumDistance = spec.MaxD;
+                        dm.FlipDimension = flip;
+                        dm.MateAlignment = align;
+                        break;
+                    case IAngleMateFeatureData am:
+                        am.EntitiesToMate = wrap(objs[..2]);
+                        am.Angle = spec.Ang;
+                        am.IsAdvancedMate = true;
+                        am.MinimumAngle = spec.MinA;
+                        am.MaximumAngle = spec.MaxA;
+                        am.FlipDimension = flip;
+                        am.MateAlignment = align;
+                        break;
+                    default:
+                        attempts.Add($"CreateMateData({typeName}) returned {data?.GetType().Name ?? "nothing"}");
+                        return null;
+                }
+                object? feat = asm.CreateMate(data);
+                if ((object?)data is IMateFeatureData md && Safe(() => md.ErrorStatus, -1) is int st && st >= 0) status = st;
+                if (feat is not null) return feat;
+                attempts.Add($"CreateMate ({how}) returned nothing");
+            }
+            catch (COMException e) when (!ComArgs.IsDisconnect(e))
+            {
+                attempts.Add($"CreateMate ({how}): {e.Message}");
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Tier B of a mate: the solved geometry (and, for mechanical mates, the numbers read back from the mate).</summary>
+    private static List<string> MateIntent(SwContext ctx, string typeName, MateRef a, MateRef b, MateRef? mc, MateRef? md, MateRef? mp,
+        MateSpec spec, MateFeat main, List<string> checks)
+    {
+        var ga = ToAsm(ctx, a);
+        var gb = ToAsm(ctx, b);
+        var problems = new List<string>();
+        object? def = Safe<object?>(() => main.Feature.GetDefinition(), null);
+        switch (typeName)
+        {
+            case "distance" when spec.Limits:
+                problems.AddRange(AsmMateIntent.Range("distance", ga, gb, spec.MinD, spec.MaxD, checks));
+                if (def is IDistanceMateFeatureData dd)
+                    Expect(problems, checks, "limits", [Safe(() => dd.MinimumDistance, double.NaN), Safe(() => dd.MaximumDistance, double.NaN)], [spec.MinD, spec.MaxD], 1e-9, "mm", 1000);
+                break;
+            case "angle" when spec.Limits:
+                problems.AddRange(AsmMateIntent.Range("angle", ga, gb, spec.MinA, spec.MaxA, checks));
+                if (def is IAngleMateFeatureData ad)
+                    Expect(problems, checks, "limits", [Safe(() => ad.MinimumAngle, double.NaN), Safe(() => ad.MaximumAngle, double.NaN)], [spec.MinA, spec.MaxA], 1e-9, "°", 180 / Math.PI);
+                break;
+            case "symmetric":
+                problems.AddRange(AsmMateIntent.Symmetric(ga, gb, ToAsm(ctx, mp!), checks));
+                break;
+            case "width":
+                problems.AddRange(AsmMateIntent.Width(ga, gb, ToAsm(ctx, mc!), ToAsm(ctx, md!), checks));
+                break;
+            case "hinge":
+                problems.AddRange(AsmMateIntent.Check("concentric", ga, gb, 0, 0, checks));
+                problems.AddRange(AsmMateIntent.Check("coincident", ToAsm(ctx, mc!), ToAsm(ctx, md!), 0, 0, checks));
+                break;
+            case "rack_pinion":
+                if (def is IRackPinionMateFeatureData rd) Expect(problems, checks, "rack travel per revolution", [Safe(() => rd.DiameterVal, double.NaN)], [spec.Pitch], 1e-9, "mm", 1000);
+                else checks.Add("rack travel not read back");
+                break;
+            case "gear":
+                if (def is IGearMateFeatureData gd)
+                {
+                    // Set as numerator a, denominator b, SOLIDWORKS reads them back the other way round (VERIFIED: 20:40
+                    // reads 40:20 with the entities in the order a, b). Either order is the requested pair; it is reported.
+                    double n = Safe(() => gd.GearRatioNumerator, double.NaN), dn = Safe(() => gd.GearRatioDenominator, double.NaN);
+                    bool same = Math.Abs(n * spec.Ratio[1] - dn * spec.Ratio[0]) <= 1e-9 * Math.Max(1, n * spec.Ratio[1]);
+                    bool reversed = Math.Abs(n * spec.Ratio[0] - dn * spec.Ratio[1]) <= 1e-9 * Math.Max(1, n * spec.Ratio[0]);
+                    if (!same && !reversed) problems.Add($"the gear ratio reads {n}:{dn}, not {spec.Ratio[0]}:{spec.Ratio[1]}");
+                    else checks.Add($"gear ratio {spec.Ratio[0]}:{spec.Ratio[1]} read back" + (reversed && !same ? $" (SOLIDWORKS stores it as {n}:{dn})" : ""));
+                }
+                else checks.Add("gear ratio not read back");
+                break;
+            default:
+                problems.AddRange(AsmMateIntent.Check(typeName, ga, gb, spec.Dist, spec.Ang, checks));
+                break;
+        }
+        return problems;
+    }
+
+    private static void Expect(List<string> problems, List<string> checks, string what, double[] got, double[] want, double tol, string unit, double scale)
+    {
+        string Show(double[] v) => string.Join("..", v.Select(x => Math.Round(x * scale, 6).ToString(CultureInfo.InvariantCulture)));
+        if (got.Length != want.Length || got.Zip(want).Any(p => !(Math.Abs(p.First - p.Second) <= tol)))
+            problems.Add($"the {what} read {Show(got)} {unit}, not {Show(want)} {unit}");
+        else checks.Add($"{what} {Show(got)} {unit} read back");
     }
 
     private static string MateHint(string typeName, int status, MateRef a, MateRef b)
@@ -1750,7 +2010,7 @@ internal static class AsmParse
 
     public static (int Type, string Name) MateType(string? s) => Norm(s) switch
     {
-        null => throw SwException.InvalidArgument("'type' is required: coincident, concentric, parallel, perpendicular, tangent, distance, angle or lock."),
+        null => throw SwException.InvalidArgument($"'type' is required: {Types}."),
         "coincident" or "coincidence" => ((int)swMateType_e.swMateCOINCIDENT, "coincident"),
         "concentric" or "coaxial" => ((int)swMateType_e.swMateCONCENTRIC, "concentric"),
         "parallel" => ((int)swMateType_e.swMatePARALLEL, "parallel"),
@@ -1759,13 +2019,24 @@ internal static class AsmParse
         "distance" => ((int)swMateType_e.swMateDISTANCE, "distance"),
         "angle" => ((int)swMateType_e.swMateANGLE, "angle"),
         "lock" => ((int)swMateType_e.swMateLOCK, "lock"),
-        "hinge" or "slot" or "gear" or "width" or "symmetric" or "screw" or "cam" or "rack_pinion" or "path" or "linear_coupler" or
-            "universal_joint" or "slider" or "profile_center" or "magnetic" =>
-            throw new SwException(ErrorCodes.NotSupported, $"'{s}' mates are not available yet.",
-                "Use coincident, concentric, parallel, perpendicular, tangent, distance, angle or lock (combine them, e.g. hinge = concentric + coincident)."),
-        _ => throw SwException.InvalidArgument($"Unknown mate type '{s}'.",
-            "Use coincident, concentric, parallel, perpendicular, tangent, distance, angle or lock."),
+        "symmetric" or "symmetry" => ((int)swMateType_e.swMateSYMMETRIC, "symmetric"),
+        "width" => ((int)swMateType_e.swMateWIDTH, "width"),
+        "hinge" => ((int)swMateType_e.swMateHINGE, "hinge"),
+        "gear" => ((int)swMateType_e.swMateGEAR, "gear"),
+        "screw" => throw new SwException(ErrorCodes.NotSupported,
+            "Screw mates are not offered: SOLIDWORKS 2025 ignores the travel per revolution set through the API (it stays at 1 mm, VERIFIED).",
+            "Use concentric for the alignment; set the pitch in SOLIDWORKS by hand."),
+        "rack_pinion" or "rack_and_pinion" or "rack" => ((int)swMateType_e.swMateRACKPINION, "rack_pinion"),
+        "slot" or "cam" or "path" or "linear_coupler" or "universal_joint" or "slider" or "profile_center" or "magnetic" =>
+            throw new SwException(ErrorCodes.NotSupported, $"'{s}' mates are not available yet.", $"Use {Types}."),
+        _ => throw SwException.InvalidArgument($"Unknown mate type '{s}'.", $"Use {Types}."),
     };
+
+    public const string Types = "coincident, concentric, parallel, perpendicular, tangent, distance, angle, lock, symmetric, width, hinge, gear or rack_pinion";
+
+    /// <summary>Mates made through IAssemblyDoc.CreateMateData / CreateMate (the others through AddMate5).</summary>
+    public static bool ByData(string typeName, bool limits) =>
+        limits || typeName is "symmetric" or "width" or "hinge" or "gear" or "rack_pinion";
 
     public static (int Value, string Name) Alignment(string? s) => Norm(s) switch
     {

@@ -811,4 +811,120 @@ public class AssemblyLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.Equal(ErrorCodes.EntityNotFound, await Refused(new() { Doc = asm, Kind = "mirror", Components = ["nope-1"], Plane = new EntityRef { Name = "right" } }));
         Assert.Equal(2, (await Asm.ComponentListAsync(asm, false, 100, 0)).Total);
     }
+
+    // ------------------------------------------------------------------ more mate types
+
+    private Task<AsmMateAddResult> MateQ(AsmMateRequest q) => Asm.MateAddAsync(q);
+
+    private static EntityRef Face(string component, double x, double y, double z) => new() { Component = component, At = [x, y, z] };
+
+    [Fact]
+    public async Task Limit_distance_and_symmetric_mates_hold_their_geometry_and_read_back()
+    {
+        var a = await CubeAsync("limA");
+        var b = await CubeAsync("limB");
+        string asm = await NewAssemblyAsync("asm_limit");
+        string na = (await InsertAsync(asm, a.Path, [-30, 0, 0])).Component.Name;
+        string nb = (await InsertAsync(asm, b.Path, [60, 5, 0])).Component.Name;
+        // A's +x face (x = -20) and B's -x face: a limit distance between 10 and 40 mm, starting at 20.
+        var lim = await MateQ(new() { Doc = asm, Type = "distance", A = Face(na, 10, 0, 0), B = Face(nb, -10, 0, 0), DistanceMm = 20, MinMm = 10, MaxMm = 40 });
+        Assert.Equal("distance", lim.Mate.Type);
+        Assert.Contains(lim.Verified, c => c.StartsWith("distance 20 mm, within the limits 10..40 mm", StringComparison.Ordinal));
+        Assert.Contains(lim.Verified, c => c.StartsWith("limits 10..40 mm read back", StringComparison.Ordinal));
+
+        // Symmetric about the assembly's right plane (x = 0): B's -x face mirrors A's +x face, so it sits at x = +20.
+        var c = await CubeAsync("symC");
+        string nc = (await InsertAsync(asm, c.Path, [80, 50, 0])).Component.Name;
+        var sym = await MateQ(new() { Doc = asm, Type = "symmetric", A = Face(na, 10, 0, 0), B = Face(nc, -10, 0, 0), Plane = new EntityRef { Name = "right" } });
+        Assert.Equal("symmetric", sym.Mate.Type);
+        Assert.Contains(sym.Verified, x => x.Contains("mirror images in the symmetry plane", StringComparison.Ordinal));
+        Assert.Equal(30, sym.Components.Single(x => x.Name == nc).OriginMm![0], P);
+    }
+
+    [Fact]
+    public async Task Width_centres_a_cube_between_the_box_ends_and_hinge_seats_a_shaft_in_the_bore()
+    {
+        var box = await BoxAsync("wbox");   // x 0..40
+        var cube = await CubeAsync("wcube"); // x -10..10 about its origin
+        string asm = await NewAssemblyAsync("asm_width");
+        string nbx = (await InsertAsync(asm, box.Path, [0, 0, 0])).Component.Name;
+        string ncu = (await InsertAsync(asm, cube.Path, [100, 30, 50])).Component.Name;
+        var w = await MateQ(new()
+        {
+            Doc = asm, Type = "width", A = Face(nbx, 0, 5, 10), B = Face(nbx, 40, 5, 10), C = Face(ncu, -10, 0, 0), D = Face(ncu, 10, 0, 0),
+        });
+        Assert.Equal("width", w.Mate.Type);
+        Assert.Contains("the tab is centred between the width faces", w.Verified);
+        Assert.Equal(20, w.Components.Single(x => x.Name == ncu).OriginMm![0], P);
+
+        var plate = await PlateAsync("hplate"); // bore r 5 along y, top face y = 10
+        var shaft = await ShaftAsync("hshaft"); // r 5 along +y from its origin
+        string asm2 = await NewAssemblyAsync("asm_hinge");
+        string np = (await InsertAsync(asm2, plate.Path, [0, 0, 0])).Component.Name;
+        string ns = (await InsertAsync(asm2, shaft.Path, [50, 40, 20])).Component.Name;
+        var h = await MateQ(new()
+        {
+            Doc = asm2, Type = "hinge", A = Face(np, 5, 5, 0), B = Face(ns, 5, 15, 0), C = Face(np, 15, 10, 15), D = Face(ns, 2, 0, 0),
+        });
+        Assert.Equal("hinge", h.Mate.Type);
+        Assert.Contains("axes coincide", h.Verified);
+        Assert.Contains("planes coincide (0 mm apart)", h.Verified);
+        var s = h.Components.Single(x => x.Name == ns);
+        Assert.Equal(0, s.OriginMm![0], P);
+        Assert.Equal(0, s.OriginMm[2], P);
+    }
+
+    [Fact]
+    public async Task Gear_and_rack_mates_read_their_numbers_back_and_screws_are_refused()
+    {
+        var plate = await PlateAsync("gplate");
+        var shaft = await ShaftAsync("gshaft");
+        var box = await BoxAsync("grack");
+        string asm = await NewAssemblyAsync("asm_mech");
+        string np = (await InsertAsync(asm, plate.Path, [0, 0, 0])).Component.Name;
+        string s1 = (await InsertAsync(asm, shaft.Path, [60, 0, 0])).Component.Name;
+        string s2 = (await InsertAsync(asm, shaft.Path, [100, 0, 0])).Component.Name;
+        string rk = (await InsertAsync(asm, box.Path, [0, 0, 80])).Component.Name;
+
+        var gear = await MateQ(new() { Doc = asm, Type = "gear", A = Face(s1, 5, 15, 0), B = Face(s2, 5, 15, 0), Ratio = [20, 40] });
+        Assert.Equal("gear", gear.Mate.Type);
+        Assert.Contains(gear.Verified, c => c.StartsWith("gear ratio", StringComparison.Ordinal));
+
+        // Rack and pinion: the box's long edge (along x at y = z = 0) is the rack, the second shaft the pinion.
+        var rack = await MateQ(new()
+        {
+            Doc = asm, Type = "rack_pinion", A = new EntityRef { Component = rk, Type = "edge", At = [20, 0, 0] }, B = Face(s2, 5, 15, 0), PitchMm = 31.4,
+        });
+        Assert.Equal("rack_pinion", rack.Mate.Type);
+        Assert.Contains(rack.Verified, c => c.StartsWith("rack travel per revolution 31.4 mm read back", StringComparison.Ordinal));
+
+        // Screw mates are refused: SOLIDWORKS ignores their pitch through the API.
+        Assert.Equal(ErrorCodes.NotSupported, (await Assert.ThrowsAsync<SwException>(() =>
+            MateQ(new() { Doc = asm, Type = "screw", A = Face(np, 5, 5, 0), B = Face(s1, 5, 15, 0), PitchMm = 1.5 }))).Code);
+        Assert.Equal(2, (await Asm.MateListAsync(asm, 100, 0)).Total);
+    }
+
+    [Fact]
+    public async Task New_mate_types_without_their_entities_or_numbers_are_refused()
+    {
+        var a = await CubeAsync("refA");
+        var b = await CubeAsync("refB");
+        string asm = await NewAssemblyAsync("asm_mref");
+        string na = (await InsertAsync(asm, a.Path, [0, 0, 0])).Component.Name;
+        string nb = (await InsertAsync(asm, b.Path, [50, 0, 0])).Component.Name;
+        var fa = Face(na, 10, 0, 0);
+        var fb = Face(nb, -10, 0, 0);
+        async Task<string> Refused(AsmMateRequest q) => (await Assert.ThrowsAsync<SwException>(() => MateQ(q))).Code;
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Type = "width", A = fa, B = fb }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Type = "symmetric", A = fa, B = fb }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Type = "gear", A = fa, B = fb }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Type = "gear", A = fa, B = fb, Ratio = [1, 0] }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Type = "rack_pinion", A = fa, B = fb }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Type = "distance", A = fa, B = fb, DistanceMm = 20, MinMm = 30, MaxMm = 10 }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Type = "distance", A = fa, B = fb, DistanceMm = 50, MinMm = 10, MaxMm = 40 }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Type = "coincident", A = fa, B = fb, MinMm = 1, MaxMm = 2 }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Type = "coincident", A = fa, B = fb, PitchMm = 2 }));
+        Assert.Equal(ErrorCodes.NotSupported, await Refused(new() { Doc = asm, Type = "slot", A = fa, B = fb }));
+        Assert.Equal(0, (await Asm.MateListAsync(asm, 100, 0)).Total);
+    }
 }

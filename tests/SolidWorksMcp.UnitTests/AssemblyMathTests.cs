@@ -238,4 +238,49 @@ public class AssemblyMateIntentTests
         Assert.Contains(Run("tangent", floor, Cyl(new Vec3(0, 0.006, 0), Vec3.UnitX, 0.005)).Problems, p => p.Contains("expected 5 mm"));
         Assert.Empty(Run("tangent", Cyl(Vec3.Zero, Vec3.UnitZ, 0.01), Cyl(new Vec3(0.015, 0, 0), Vec3.UnitZ, 0.005)).Problems);
     }
+
+    [Fact]
+    public void Limit_mates_hold_the_distance_or_angle_between_their_limits()
+    {
+        var a = Plane(new Vec3(-0.02, 0, 0), Vec3.UnitX);
+        var b = Plane(new Vec3(0.0, 0.3, 0), -Vec3.UnitX); // 20 mm from a
+        var checks = new List<string>();
+        Assert.Equal(0.02, AsmMateIntent.Measure("distance", a, b)!.Value, 12);
+        Assert.Empty(AsmMateIntent.Range("distance", a, b, 0.01, 0.04, checks));
+        Assert.Contains(checks, c => c.StartsWith("distance 20 mm, within the limits 10..40 mm", StringComparison.Ordinal));
+        Assert.Contains(AsmMateIntent.Range("distance", a, b, 0.025, 0.04, []), p => p.Contains("outside the limits"));
+        // Angles count either sense: 150° between planes is 30° the other way.
+        var tilted = Plane(Vec3.Zero, new Vec3(Math.Cos(Units.Rad(150)), Math.Sin(Units.Rad(150)), 0));
+        Assert.Empty(AsmMateIntent.Range("angle", a, tilted, Units.Rad(20), Units.Rad(40), []));
+        // Planes that aren't parallel have no distance: not checked, not failed.
+        var skew = new List<string>();
+        Assert.Empty(AsmMateIntent.Range("distance", a, tilted, 0, 1, skew));
+        Assert.Contains(skew, c => c.Contains("not checked", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Symmetric_mate_needs_mirror_images_in_the_plane()
+    {
+        var mirror = Plane(Vec3.Zero, Vec3.UnitX);
+        var checks = new List<string>();
+        Assert.Empty(AsmMateIntent.Symmetric(Plane(new Vec3(-0.02, 0, 0), Vec3.UnitX), Plane(new Vec3(0.02, 0.1, 0), -Vec3.UnitX), mirror, checks));
+        Assert.Contains("the planes are mirror images in the symmetry plane", checks);
+        Assert.Contains(AsmMateIntent.Symmetric(Plane(new Vec3(-0.02, 0, 0), Vec3.UnitX), Plane(new Vec3(0.03, 0, 0), Vec3.UnitX), mirror, []),
+            p => p.Contains("mm off the second", StringComparison.Ordinal));
+        Assert.Empty(AsmMateIntent.Symmetric(Cyl(new Vec3(-0.05, 0, 0), Vec3.UnitY, 0.005), Cyl(new Vec3(0.05, 0.2, 0), -Vec3.UnitY, 0.005), mirror, []));
+        Assert.NotEmpty(AsmMateIntent.Symmetric(Point(new Vec3(-0.01, 0, 0)), Point(new Vec3(0.011, 0, 0)), mirror, []));
+    }
+
+    [Fact]
+    public void Width_mate_centres_the_tab_between_the_width_faces()
+    {
+        var w1 = Plane(Vec3.Zero, -Vec3.UnitX);
+        var w2 = Plane(new Vec3(0.04, 0, 0), Vec3.UnitX);
+        var checks = new List<string>();
+        Assert.Empty(AsmMateIntent.Width(w1, w2, Plane(new Vec3(0.01, 0, 0), -Vec3.UnitX), Plane(new Vec3(0.03, 1, 1), Vec3.UnitX), checks));
+        Assert.Contains("the tab is centred between the width faces", checks);
+        Assert.Contains(AsmMateIntent.Width(w1, w2, Plane(new Vec3(0.012, 0, 0), -Vec3.UnitX), Plane(new Vec3(0.03, 0, 0), Vec3.UnitX), []),
+            p => p.Contains("mid-plane", StringComparison.Ordinal));
+        Assert.NotEmpty(AsmMateIntent.Width(w1, w2, Plane(Vec3.Zero, Vec3.UnitY), Plane(Vec3.Zero, Vec3.UnitY), []));
+    }
 }

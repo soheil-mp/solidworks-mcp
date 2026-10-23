@@ -278,6 +278,101 @@ internal static class AsmMateIntent
         return problems;
     }
 
+    /// <summary>The distance or angle between two entities as a distance or angle mate measures it, when that is clear.</summary>
+    public static double? Measure(string type, AsmGeo a, AsmGeo b)
+    {
+        AsmGeo x, y;
+        if (type == "angle")
+            return Pick(a, b, IsPlane, IsPlane, out x, out y) || Pick(a, b, IsAxis, IsAxis, out x, out y) ? AsmMath.Angle(x.D, y.D) : null;
+        if (Pick(a, b, IsPlane, IsPlane, out x, out y))
+            return AsmMath.LineAngle(x.D, y.D) <= AngTol ? Math.Abs(AsmMath.PointToPlane(x.P, x.D, y.P)) : null;
+        if (Pick(a, b, IsPlane, IsPoint, out x, out y)) return Math.Abs(AsmMath.PointToPlane(x.P, x.D, y.P));
+        if (Pick(a, b, IsPoint, IsPoint, out x, out y)) return x.P.DistanceTo(y.P);
+        if (Pick(a, b, IsLine, IsLine, out x, out y)) return AsmMath.LineAngle(x.D, y.D) <= AngTol ? AsmMath.PointToLine(x.P, x.D, y.P) : null;
+        if (Pick(a, b, IsPoint, IsLine, out x, out y)) return AsmMath.PointToLine(y.P, y.D, x.P);
+        return null;
+    }
+
+    /// <summary>A limit mate: the distance or angle it holds now lies between its limits (either sense of an angle).</summary>
+    public static List<string> Range(string type, AsmGeo a, AsmGeo b, double min, double max, List<string> checks)
+    {
+        var problems = new List<string>();
+        bool angular = type == "angle";
+        if (Measure(type, a, b) is not double got)
+        {
+            checks.Add($"limit {type} not checked for {a.What}/{b.What}");
+            return problems;
+        }
+        double tol = angular ? AngTol : PosTol;
+        bool inside = got >= min - tol && got <= max + tol || angular && Math.PI - got >= min - tol && Math.PI - got <= max + tol;
+        string show = angular ? $"{Deg(got)}°" : $"{Mm(got)} mm";
+        string range = angular ? $"{Deg(min)}..{Deg(max)}°" : $"{Mm(min)}..{Mm(max)} mm";
+        if (inside) checks.Add($"{type} {show}, within the limits {range}");
+        else problems.Add($"the {type} is {show}, outside the limits {range}");
+        return problems;
+    }
+
+    /// <summary>Symmetric: b is the mirror image of a in the symmetry plane (planes, axes and points).</summary>
+    public static List<string> Symmetric(AsmGeo a, AsmGeo b, AsmGeo plane, List<string> checks)
+    {
+        var problems = new List<string>();
+        if (!IsPlane(plane)) { checks.Add("symmetry not checked (the symmetry entity is not a plane)"); return problems; }
+        var n = plane.D.Normalized();
+        Vec3 Mirror(Vec3 p) => p - n * (2 * (p - plane.P).Dot(n));
+        Vec3 MirrorDir(Vec3 v) => v - n * (2 * v.Dot(n));
+        if (a.Kind != b.Kind) { checks.Add($"symmetry not checked for {a.What}/{b.What}"); return problems; }
+        switch (a.Kind)
+        {
+            case 'p':
+            {
+                var mp = Mirror(a.P);
+                var md = MirrorDir(a.D);
+                double ang = AsmMath.LineAngle(md, b.D), off = Math.Abs(AsmMath.PointToPlane(b.P, b.D.Normalized(), mp));
+                if (ang > AngTol || off > PosTol) problems.Add($"the mirror image of the first plane is {Deg(ang)}° and {Mm(off)} mm off the second");
+                else checks.Add("the planes are mirror images in the symmetry plane");
+                break;
+            }
+            case 'l' or 'a':
+            {
+                var mp = Mirror(a.P);
+                var md = MirrorDir(a.D);
+                double ang = AsmMath.LineAngle(md, b.D), off = AsmMath.PointToLine(b.P, b.D.Normalized(), mp);
+                if (ang > AngTol || off > PosTol) problems.Add($"the mirror image of the first axis is {Deg(ang)}° and {Mm(off)} mm off the second");
+                else checks.Add("the axes are mirror images in the symmetry plane");
+                break;
+            }
+            case 'v' or 's':
+            {
+                double off = Mirror(a.P).DistanceTo(b.P);
+                if (off > PosTol) problems.Add($"the mirror image of the first point is {Mm(off)} mm from the second");
+                else checks.Add("the points are mirror images in the symmetry plane");
+                break;
+            }
+            default:
+                checks.Add($"symmetry not checked for {a.What}/{b.What}");
+                break;
+        }
+        return problems;
+    }
+
+    /// <summary>Width (centred): the tab faces c, d sit centred between the width faces a, b (all parallel planes).</summary>
+    public static List<string> Width(AsmGeo a, AsmGeo b, AsmGeo c, AsmGeo d, List<string> checks)
+    {
+        var problems = new List<string>();
+        if (!(IsPlane(a) && IsPlane(b) && IsPlane(c) && IsPlane(d)))
+        {
+            checks.Add("width not checked (all four entities must be planar)");
+            return problems;
+        }
+        var n = a.D.Normalized();
+        foreach (var (g, name) in new[] { (b, "second width face"), (c, "first tab face"), (d, "second tab face") })
+            if (AsmMath.LineAngle(n, g.D) > AngTol) { problems.Add($"the {name} is {Deg(AsmMath.LineAngle(n, g.D))}° off the first width face"); return problems; }
+        double mid1 = (n.Dot(a.P) + n.Dot(b.P)) / 2, mid2 = (n.Dot(c.P) + n.Dot(d.P)) / 2;
+        if (Math.Abs(mid1 - mid2) > PosTol) problems.Add($"the tab's mid-plane is {Mm(Math.Abs(mid1 - mid2))} mm from the width's");
+        else checks.Add("the tab is centred between the width faces");
+        return problems;
+    }
+
     private static void Coaxial(List<string> problems, List<string> checks, AsmGeo x, AsmGeo y, string what)
     {
         double ang = AsmMath.LineAngle(x.D, y.D);

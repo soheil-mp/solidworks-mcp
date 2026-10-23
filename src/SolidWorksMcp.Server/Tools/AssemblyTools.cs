@@ -40,25 +40,36 @@ public sealed class AssemblyTools(SwSession session)
         }, cancellationToken), progress, "asm_insert");
 
     [McpServerTool(Name = "asm_mate_add", Title = "Add mate", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-    [Description("Mate / constrain two components. a and b are in different components: planes {component:'base-1', name:'top'}; " +
+    [Description("Mate / constrain components. a and b are in different components: planes {component:'base-1', name:'top'}; " +
                  "faces {component:'pin-1', at:[x,y,z]} in that part's mm (type edge|vertex for those); lock: {name:'base-1'}. " +
-                 "Verified: a new mate without errors and the solved geometry matches (planes 0 mm apart, axes coincide, the " +
-                 "distance/angle measured), else deleted and the components moved back. Returns the mate, what moved, placements, constrained status.")]
+                 "Also limit distance/angle (minMm/maxMm, minDeg/maxDeg), symmetric (plane), width (a, b width faces; c, d tab faces), " +
+                 "hinge (a, b round; c, d planar), gear (ratio), rack_pinion (pitchMm; a = the rack's straight edge). Verified: a new " +
+                 "mate without errors and the solved geometry (or the gear/rack numbers) read back, else deleted and the components moved back.")]
     public Task<string> AsmMateAdd(
         IProgress<ProgressNotificationValue> progress,
-        [Description("coincident | concentric | parallel | perpendicular | tangent | distance | angle | lock")] string type,
+        [Description("coincident | concentric | parallel | perpendicular | tangent | distance | angle | lock | symmetric | width | hinge | gear | rack_pinion")] string type,
         [Description("First entity.")] EntityRef a,
         [Description("Second entity (another component, or an assembly plane {name:'top'}).")] EntityRef b,
+        [Description("width: first tab face; hinge: first coincident face.")] EntityRef? c = null,
+        [Description("width: second tab face; hinge: second coincident face.")] EntityRef? d = null,
+        [Description("symmetric: the symmetry plane, e.g. {name:'right'}.")] EntityRef? plane = null,
         [Description("closest | aligned | anti_aligned (normals/axes same or opposite).")] string alignment = "closest",
-        [Description("Flip to the other side.")] bool flip = false,
+        [Description("Flip to the other side (gear, rack: reverse the direction).")] bool flip = false,
         [Description("distance: the gap in mm (> 0).")] double? distanceMm = null,
         [Description("angle: degrees (0-180).")] double? angleDeg = null,
+        [Description("distance: limit mate minimum in mm (with maxMm).")] double? minMm = null,
+        [Description("distance: limit mate maximum in mm.")] double? maxMm = null,
+        [Description("angle: limit mate minimum in degrees (with maxDeg).")] double? minDeg = null,
+        [Description("angle: limit mate maximum in degrees.")] double? maxDeg = null,
+        [Description("gear: [a, b], e.g. tooth counts [20, 40].")] double[]? ratio = null,
+        [Description("rack_pinion: rack travel per pinion turn in mm (π × pitch diameter).")] double? pitchMm = null,
         [Description(KeepDesc)] bool keepOnFailure = false,
         [Description(DocDesc)] string? doc = null,
         CancellationToken cancellationToken = default) =>
         Output.Json(_svc.MateAddAsync(new AsmMateRequest
         {
-            Doc = doc, Type = type, A = a, B = b, Alignment = alignment, Flip = flip, DistanceMm = distanceMm, AngleDeg = angleDeg,
+            Doc = doc, Type = type, A = a, B = b, C = c, D = d, Plane = plane, Alignment = alignment, Flip = flip, DistanceMm = distanceMm,
+            AngleDeg = angleDeg, MinMm = minMm, MaxMm = maxMm, MinDeg = minDeg, MaxDeg = maxDeg, Ratio = ratio, PitchMm = pitchMm,
             KeepOnFailure = keepOnFailure,
         }, cancellationToken), progress, "asm_mate_add");
 

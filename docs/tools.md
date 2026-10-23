@@ -1051,17 +1051,26 @@ Interference / collision detection between components (SOLIDWORKS Interference D
 
 ### `asm_mate_add` — Add mate
 
-Mate / constrain two components. a and b are in different components: planes {component:'base-1', name:'top'}; faces {component:'pin-1', at:[x,y,z]} in that part's mm (type edge|vertex for those); lock: {name:'base-1'}. Verified: a new mate without errors and the solved geometry matches (planes 0 mm apart, axes coincide, the distance/angle measured), else deleted and the components moved back. Returns the mate, what moved, placements, constrained status.
+Mate / constrain components. a and b are in different components: planes {component:'base-1', name:'top'}; faces {component:'pin-1', at:[x,y,z]} in that part's mm (type edge|vertex for those); lock: {name:'base-1'}. Also limit distance/angle (minMm/maxMm, minDeg/maxDeg), symmetric (plane), width (a, b width faces; c, d tab faces), hinge (a, b round; c, d planar), gear (ratio), rack_pinion (pitchMm; a = the rack's straight edge). Verified: a new mate without errors and the solved geometry (or the gear/rack numbers) read back, else deleted and the components moved back.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `type` | string | yes | coincident \| concentric \| parallel \| perpendicular \| tangent \| distance \| angle \| lock |
+| `type` | string | yes | coincident \| concentric \| parallel \| perpendicular \| tangent \| distance \| angle \| lock \| symmetric \| width \| hinge \| gear \| rack_pinion |
 | `a` | object | yes | First entity. |
 | `b` | object | yes | Second entity (another component, or an assembly plane {name:'top'}). |
+| `c` | object |  | width: first tab face; hinge: first coincident face. |
+| `d` | object |  | width: second tab face; hinge: second coincident face. |
+| `plane` | object |  | symmetric: the symmetry plane, e.g. {name:'right'}. |
 | `alignment` | string |  | closest \| aligned \| anti_aligned (normals/axes same or opposite). Default: `"closest"`. |
-| `flip` | boolean |  | Flip to the other side. Default: `false`. |
+| `flip` | boolean |  | Flip to the other side (gear, rack: reverse the direction). Default: `false`. |
 | `distanceMm` | number |  | distance: the gap in mm (> 0). |
 | `angleDeg` | number |  | angle: degrees (0-180). |
+| `minMm` | number |  | distance: limit mate minimum in mm (with maxMm). |
+| `maxMm` | number |  | distance: limit mate maximum in mm. |
+| `minDeg` | number |  | angle: limit mate minimum in degrees (with maxDeg). |
+| `maxDeg` | number |  | angle: limit mate maximum in degrees. |
+| `ratio` | array |  | gear: [a, b], e.g. tooth counts [20, 40]. |
+| `pitchMm` | number |  | rack_pinion: rack travel per pinion turn in mm (π × pitch diameter). |
 | `keepOnFailure` | boolean |  | Keep the result even if verification fails (for diagnosis). Default: `false`. |
 | `doc` | string |  | Assembly (handle, title or path); default: the target document. |
 

@@ -115,7 +115,9 @@ with `segments:["Line5",…], corner:"none"`. The result lists each member's bod
    insert the others with `fixed:false`.
 3. Mate with `asm_mate_add {type:"coincident"|"concentric"|"distance"|…, a:{component:"cube-2", name:"top"},
    b:{component:"cube-1", name:"top"}}`. Faces of a component: `{component:"cube-2", at:[x,y,z]}`, with the point in
-   that part's own coordinates.
+   that part's own coordinates. More kinds: a limit distance (`distanceMm` with `minMm`/`maxMm`), `symmetric` (with
+   `plane`), `width` (a, b the slot's faces; c, d the tab's), `hinge` (a, b round; c, d planar), `gear` (`ratio:[20,40]`)
+   and `rack_pinion` (`pitchMm` = rack travel per pinion turn). Screw mates are refused (SOLIDWORKS ignores their pitch).
 4. Repeat components with `asm_pattern` instead of inserting each copy: `{kind:"linear", components:["bolt-1"],
    count:4, spacingMm:25, direction:"+x"}` (a second row: `direction2`, `count2`, `spacing2Mm`), `{kind:"circular",
    components:["bolt-1"], count:6, axis:{component:"flange-1", at:[x,y,z]}}` (a bore face), or `{kind:"mirror",

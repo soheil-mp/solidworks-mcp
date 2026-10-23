@@ -318,6 +318,22 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   - Alignment: 0 aligned, 1 anti-aligned, 2 closest.
   - Component plane names: `"Front Plane@part-1@Assem1"`.
 - **Mate dimensions** (`"D1@Distance1"`) can be driven through `IParameter`.
+- **Advanced and mechanical mates** (VERIFIED 2026-10-23). Select the entities, then `IAssemblyDoc.CreateMateData(type)`,
+  put the selected objects into the data and `IAssemblyDoc.CreateMate(data)`:
+  - limit distance / angle: `IDistanceMateFeatureData` / `IAngleMateFeatureData` with `IsAdvancedMate = true`,
+    `MinimumDistance` / `MaximumDistance` (`MinimumAngle` / `MaximumAngle`); the type stays 5 / 6 and the limits read back;
+  - symmetric (8): `EntitiesToMate` = the two entities, `SymmetryPlane` = the plane (a cube's face mirrored about the
+    Right plane landed at the mirror position);
+  - width (11): `WidthSelection` = the two width faces, `TabSelection` = the two tab faces, `ConstraintType` 0 centred;
+  - hinge (22): `EntitiesToMate` is indexed by `swHingeMateEntityType_e`: [0] the concentric pair, [1] the coincident pair;
+  - gear (10): `GearRatioNumerator` = a, `GearRatioDenominator` = b; **they read back the other way round** (20:40 reads
+    40:20, entities still in the order a, b). A rebuild doesn't turn the second gear when the first is moved: gear mates
+    act while dragging;
+  - rack and pinion (13): `EntitiesToMate` indexed by role ([0] rack: a straight edge, [1] pinion: a round face),
+    `DiameterType` 1 (rack travel per revolution), `DiameterVal` (m) reads back;
+  - **screw (17): UNRESOLVED.** `RevolutionVal` stays at the default 1 mm per revolution whatever is set (distance per
+    revolution or revolutions per unit length, at creation or through `ModifyDefinition`), so the tool refuses screws.
+  - Object arrays as plain `object[]` work for these data objects.
 - **Fix/float.** Select the component, then `IAssemblyDoc.FixComponent()` / `UnfixComponent()`.
 - **Interference** (VERIFIED). `IAssemblyDoc.InterferenceDetectionManager`; set
   `TreatCoincidenceAsInterference = false` and `TreatSubAssembliesAsComponents = true`; then `GetInterferenceCount()`,
