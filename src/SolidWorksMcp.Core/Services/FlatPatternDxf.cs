@@ -30,8 +30,14 @@ public sealed class DxfSummary
     /// <summary>[width, height] of <see cref="Extents"/> (file units).</summary>
     public double[]? Size => Extents is { } e ? [Math.Round(e[2] - e[0], 6), Math.Round(e[3] - e[1], 6)] : null;
 
-    /// <summary>Entities on layers whose name contains BEND (how flat-pattern exports usually mark bend lines).</summary>
+    /// <summary>Entities on layers whose name contains BEND (how flat-pattern exports with a layer map mark bend lines).</summary>
     public int BendLayerEntities { get; init; }
+
+    /// <summary>
+    /// Entities with a broken linetype of their own (HIDDEN, PHANTOM, CENTER, ...; not Continuous, ByLayer or ByBlock).
+    /// Without a layer map SOLIDWORKS draws flat-pattern bend lines as HIDDEN lines on layer 0.
+    /// </summary>
+    public int DashedEntities { get; init; }
 
     /// <summary>Entities inside the blocks that ENTITIES inserts (0 when the geometry is in ENTITIES itself).</summary>
     public int InsertedEntities { get; init; }
@@ -66,6 +72,7 @@ internal static class DxfReader
         public Box2 Box { get; } = new();
         public int Count;
         public int Bend;
+        public int Dashed;
         public List<string> Layers { get; } = [];
     }
 
@@ -80,7 +87,7 @@ internal static class DxfReader
         var inserts = new List<Insert>();
         string? version = null;
         int? units = null;
-        int bend = 0;
+        int bend = 0, dashed = 0;
 
         string section = "";
         bool expectSectionName = false;
@@ -115,6 +122,7 @@ internal static class DxfReader
                         AddLayer(block.Layers, layer);
                         if (layer.Contains("BEND", StringComparison.OrdinalIgnoreCase)) block.Bend++;
                     }
+                    if (IsDashed(First(groups, 6))) block.Dashed++;
                     if (Geometric.Contains(type)) AddGeometry(type, groups, block.Box);
                 }
             }
@@ -126,6 +134,7 @@ internal static class DxfReader
                     AddLayer(layers, layer);
                     if (layer.Contains("BEND", StringComparison.OrdinalIgnoreCase)) bend++;
                 }
+                if (IsDashed(First(groups, 6))) dashed++;
                 if (Geometric.Contains(type)) AddGeometry(type, groups, box);
                 else if (type == "INSERT" && First(groups, 2) is { Length: > 0 } name)
                     inserts.Add(new Insert(name, Num(First(groups, 10)) ?? 0, Num(First(groups, 20)) ?? 0,
@@ -185,6 +194,7 @@ internal static class DxfReader
             if (!blocks.TryGetValue(ins.Name, out var b)) continue;
             inserted += b.Count;
             bend += b.Bend;
+            dashed += b.Dashed;
             foreach (var l in b.Layers) AddLayer(layers, l);
             if (b.Box.Empty) continue;
             double rad = ins.RotDeg * Math.PI / 180, cs = Math.Cos(rad), sn = Math.Sin(rad);
@@ -203,9 +213,15 @@ internal static class DxfReader
             Layers = layers,
             Extents = box.Empty ? null : [Math.Round(box.X0, 9), Math.Round(box.Y0, 9), Math.Round(box.X1, 9), Math.Round(box.Y1, 9)],
             BendLayerEntities = bend,
+            DashedEntities = dashed,
             InsertedEntities = inserted,
         };
     }
+
+    /// <summary>A linetype of the entity's own that is not solid: anything but Continuous, ByLayer and ByBlock.</summary>
+    private static bool IsDashed(string? linetype) =>
+        linetype is { Length: > 0 } lt && !lt.Equals("Continuous", StringComparison.OrdinalIgnoreCase) &&
+        !lt.Equals("ByLayer", StringComparison.OrdinalIgnoreCase) && !lt.Equals("ByBlock", StringComparison.OrdinalIgnoreCase);
 
     private static void AddGeometry(string type, List<(int Code, string Value)> g, Box2 box)
     {

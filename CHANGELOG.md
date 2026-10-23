@@ -45,7 +45,9 @@
   - simulation: `sim_static`, `sim_list`, `sim_delete`;
   - automation: `vba_run` (off by default).
 - Tests: unit tests, offline contract tests, live tests per area with exact oracles, and `tools/mcp_smoke.py` with the
-  golden scenarios (plate, enclosure, edit, assembly, drawing).
+  golden scenarios (plate, enclosure, edit, assembly, drawing, sheet metal).
+- Install: `tools/install.ps1` publishes into a versioned folder and registers the server with Claude Code; when Smart
+  App Control blocks the exe, it registers `dotnet solidworks-mcp.dll` instead.
 - Live-tested against SOLIDWORKS 2025 SP1.2: 346 live tests across all areas pass. Fixes found that way include:
   - coupled system options (STL quality with deviation and angle) are saved and restored as one group, also after a
     crash (an STL export had left a user's STL quality at coarse);

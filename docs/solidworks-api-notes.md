@@ -280,7 +280,9 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
 - **Flatten** (VERIFIED). On the feature of type `FlatPattern`: `SetSuppression2(1 /*unsuppress*/, 1, null)` flattens it,
   and `(0, 1, null)` folds it again.
 - **Flat DXF** (VERIFIED). `IPartDoc.ExportToDWG2(path, modelPath /*saved part*/, 1 /*sheet metal*/, true, null, false,
-  false, 1 + 4 /*geometry + bend lines*/, null)`.
+  false, 1 + 4 /*geometry + bend lines*/, null)`. Without a layer map everything is on layer `0`: the outline is
+  `Continuous` and each **bend line is a `HIDDEN` LINE** (VERIFIED on an 80 x 40 blank with one sketched bend: 5 LINEs,
+  extents exactly 80 x 40 with K = 0.5).
 - **Edge flange.** `InsertSheetMetalEdgeFlange2(edges[], null, 129, π/2, r, 1, 0, 1, 0.5, 0, 0, 1, null)` with edges alone
   returned null. Profile sketches are needed: the server makes them with `IModelDoc2.InsertSketchForEdgeFlange` and passes
   them to `InsertSheetMetalEdgeFlange2` (the live tests pass; the result's `method` names the variant that worked).

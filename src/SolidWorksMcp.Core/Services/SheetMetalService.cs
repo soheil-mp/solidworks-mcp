@@ -813,7 +813,7 @@ public sealed partial class SheetMetalService(SwSession session)
         }
     }
 
-    /// <summary>Tier B of the DXF: its geometry's extents against the flat blank (when known), and whether bend lines are on a BEND layer.</summary>
+    /// <summary>Tier B of the DXF: its geometry's extents against the flat blank (when known), and its bend lines (on a BEND layer, or dashed).</summary>
     private static List<string> DxfChecks(SwContext ctx, DxfSummary dxf, double[]? flatSize, bool bendLines)
     {
         var checks = new List<string> { $"{dxf.Entities.Values.Sum()} entities ({string.Join(", ", dxf.Entities.OrderByDescending(e => e.Value).Take(5).Select(e => $"{e.Key} {e.Value}"))})" };
@@ -834,7 +834,10 @@ public sealed partial class SheetMetalService(SwSession session)
             else
                 ctx.Warn($"The DXF geometry spans {Math.Round(got[0], 4)} x {Math.Round(got[1], 4)} (file units x {scale}), not the flat blank {want[0]} x {want[1]} mm.");
         }
-        if (bendLines) checks.Add(dxf.BendLayerEntities > 0 ? $"{dxf.BendLayerEntities} entities on BEND layers" : "no entities on a BEND layer (none, or another layer name)");
+        if (bendLines)
+            checks.Add(dxf.BendLayerEntities > 0 ? $"{dxf.BendLayerEntities} entities on BEND layers (bend lines)"
+                : dxf.DashedEntities > 0 ? $"{dxf.DashedEntities} dashed entities (bend lines; without a layer map SOLIDWORKS draws them as HIDDEN lines on layer 0)"
+                : "no bend lines found (no BEND layer, no dashed entities)");
         return checks;
     }
 

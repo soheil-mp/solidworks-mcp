@@ -617,6 +617,7 @@ These build the host without the transport and check:
 | edit an existing part | ≤ 7 calls | M1 |
 | assembly | ≤ 10 calls | M3 |
 | drawing | ≤ 10 calls | M4 |
+| sheet-metal bracket (bend, flat blank, flat DXF) | ≤ 10 calls | M7 |
 
 ### 6.5 Review
 Each milestone gets an adversarial review across four lenses: COM correctness, verification honesty, safety, and agent
@@ -646,7 +647,7 @@ ergonomics. Each finding is verified before it is fixed.
 | **M4 Drawing** | All `drw_*` and drawing export. | Green; drawing scenario within budget. |
 | **M5 Simulation** | `sim_static`, `sim_delete`. | Green against the oracle. |
 | **M6 Release** | README (safety, quickstart, clients, configuration, compatibility, troubleshooting, migration), CONTRIBUTING, SECURITY, THIRD-PARTY-NOTICES, the skill (written fresh), `install.ps1`, CI, the GitHub repository, tag v0.1.0. | A clean clone builds; CI is green; smoke tests pass. |
-| **M7 Breadth** | Component patterns and mirror (`asm_pattern`), more mate types, exploded views, direct face editing of imported bodies, drawing annotations (balloons, GD&T, datums, surface finish, hole and revision tables), weldment structural members, hem / miter flange / jog / sketched bend. New tools stay few (several kinds per tool) to keep the catalog small. | Each tool meets §6.6; all live tests green. |
+| **M7 Breadth** | Done: `asm_pattern` (linear, circular, mirror), `asm_mate_add` limit/symmetric/width/hinge/gear/rack mates, `asm_explode`, `face_edit` (delete and heal, offset, move; imported bodies too), `drw_annotation_add` (datums, surface finish, tolerance frames, balloons), `drw_table_add` (hole and revision tables), `weldment_member`, `sheetmetal_hem`, `sheetmetal_bend`. Open: screw mates and jogs (unresolved in the API), miter flanges, opposite-hand mirrors, more simulation types. New tools stay few (several kinds per tool) to keep the catalog small. | Each tool meets §6.6; all live tests green. |
 
 ### 7.1 Parallel work breakdown
 M0 fixes the conventions. After that, each area owns its own files and needs no shared registration:

@@ -87,9 +87,10 @@ with rounded corners and two 6 mm holes, then show me a screenshot."*
 ### Smart App Control / Application Control
 Windows Smart App Control judges each unsigned binary by its hash, and it can block a freshly built
 `solidworks-mcp.exe` or `SolidWorksMcp.Core.dll` with "An Application Control policy has blocked this file" (Code
-Integrity event 3077). Rebuild or re-publish to get a new binary with a new verdict: `tools\install.ps1` produces a new
-one each time. If the exe itself is blocked, you can also register the DLL through the Microsoft-signed `dotnet` host:
-`claude mcp add --scope user solidworks -- dotnet "<folder>\solidworks-mcp.dll"`. Signed releases will avoid this.
+Integrity event 3077). When the exe is blocked, `tools\install.ps1` registers the DLL through the Microsoft-signed
+`dotnet` host instead (`-Dotnet` goes that way from the start); by hand that is
+`claude mcp add --scope user solidworks -- dotnet "<folder>\solidworks-mcp.dll"`. When a DLL is blocked, run the script
+again: it publishes a new binary, which gets a new verdict. Signed releases will avoid this.
 
 ## Tools
 126 tools in 15 toolsets. The full, current list with parameters is in [`docs/tools.md`](docs/tools.md), generated from
@@ -134,8 +135,9 @@ Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check th
 | Drawing (including GD&T, balloons, hole and revision tables) | 29 |
 | Simulation (static) | 9 |
 
-The golden scenarios in `tools/mcp_smoke.py` (drawing, plate, enclosure, edit, assembly) run through the real MCP
-protocol within their call budgets, each with an exact oracle (volumes, interference, inserted dimensions, a PDF).
+The golden scenarios in `tools/mcp_smoke.py` (drawing, plate, enclosure, edit, assembly, sheet metal) run through the
+real MCP protocol within their call budgets, each with an exact oracle (volumes, interference, inserted dimensions, a
+PDF, a flat blank and its DXF).
 
 ### Known issues
 - **Long sessions slow SOLIDWORKS down.** After a few hundred documents in one SOLIDWORKS session (heavy agent use or
@@ -148,6 +150,9 @@ protocol within their call budgets, each with an exact oracle (volumes, interfer
 - **STEP AP242** may come out as AP203 depending on the installation's license; the export then refuses with
   `NOT_SUPPORTED` instead of passing the file off as AP242.
 - **Tapped holes** are made as their tap-drill holes, without thread geometry, unless `SWMCP_EXPERIMENTAL=1`.
+- **Not available:** screw mates (SOLIDWORKS 2025 ignores their pitch set through the API, so `asm_mate_add` refuses
+  them), sheet-metal jogs and miter flanges, and opposite-hand files from `asm_pattern {kind:"mirror"}` (copies are
+  instances of the same file). Gear mates read their ratio back reversed; the tool accepts and reports that.
 
 A typical modelling loop:
 

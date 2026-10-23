@@ -3,7 +3,7 @@
     python tools/mcp_smoke.py <path-to-solidworks-mcp.exe>              # protocol checks (no SOLIDWORKS needed)
     python tools/mcp_smoke.py <path-to-solidworks-mcp.dll>              # the same through dotnet (Smart App Control)
     python tools/mcp_smoke.py <exe> --scenario plate                   # + a live modelling scenario (SOLIDWORKS running)
-    python tools/mcp_smoke.py <exe> --scenario all                     # plate, enclosure, edit, assembly, drawing
+    python tools/mcp_smoke.py <exe> --scenario all                     # drawing, plate, enclosure, edit, assembly, sheetmetal
 
 Exits non-zero on any failed check. Protocol checks: initialize (2025-06-18) returns instructions and server info,
 tools/list conventions (descriptions, all four annotations, camelCase parameters, size budget), argument validation
@@ -211,6 +211,42 @@ def scenario_drawing(c: McpClient):
         remove(path, pdf)
 
 
+def scenario_sheetmetal(c: McpClient):
+    """An 80x40x2 sheet (K-factor 0.5) bent up 90° along x = 20, flattened, saved and exported as a flat DXF. With
+    K = 0.5 the bend allowance equals the bend's mid-surface arc, so the volume stays 80 x 40 x 2 = 6400 mm3 and the flat
+    blank stays 80 x 40."""
+    b = Budget(c, "sheetmetal", 10)
+    b("doc_new", {"name": "smoke_bracket"})
+    path = dxf = None
+    try:
+        b("sketch_start", {"on": {"name": "top"}})
+        b("sketch_add", {"entities": [{"kind": "rectangle", "center": [0, 0], "widthMm": 80, "heightMm": 40}]})
+        b("sheetmetal_base_flange", {"thicknessMm": 2, "bendRadiusMm": 2, "kFactor": 0.5})
+        bend = b("sheetmetal_bend", {"fromMm": [20, 0, -20], "toMm": [20, 0, 20], "angleDeg": 90})
+        model = bend.get("model", {})
+        check(near(model.get("volumeMm3"), 6400), f"bent bracket volume 6400 mm3 (got {model.get('volumeMm3')})")
+        top = (model.get("box") or {}).get("max", [None])[0]
+        check(top is not None and 19.99 <= top <= 24.01, f"nothing reaches past the bend at x = 20 + r + t (box max x {top})")
+        flat = b("sheetmetal_flatten", {"flat": True})
+        size = sorted(flat.get("flatSizeMm") or [], reverse=True)
+        check(len(size) == 2 and near(size[0], 80) and near(size[1], 40), f"flat blank 80 x 40 mm (got {size})")
+        b("sheetmetal_flatten", {"flat": False})
+        saved = b("doc_save", {"mode": "as", "path": "smoke_bracket.sldprt", "overwrite": True})
+        path = saved.get("savedTo") or saved["document"]["path"]
+        exp = b("sheetmetal_export_flat", {"path": "smoke_bracket_flat.dxf", "overwrite": True})
+        dxf = exp.get("path")
+        dsize = sorted((exp.get("dxf") or {}).get("size") or [], reverse=True)
+        check(bool(dxf) and os.path.exists(dxf), f"flat DXF written ({dxf})")
+        check(len(dsize) == 2 and near(dsize[0], 80) and near(dsize[1], 40), f"DXF extents 80 x 40 (got {dsize})")
+        d = exp.get("dxf") or {}
+        bends = (d.get("bendLayerEntities") or 0) + (d.get("dashedEntities") or 0)
+        check(bends == 1, f"the DXF has the bend line (on a BEND layer or dashed: {bends})")
+    finally:
+        b("doc_close", {"discard": True})
+        b.done()
+        remove(path, dxf)
+
+
 def scenario_plate(c: McpClient):
     """A 100x60x6 plate on the top plane, 4 vertical edges rounded r5, two Ø6 holes, a screenshot."""
     print("== scenario: plate")
@@ -254,7 +290,7 @@ def main() -> int:
         # Drawing first: in a session that already did other modeling, SOLIDWORKS sometimes stops adding model
         # dimensions and center marks until it is restarted (README, known issues).
         scenarios = {"drawing": scenario_drawing, "plate": scenario_plate, "enclosure": scenario_enclosure,
-                     "edit": scenario_edit, "assembly": scenario_assembly}
+                     "edit": scenario_edit, "assembly": scenario_assembly, "sheetmetal": scenario_sheetmetal}
         for name in (list(scenarios) if scenario == "all" else (scenario.split(",") if scenario else [])):
             try:
                 scenarios[name](c)

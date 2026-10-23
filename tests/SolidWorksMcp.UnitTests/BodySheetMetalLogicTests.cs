@@ -119,8 +119,8 @@ public class DxfReaderTests
         "  0\nSECTION\n  2\nHEADER\n  9\n$ACADVER\n  1\nAC1015\n  9\n$INSUNITS\n 70\n     4\n  0\nENDSEC\n" +
         "  0\nSECTION\n  2\nENTITIES\n" + string.Concat(entities) + "  0\nENDSEC\n  0\nEOF\n";
 
-    private static string Line(double x1, double y1, double x2, double y2, string layer = "0") => string.Create(CultureInfo.InvariantCulture,
-        $"  0\nLINE\n  8\n{layer}\n 10\n{x1}\n 20\n{y1}\n 30\n0.0\n 11\n{x2}\n 21\n{y2}\n 31\n0.0\n");
+    private static string Line(double x1, double y1, double x2, double y2, string layer = "0", string? linetype = null) => string.Create(CultureInfo.InvariantCulture,
+        $"  0\nLINE\n  8\n{layer}\n{(linetype is null ? "" : $"  6\n{linetype}\n")} 10\n{x1}\n 20\n{y1}\n 30\n0.0\n 11\n{x2}\n 21\n{y2}\n 31\n0.0\n");
 
     [Fact]
     public void A_rectangle_of_lines_gives_its_extents_units_and_counts()
@@ -164,6 +164,19 @@ public class DxfReaderTests
     }
 
     [Fact]
+    public void Dashed_lines_count_as_the_bend_lines_of_an_export_without_a_layer_map()
+    {
+        // As SOLIDWORKS 2025 writes a bent 80 x 40 blank: the outline Continuous, the bend line HIDDEN, all on layer 0.
+        var s = DxfReader.Parse(Dxf(Line(20, -18.36, -20, -18.36, linetype: "HIDDEN"), Line(20, -40, -20, -40, linetype: "Continuous"),
+            Line(-20, -40, -20, 40, linetype: "BYLAYER"), Line(-20, 40, 20, 40, linetype: "ByBlock"), Line(20, 40, 20, -40)));
+        Assert.Equal(1, s.DashedEntities);
+        Assert.Equal(0, s.BendLayerEntities);
+        Assert.Equal(["0"], s.Layers);
+        Assert.Equal([40, 80], s.Size!);
+        Assert.Equal(1, DxfReader.Parse(WithBlock("  0\nINSERT\n  8\n0\n  2\nFLAT\n 10\n0\n 20\n0\n", dashedLine: true)).DashedEntities);
+    }
+
+    [Fact]
     public void Text_that_is_not_a_DXF_has_no_geometry()
     {
         var s = DxfReader.Parse("hello\nworld\n");
@@ -173,12 +186,13 @@ public class DxfReaderTests
         Assert.Null(s.Version);
     }
 
-    /// <summary>A DXF whose geometry is a block (base point <paramref name="baseX"/>, 0) inserted once.</summary>
-    private static string WithBlock(string insert, double baseX = 0) =>
+    /// <summary>A DXF whose geometry is a block (base point <paramref name="baseX"/>, 0) inserted once; its bend line on a BEND layer, or dashed on layer 0.</summary>
+    private static string WithBlock(string insert, double baseX = 0, bool dashedLine = false) =>
         "  0\nSECTION\n  2\nHEADER\n  9\n$ACADVER\n  1\nAC1015\n  0\nENDSEC\n" +
         "  0\nSECTION\n  2\nBLOCKS\n" +
         string.Create(CultureInfo.InvariantCulture, $"  0\nBLOCK\n  8\n0\n  2\nFLAT\n 70\n0\n 10\n{baseX}\n 20\n0.0\n 30\n0.0\n  3\nFLAT\n") +
-        Line(0, 0, 50, 0) + Line(50, 0, 50, 30) + Line(50, 30, 0, 30) + Line(0, 30, 0, 0) + Line(0, 10, 50, 10, "BEND_LINES") +
+        Line(0, 0, 50, 0) + Line(50, 0, 50, 30) + Line(50, 30, 0, 30) + Line(0, 30, 0, 0) +
+        (dashedLine ? Line(0, 10, 50, 10, linetype: "PHANTOM") : Line(0, 10, 50, 10, "BEND_LINES")) +
         "  0\nENDBLK\n  8\n0\n  0\nENDSEC\n" +
         "  0\nSECTION\n  2\nENTITIES\n" + insert + "  0\nENDSEC\n  0\nEOF\n";
 
