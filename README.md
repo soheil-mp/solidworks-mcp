@@ -1,11 +1,17 @@
 # solidworks-mcp
 
 An MCP server that lets AI agents (Claude Code, Claude Desktop and other MCP clients) drive a running SOLIDWORKS.
-Agents can model parts, inspect geometry, take screenshots and work with documents, and there are tools for
-assemblies, drawings, export and simulation as they ship. It is written in C# against SolidWorks' official COM API.
+With its 118 tools, agents can sketch and model parts (extrudes, revolves, sweeps, lofts, holes, patterns, shells,
+surfaces, sheet metal), build assemblies with mates, make drawings with views and dimensions, import and export
+(STEP, IGES, STL, Parasolid, PDF, DXF …), run static stress studies, and inspect, measure and screenshot the result. It
+is written in C# against SolidWorks' official COM API.
 
 > **Unofficial.** This project is not affiliated with, endorsed by or supported by Dassault Systèmes. SOLIDWORKS is a
 > trademark of Dassault Systèmes SolidWorks Corporation.
+
+> **Status: 0.1.0 pre-release, under active development.** Every tool is built to the rules below and passes the
+> offline contract tests. Not every tool has passed its live tests against SOLIDWORKS yet; the
+> [live status](#live-test-status) table says which areas have.
 
 Why another SolidWorks MCP server? It was built from the lessons of testing every tool of an earlier server, where
 about 115 of 187 tools were broken or silently wrong.
@@ -47,7 +53,7 @@ Requirements:
 - git.
 
 ```powershell
-git clone https://github.com/<you>/solidworks-mcp.git
+git clone https://github.com/soheil-mp/solidworks-mcp.git
 cd solidworks-mcp
 powershell -ExecutionPolicy Bypass -File tools\install.ps1
 ```
@@ -86,9 +92,38 @@ one each time. If the exe itself is blocked, you can also register the DLL throu
 `claude mcp add --scope user solidworks -- dotnet "<folder>\solidworks-mcp.dll"`. Signed releases will avoid this.
 
 ## Tools
-The tools are grouped into toolsets: session, documents, inspect, sketch, features, reference, export, properties and
-automation; bodies, sheet metal, assembly, drawing and simulation follow as they ship. The full, current list with
-parameters is in [`docs/tools.md`](docs/tools.md), generated from the server. A typical modelling loop:
+118 tools in 14 toolsets. The full, current list with parameters is in [`docs/tools.md`](docs/tools.md), generated from
+the server.
+
+| Toolset | Tools |
+|---|---|
+| session (5) | `sw_status`, `sw_connect`, `sw_help`, `dialog_list`, `dialog_respond` |
+| documents (9) | `doc_new` (part, assembly, drawing), `doc_open` (also imports STEP/IGES/Parasolid/STL), `doc_save`, `doc_close`, `doc_activate`, `doc_list`, `doc_rebuild`, `doc_undo`, `doc_units_set` |
+| inspect (10) | `model_info`, `feature_list`, `face_list`, `edge_list`, `vertex_list`, `body_list`, `model_measure`, `model_mass`, `model_check`, `view_screenshot` |
+| sketch (17) | `sketch_start`, `sketch_add` (lines, arcs, circles, rectangles, slots, polygons, ellipses, splines, points), `sketch_finish`, `sketch_edit`, `sketch_info`, dimensions, relations, trim, extend, offset, fillet, chamfer, pattern, mirror, convert, construction, delete |
+| features (22) | extrude, revolve, sweep, loft, fillet, chamfer, shell, Hole Wizard holes, draft, rib, helix, cosmetic thread, linear/circular patterns, mirror; feature info, delete, suppress, rename, rollback; dimension list/set |
+| reference (4) | `ref_plane`, `ref_axis`, `ref_point`, `ref_coordsys` |
+| bodies (10) | move/copy, delete, combine, split; surfaces: extrude, revolve, planar, offset, knit, thicken |
+| sheetmetal (4) | base flange, edge flange, flatten, flat-pattern DXF/DWG |
+| assembly (8) | insert, mates, mate list, component list/set/move, interference, replace |
+| drawing (11) | sheet setup, standard/projected/section/detail views, model dimensions, dimensions, notes, BOM, center marks, info |
+| export (1) | `model_export`: STEP (AP203/214/242), IGES, Parasolid, STL, 3MF, images, eDrawings; PDF/DWG/DXF from drawings |
+| properties (13) | materials, custom properties, equations, configurations, appearance |
+| simulation (3) | `sim_static` (fixtures, pressure/force, mesh, von Mises, displacement, safety factor), `sim_list`, `sim_delete` |
+| automation (1) | `vba_run` (off by default) |
+
+### Live test status
+Each area has live tests that drive a real SOLIDWORKS and check the result against an exact answer (volumes, positions,
+file headers). Areas that haven't passed them yet may still have wrong recipes; please report what you find.
+
+| Area | Live tests |
+|---|---|
+| Core: session, documents, inspection, sketch, extrude, fillet, screenshots, dialogs | passing |
+| Sketch editing | passing (57) |
+| Part features, feature management, reference geometry, measurement, properties, export/import | written, being run |
+| Sweep/loft/helix/draft/rib, bodies, surfaces, sheet metal, assembly, drawing, simulation | written, being run |
+
+A typical modelling loop:
 
 ```
 doc_new → sketch_start {on:{name:"top"}} → sketch_add {entities:[{kind:"rectangle",center:[0,0],widthMm:100,heightMm:60}]}
