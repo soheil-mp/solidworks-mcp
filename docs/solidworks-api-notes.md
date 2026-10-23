@@ -30,6 +30,8 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
   - Closing a document that has **Simulation studies** shows a modal "Do you want to save Simulation data?" (Yes/No)
     dialog.
   - Closing a non-active document can switch the active document to an unexpected one.
+  - A damaged document raised `RPC_E_SERVERFAULT` from `CloseDoc` and `QuitDoc` while it was active (see §3 Patterns).
+    `ClearSelection2` and `ClearUndoList` didn't help, but it closed once another document was active.
 - **Titles.** `GetTitle()` omits the extension when Explorer hides extensions. Drawing titles are `"<name> - Sheet1"`.
 - **List documents.** `ISldWorks.GetDocuments()` returns an `object[]` of `ModelDoc2` (typed access works).
 - **Save As.** `IModelDocExtension.SaveAs(path, 0, swSaveAsOptions_Silent = 1, null, ref err, ref warn)`. The option value
@@ -103,34 +105,78 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
 | Right Plane | (0, y, **−x**) | +X |
 | Top face (normal +Y) | like Top Plane | +Y |
 
-- **Relations.** `IModelDoc2.SketchAddConstraints(id)` ignores unknown ids silently.
+- **Relations.** `IModelDoc2.SketchAddConstraints(id)` ignores unknown ids, and ids that don't fit the selection,
+  silently.
   - VERIFIED ids: `sgHORIZONTAL`, `sgVERTICAL`, `sgPARALLEL`, `sgPERPENDICULAR`, `sgTANGENT`, `sgCONCENTRIC`, `sgCOINCIDENT`,
     `sgSYMMETRIC` (two points plus a centerline), `sgFIXED`, `sgSAMELENGTH` (equal), `sgCOLINEAR`, `sgATMIDDLE` (midpoint),
     `sgATINTERSECT`.
-  - Expected but unverified: `sgATPIERCE`, `sgMERGEPOINTS`.
+  - **Two points level/plumb:** `sgHORIZPOINTS` / `sgVERTPOINTS` (types 25 / 26). `sgHORIZONTAL` and `sgVERTICAL` do
+    nothing for two points. VERIFIED.
+  - **Pierce:** `sgATPIERCE` (type 40) with a point of the open sketch and a curve crossing its plane: a segment of
+    another sketch (selected with `Select4`, or `SelectByID2("Line1@Sketch1", "EXTSKETCHSEGMENT")`) or a body edge. The
+    point moves to the crossing. VERIFIED (line of a Top sketch → (20, 0) on Front; block edge → (50, 20)).
+    `sgCOINCIDENT` with an edge that crosses the plane does nothing.
+  - **Merge:** `sgMERGEPOINTS` on two **segment end points** joins them into one point, with no relation (one fewer
+    sketch point). One of the two `ISketchPoint` objects is then dead (`RPC_E_DISCONNECTED`), so find the points again
+    through their segments. It ignores a free point. `sgCOINCIDENT` on two end points merges them the same way; on a free
+    point it adds a coincident relation (type 9) and moves the second point onto the first. VERIFIED.
+  - Coincident point + line puts the point on the **infinite** line. VERIFIED.
   - Verify by counting with `ISketch.RelationManager.GetRelationsCount(0)`. Relation types (`swConstraintType_e`) include
-    4 horizontal, 5 vertical, 6 tangent and 9 coincident.
+    1 distance, 2 angle, 4 horizontal, 5 vertical, 6 tangent, 9 coincident, 11 symmetric (mirror copies), 12 midpoint,
+    13 intersection, 47 sketch offset and 57 patterned.
+- **Origin** in a sketch: `SelectByID2("Point1@Origin", "EXTSKETCHPOINT", 0, 0, 0, …)` (selection type 25). Dimensions
+  and coincident relations to it work. VERIFIED.
 - **Dimensions.** `IModelDoc2.AddDimension2(x, y, z)` returns a `DisplayDimension`; call `.GetDimension2(0)` and
   `.SetSystemValue3(value, swSetValue_InThisConfiguration, null)`.
   - It **opens a modal "Modify" dialog** if the system toggle `swInputDimValOnCreate = 10` is true, which is the user
     default. Switch it off in a PreferenceScope.
+  - The text point is in **model** coordinates. For two lines it decides which angle is measured: on the Top plane the
+    same point read as sketch coordinates gave 126.87° instead of 53.13°. On a line or two points, `AddDimension2`
+    gives the aligned distance wherever the text is; `AddHorizontalDimension2` / `AddVerticalDimension2` give the
+    components. VERIFIED.
   - `IParameter("D1@Sketch1").SystemValue` reads and writes values.
   - Setting a value through the parameter and rebuilding (`EditRebuild3`) **closes an open sketch**.
   - A dimension made driven by inference relations can't be changed (`DrivenState == 2`).
-- **Patterns.**
+- **Patterns** (all VERIFIED on instance positions; counts include the seed).
   - `ISketchManager.CreateLinearSketchStepAndRepeat(nX, nY, dx, dy, angX, angY, "", false, false, false, false, false)`
-    (12 args).
-  - `CreateCircularSketchStepAndRepeat(R, A, count, totalAngle, true, "", false, false, false)`. The **center is at seed
-    + R·(cos A, sin A)**, and count includes the seed. VERIFIED.
+    (12 args). Both angles are absolute directions from sketch +x; copies keep their orientation.
+  - `CreateCircularSketchStepAndRepeat(R, A, count, spacing, true, "", false, false, false)`:
+    - The center is the **middle of the selection's bounding box** (all seeds together; arcs by their real extent)
+      **+ R·(cos A, sin A)**.
+    - `spacing` is the angle between instances, **positive = clockwise**.
+    - When `count × |spacing|` exceeds 360°, the instances are spaced 360°/count apart instead (3 at 150° came out
+      120° apart).
+    - It returns False for a **negative A** (use 270°, not −90°) and for **R = 0**.
+    - It adds one extra sketch point at the pattern center.
+    - **Avoid failing calls.** After four failed calls in one document, `CloseDoc` and `QuitDoc` raised
+      `RPC_E_SERVERFAULT` while that document was active. It closed once another document was active.
+- **Mirror.** `IModelDoc2.SketchMirror()` with the entities on mark **1** and the mirror line on mark **2**; a solid
+  line works as the axis. With everything on mark 0, a centerline in the selection becomes the axis (even one meant to
+  be copied), and a solid line plus another line mirrors nothing. Copies get symmetric relations (type 11), a mirrored
+  circle reports rotation direction −1, and free points are mirrored too. VERIFIED.
 - **Trim.** `ISketchManager.SketchTrim(0 /*closest*/, x, y, 0)` removes the piece nearest the pick point (sketch
-  coordinates). VERIFIED.
-- **Extend.** `SketchExtend` works on the selected segment.
-- **Offset.** `SketchOffset2(d, bothDirections, chain, …)` with `bothDirections=false` was VERIFIED outward. The old
-  server's "inward" offset produced both sides.
-- **Fillet / chamfer.** `ISketchManager.CreateFillet(r, constrainedCorners)` and `CreateChamfer(type, d, angle)` (type 0
-  = distance-angle, 1 = distance-distance, 2 = equal). Both were VERIFIED on two selected adjacent lines.
-- **Convert entities.** `ISketchManager.SketchUseEdge3(false, false)` with model edges selected. VERIFIED (a 120° r30
-  arc becomes Arc2, 62.832 mm).
+  coordinates); the verified recipe selects the segment first. A circle cut by a line becomes the remaining arc.
+  VERIFIED.
+- **Extend.** `SketchExtend(x, y, 0)` with the segment selected, the pick point near the end to extend, in **sketch**
+  coordinates (on the Top plane the model coordinates of the same point extended the other end). Arcs extend along their
+  circle. Without a selection it returns False. VERIFIED.
+- **Offset.** `SketchOffset2(d, bothDirections, chain, 0, 0, false)`:
+  - A positive `d` goes **outward** on a closed loop, whatever its direction; on an open chain it goes to the
+    **right of the first selected segment** (seen from its start to its end).
+  - A negative `d` goes the other way, and `bothDirections` makes both.
+  - `chain=true` with one segment selected takes the whole connected loop or chain.
+  - VERIFIED on loop sizes and arc radii (100×60 ±5 → 110×70 / 90×50, r5 ±2 → r7 / r3).
+- **Fillet.** `ISketchManager.CreateFillet(r, swConstrainedCornerKeepGeometry)` on two selected segments. VERIFIED.
+- **Chamfer.** `CreateChamfer(type, D, X)` on two selected segments:
+  - Types: 0 = distance-angle, 1 = distance-distance, 2 = equal distance.
+  - **D goes along the second selected segment and X along the first.**
+  - For distance-angle, X is the angle, measured from the second segment.
+  - Type 2 with two different values behaves like type 1, so pass the same value twice.
+  - VERIFIED on the trimmed lengths.
+- **Undo in a sketch.** `EditUndo2(1)` undoes one offset, chamfer, pattern, mirror, relation, merge or extend and keeps
+  the sketch open. After a call that changed nothing it undoes an earlier step; once that closed the sketch. VERIFIED.
+- **Convert entities.** `ISketchManager.SketchUseEdge3(false, false)` with model edges (or a face, for its whole
+  outline) selected. VERIFIED (a 120° r30 arc becomes Arc2, 62.832 mm; a 100×60 face gives 4 lines, 320 mm).
 
 ## 4. Features (all VERIFIED by volume unless noted)
 | Feature | Call | Notes |

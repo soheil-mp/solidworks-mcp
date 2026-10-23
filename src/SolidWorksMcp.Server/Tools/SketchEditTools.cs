@@ -44,20 +44,21 @@ public sealed class SketchEditTools(SwSession session)
         [Description("linear | horizontal | vertical | radial | diameter | angular")] string kind,
         [Description("Value in mm (all kinds but angular); omit to keep the current size.")] double? valueMm = null,
         [Description("angular: value in degrees.")] double? valueDeg = null,
-        [Description("Text position [x,y] sketch mm; it decides which distance or angle is meant.")] double[]? textAt = null,
+        [Description("Text position [x,y] sketch mm; for angular it picks the angle (put it inside the one you mean).")] double[]? textAt = null,
         [Description(DocDescription)] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ResultJson.Serialize(await _svc.DimensionAddAsync(doc, entities, kind, valueMm, valueDeg, textAt, cancellationToken));
 
     [McpServerTool(Name = "sketch_relation_add", Title = "Add sketch relation", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-    [Description("Adds a geometric relation in the open sketch. Takes: horizontal/vertical (lines, or points), coincident (point + point/line/arc), " +
-                 "collinear/parallel (lines), perpendicular (2 lines), tangent, concentric, equal, symmetric (2 entities then the symmetry line), " +
-                 "midpoint (point, line), intersection (point, 2 lines), fix, pierce (point, curve), merge (2 points). Verified: the relation count " +
-                 "grew and the solved geometry satisfies it; an over-defining relation is undone; VERIFY_FAILED if SOLIDWORKS ignored it.")]
+    [Description("Adds a geometric relation in the open sketch. Takes: horizontal/vertical (lines, or points), coincident (point + point/line/arc; " +
+                 "two segment end points merge), collinear/parallel (lines), perpendicular (2 lines), tangent, concentric, equal, symmetric " +
+                 "(2 entities then the symmetry line), midpoint (point, line), intersection (point, 2 lines), fix, pierce (point + a model edge or " +
+                 "a segment of another sketch crossing the plane), merge (2 points). Verified: the relation was added (or the points merged) and the " +
+                 "solved geometry satisfies it; an over-defining relation is undone; VERIFY_FAILED if SOLIDWORKS ignored it.")]
     public async Task<string> SketchRelationAdd(
         [Description("horizontal | vertical | coincident | collinear | parallel | perpendicular | tangent | concentric | equal | symmetric | " +
                      "midpoint | intersection | fix | pierce | merge")] string relation,
-        [Description("Entities: segments {name:'Line1'}, sketch points {at:[x,y]}; model edges for pierce.")] EntityRef[] entities,
+        [Description("Entities: segments {name:'Line1'}, sketch points {at:[x,y]}; for pierce a model edge or {name:'Line1', sketch:'Sketch1'}.")] EntityRef[] entities,
         [Description(DocDescription)] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ResultJson.Serialize(await _svc.RelationAddAsync(doc, relation, entities, cancellationToken));
@@ -81,12 +82,13 @@ public sealed class SketchEditTools(SwSession session)
         ResultJson.Serialize(await _svc.ExtendAsync(doc, segment, end, cancellationToken));
 
     [McpServerTool(Name = "sketch_offset", Title = "Offset sketch segments", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-    [Description("Offsets segments of the open sketch by a distance to a side: outward, inward or both (a 100x60 rectangle offset 5 outward " +
-                 "gives a 110x70 loop). Verified on the new loop's size and the new segments' distance; a wrong side is undone. Returns boxMm.")]
+    [Description("Offsets segments of the open sketch by a distance. A closed loop goes outward, inward or both (a 100x60 rectangle offset 5 " +
+                 "outward gives a 110x70 loop); an open chain goes left, right or both, seen along its first segment from start to end. Verified " +
+                 "on the loop size or side and the new segments' distance; otherwise undone. Returns boxMm.")]
     public async Task<string> SketchOffset(
         [Description("Segments to offset: e.g. the 4 lines of a rectangle, or one of them with chain=true.")] EntityRef[] segments,
         [Description("Offset distance in mm.")] double distanceMm,
-        [Description("outward | inward | both")] string side = "outward",
+        [Description("Closed loop: outward | inward | both. Open chain: left | right | both.")] string side = "outward",
         [Description("Also offset the segments connected end to end with them.")] bool chain = false,
         [Description(DocDescription)] string? doc = null,
         CancellationToken cancellationToken = default) =>
@@ -104,11 +106,11 @@ public sealed class SketchEditTools(SwSession session)
         ResultJson.Serialize(await _svc.FilletAsync(doc, segments, at, radiusMm, cancellationToken));
 
     [McpServerTool(Name = "sketch_chamfer", Title = "Sketch chamfer", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-    [Description("Cuts a corner of the open sketch with a chamfer line: type equal (distanceMm on both sides), distance_distance (distanceMm, " +
-                 "distance2Mm) or distance_angle (distanceMm, angleDeg). Corner by its two segments or its point. Verified: the chamfer line's " +
-                 "ends lie at those distances from the corner.")]
+    [Description("Cuts a corner of the open sketch with a chamfer line: type equal (distanceMm on both sides), distance_distance (distanceMm " +
+                 "along the first segment, distance2Mm along the second) or distance_angle (distanceMm along the first segment, angleDeg from it). " +
+                 "Corner by its two segments or its point. Verified: the chamfer's ends lie at those distances (and that angle) on each segment.")]
     public async Task<string> SketchChamfer(
-        [Description("Chamfer distance in mm (the first segment's side for unequal types).")] double distanceMm,
+        [Description("Chamfer distance in mm, along the first segment for the unequal types (with 'at' the result says which segment).")] double distanceMm,
         [Description("equal | distance_distance | distance_angle")] string type = "equal",
         [Description("distance_distance: second distance in mm.")] double? distance2Mm = null,
         [Description("distance_angle: angle in degrees.")] double? angleDeg = null,
@@ -120,8 +122,9 @@ public sealed class SketchEditTools(SwSession session)
 
     [McpServerTool(Name = "sketch_pattern", Title = "Sketch pattern", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Copies entities of the open sketch in a pattern. linear: countX instances spacingXMm apart along angleDeg (0 = sketch +x), " +
-                 "optionally countY rows spacingYMm apart at +90 deg. circular: count instances about center over totalAngleDeg. Counts include " +
-                 "the seed. Verified: the copies lie at the predicted positions; otherwise undone.")]
+                 "optionally countY rows spacingYMm apart at +90 deg. circular: count instances about center, evenly around a full circle " +
+                 "(totalAngleDeg 360) or spanning a smaller angle, counter-clockwise (negative = clockwise). Counts include the seed. Verified: " +
+                 "the copies lie at the predicted positions; otherwise undone.")]
     public async Task<string> SketchPattern(
         [Description("linear | circular")] string kind,
         [Description("Segments (or points) to copy, e.g. [{name:'Arc1'}].")] EntityRef[] entities,
@@ -132,7 +135,7 @@ public sealed class SketchEditTools(SwSession session)
         [Description("linear: first direction in degrees from sketch +x (default 0).")] double? angleDeg = null,
         [Description("circular: center [x,y] sketch mm.")] double[]? center = null,
         [Description("circular: number of instances.")] int? count = null,
-        [Description("circular: total angle in degrees.")] double totalAngleDeg = 360,
+        [Description("circular: 360 = full circle; less = the angle from the seed to the last instance (at most 360·(count-1)/count); negative = clockwise.")] double totalAngleDeg = 360,
         [Description(DocDescription)] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ResultJson.Serialize(await _svc.PatternAsync(new SketchPatternRequest

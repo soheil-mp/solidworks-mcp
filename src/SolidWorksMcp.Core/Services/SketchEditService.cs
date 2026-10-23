@@ -102,7 +102,7 @@ public sealed class SketchChangeResult : ToolResult
     public int? CreatedCount { get; init; }
     public IReadOnlyList<SketchSegmentInfo>? Changed { get; init; }
     public IReadOnlyList<string>? Removed { get; init; }
-    /// <summary>offset: outward | inward | both | open.</summary>
+    /// <summary>offset: outward | inward | both (closed loop), left | right | both (open chain).</summary>
     public string? Side { get; init; }
     /// <summary>offset: box of the new segments [xMin, yMin, xMax, yMax] (sketch mm).</summary>
     public double[]? BoxMm { get; init; }
@@ -131,6 +131,8 @@ public sealed record SketchPatternRequest
     public double[]? Center { get; init; }
     /// <summary>circular: instances (seed included).</summary>
     public int? Count { get; init; }
+    /// <summary>circular: ±360 = a full circle (steps of 360/count); less: the instances span this angle (steps of
+    /// angle/(count - 1)). Positive = counter-clockwise seen from the sketch normal.</summary>
     public double TotalAngleDeg { get; init; } = 360;
 }
 
@@ -152,6 +154,7 @@ public sealed class SketchEditService(SwSession session)
     private const int InfoMax = 300;        // segments listed by sketch_info
     private const int MaxInstances = 500;   // pattern instances
     private const double TrimReach = 1e-3;  // m: how far a trim pick point may lie from the segment it trims
+    private const double MinPatternRadius = 1e-6; // m: circular pattern radius below which SOLIDWORKS refuses (R = 0 fails)
 
     private static readonly EntityKind[] SketchKinds = [EntityKind.SketchSegment, EntityKind.SketchPoint];
 
@@ -319,7 +322,7 @@ public sealed class SketchEditService(SwSession session)
         var refs = Refs(ctx, d, sketch, m2s, entities, "entities", EntityKind.SketchSegment, EntityKind.SketchPoint, EntityKind.Origin);
         if (refs.Count != entities.Count)
             throw SwException.InvalidArgument("'entities' names the same entity twice.");
-        var items = refs.Select(r => ItemOf(r, m2s)).ToList();
+        var items = refs.Select(r => ItemOf(r, sketch, m2s)).ToList();
         CheckDimensionTargets(kind, items);
         double? expected = Measure(kind, items);
         var text = textAt is null ? DefaultTextPoint(kind, items) : ToSketch(textAt, m2s, "textAt", ctx);
@@ -331,62 +334,52 @@ public sealed class SketchEditService(SwSession session)
         using var prefs = ctx.SystemPrefs();
         prefs.Toggle(SystemPrefIds.InputDimValOnCreate, false); // no modal Modify box on the new dimension
 
-        // The text location decides which quantity an ambiguous dimension measures (aligned/horizontal/vertical, or which
-        // angle). Model coordinates first (like SelectByID2), sketch coordinates as the fallback.
-        var places = new List<Vec3> { s2m.ApplyPoint(text) };
-        if (!s2m.IsIdentity()) places.Add(text);
-        IDisplayDimension? disp = null;
-        IDimension? dim = null;
-        for (int attempt = 0; attempt < places.Count; attempt++)
+        // The text location is in model coordinates (verified: on the Top plane the same point given in sketch coordinates
+        // picked the other angle). It decides which angle an angular dimension measures; AddDimension2 on a line or on two
+        // points gives the aligned distance wherever the text is (verified).
+        var at = s2m.ApplyPoint(text);
+        d.ClearSelection2(true);
+        SelectAll(d, refs, 0);
+        var disp = kind switch
         {
-            d.ClearSelection2(true);
-            SelectAll(d, refs, 0);
-            var at = places[attempt];
-            disp = kind switch
-            {
-                "horizontal" => (object?)d.AddHorizontalDimension2(at.X, at.Y, at.Z) as IDisplayDimension,
-                "vertical" => (object?)d.AddVerticalDimension2(at.X, at.Y, at.Z) as IDisplayDimension,
-                "radial" => (object?)d.AddRadialDimension2(at.X, at.Y, at.Z) as IDisplayDimension,
-                "diameter" => (object?)d.AddDiameterDimension2(at.X, at.Y, at.Z) as IDisplayDimension,
-                _ => (object?)d.AddDimension2(at.X, at.Y, at.Z) as IDisplayDimension,
-            };
-            d.ClearSelection2(true);
-            if (disp is null)
-            {
-                if (ctx.Op.HandledDialogs.Any(h => ReferenceEquals(h.Rule, DialogRules.OverdefiningDimension)))
-                    throw new SwException(ErrorCodes.VerifyFailed,
-                        $"A {kind} dimension on {labels} would over-define the sketch (SOLIDWORKS offered to make it driven); nothing was added.",
-                        "Delete the dimension or relation that already fixes this size (sketch_info lists them), or dimension something else.");
-                if (attempt < places.Count - 1) continue;
-                throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS created no {kind} dimension on {labels}.",
-                    "Check that the entities can carry this dimension (sketch_info shows their kinds).");
-            }
-            dim = disp.GetDimension2(0);
-            if (dim is null)
-            {
-                bool gone = DeleteDimension(d, disp, feat, dimsBefore);
-                throw new SwException(ErrorCodes.FeatureFailed, $"The new display dimension has no dimension; {Removed(gone)}.");
-            }
-            if (dim.DrivenState == (int)swDimensionDrivenState_e.swDimensionDriven || BecameOverDefined(sketch, before.Status))
-            {
-                bool gone = DeleteDimension(d, disp, feat, dimsBefore);
+            "horizontal" => (object?)d.AddHorizontalDimension2(at.X, at.Y, at.Z) as IDisplayDimension,
+            "vertical" => (object?)d.AddVerticalDimension2(at.X, at.Y, at.Z) as IDisplayDimension,
+            "radial" => (object?)d.AddRadialDimension2(at.X, at.Y, at.Z) as IDisplayDimension,
+            "diameter" => (object?)d.AddDiameterDimension2(at.X, at.Y, at.Z) as IDisplayDimension,
+            _ => (object?)d.AddDimension2(at.X, at.Y, at.Z) as IDisplayDimension,
+        };
+        d.ClearSelection2(true);
+        if (disp is null)
+        {
+            if (ctx.Op.HandledDialogs.Any(h => ReferenceEquals(h.Rule, DialogRules.OverdefiningDimension)))
                 throw new SwException(ErrorCodes.VerifyFailed,
-                    $"A {kind} dimension on {labels} would over-define the sketch (SOLIDWORKS made it a driven reference dimension); {Removed(gone)}.",
+                    $"A {kind} dimension on {labels} would over-define the sketch (SOLIDWORKS offered to make it driven); nothing was added.",
                     "Delete the dimension or relation that already fixes this size (sketch_info lists them), or dimension something else.");
-            }
-            if (expected is not double e || Math.Abs(dim.SystemValue - e) <= MeasureTol(kind)) break;
-            // It measures something else (e.g. a horizontal distance instead of the aligned one, or the other angle).
+            throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS created no {kind} dimension on {labels}.",
+                "Check that the entities can carry this dimension (sketch_info shows their kinds).");
+        }
+        var dim = disp.GetDimension2(0);
+        if (dim is null)
+        {
+            bool gone = DeleteDimension(d, disp, feat, dimsBefore);
+            throw new SwException(ErrorCodes.FeatureFailed, $"The new display dimension has no dimension; {Removed(gone)}.");
+        }
+        if (dim.DrivenState == (int)swDimensionDrivenState_e.swDimensionDriven || BecameOverDefined(sketch, before.Status))
+        {
+            bool gone = DeleteDimension(d, disp, feat, dimsBefore);
+            throw new SwException(ErrorCodes.VerifyFailed,
+                $"A {kind} dimension on {labels} would over-define the sketch (SOLIDWORKS made it a driven reference dimension); {Removed(gone)}.",
+                "Delete the dimension or relation that already fixes this size (sketch_info lists them), or dimension something else.");
+        }
+        if (expected is double e && Math.Abs(dim.SystemValue - e) > MeasureTol(kind))
+        {
+            // It measures something else (e.g. the other angle of two lines).
             string got = Fmt(kind, dim.SystemValue);
             bool removed = DeleteDimension(d, disp, feat, dimsBefore);
-            disp = null;
-            dim = null;
-            if (!removed || attempt == places.Count - 1)
-                throw new SwException(ErrorCodes.VerifyFailed,
-                    $"SOLIDWORKS dimensioned {got} instead of the {kind} {Fmt(kind, e)} of {labels}; {Removed(removed)}.",
-                    "Pass textAt next to the quantity you want (inside the angle for angular, beside the segment for a length), or use kind horizontal / vertical.");
+            throw new SwException(ErrorCodes.VerifyFailed,
+                $"SOLIDWORKS dimensioned {got} instead of the {kind} {Fmt(kind, e)} of {labels}; {Removed(removed)}.",
+                "Pass textAt next to the quantity you want (inside the angle for angular, beside the segment for a length), or use kind horizontal / vertical.");
         }
-        if (disp is null || dim is null)
-            throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS created no {kind} dimension on {labels}.");
 
         double v0 = dim.SystemValue;
         double? measured = expected;
@@ -401,7 +394,7 @@ public sealed class SketchEditService(SwSession session)
                     "The value may be impossible for the sketch (e.g. it would make a segment vanish or a relation fail).");
             }
             double back = dim.SystemValue;
-            var now = refs.Select(r => ItemOf(r, m2s)).ToList();
+            var now = refs.Select(r => ItemOf(r, sketch, m2s)).ToList();
             measured = Measure(kind, now);
             string? problem =
                 Math.Abs(back - t) > MeasureTol(kind) ? $"the dimension reads {Fmt(kind, back)}" :
@@ -605,7 +598,7 @@ public sealed class SketchEditService(SwSession session)
 
     private sealed record RelSpec(string[] Ids, int Min, int Max, string Takes);
 
-    /// <summary>Relation → SketchAddConstraints ids (sgATPIERCE and sgMERGEPOINTS are unverified; the rest are verified).</summary>
+    /// <summary>Relation → SketchAddConstraints ids (all verified live; see docs/solidworks-api-notes.md §3).</summary>
     private static readonly Dictionary<string, RelSpec> RelationSpecs = new(StringComparer.Ordinal)
     {
         ["horizontal"] = new(["sgHORIZONTAL"], 1, 50, "lines, or two or more points"),
@@ -649,7 +642,7 @@ public sealed class SketchEditService(SwSession session)
             var refs = Refs(ctx, d, sketch, m2s, entities!, "entities", RelationKinds);
             if (refs.Count < spec.Min)
                 throw SwException.InvalidArgument($"'{rel}' needs {spec.Min} different entities; some references name the same one.");
-            var items = refs.Select(r => ItemOf(r, m2s)).ToList();
+            var items = refs.Select(r => ItemOf(r, sketch, m2s)).ToList();
             if (rel == "symmetric" && items.Count(i => i.Kind == "line") == 1 && items[^1].Kind != "line")
             {
                 // The symmetry line goes last.
@@ -658,18 +651,21 @@ public sealed class SketchEditService(SwSession session)
                 refs.RemoveAt(li); items.RemoveAt(li);
                 refs.Add(lr); items.Add(lit);
             }
-            CheckRelationTargets(rel, items);
-            // Unverified ids around the verified ones: the point forms of horizontal/vertical are tried first, and merge is
-            // tried after coincident for two points (SOLIDWORKS offers Merge, not Coincident, for two sketch points).
+            if (rel == "pierce") CheckPierceTargets(refs, sketch);
+            else CheckRelationTargets(rel, items);
             bool points = items.All(i => i.Kind == "point");
             string[] ids = rel switch
             {
-                "horizontal" when points => ["sgHORIZPOINTS", "sgHORIZONTAL"],
-                "vertical" when points => ["sgVERTPOINTS", "sgVERTICAL"],
-                "coincident" when points => ["sgCOINCIDENT", "sgMERGEPOINTS"],
+                // Verified: two points take the point forms; sgHORIZONTAL / sgVERTICAL ignore points.
+                "horizontal" when points => ["sgHORIZPOINTS"],
+                "vertical" when points => ["sgVERTPOINTS"],
+                // Verified: sgMERGEPOINTS merges two segment end points but ignores a free point, which sgCOINCIDENT relates.
+                "merge" => ["sgMERGEPOINTS", "sgCOINCIDENT"],
                 _ => spec.Ids,
             };
             var before = SkState.Take(sketch);
+            // A merge disconnects one of the two point objects (verified): find the points again through their segments.
+            var locs = points ? items.Select(i => Locate(before, i.P)).ToList() : null;
             string labels = string.Join(", ", refs.Take(6).Select(r => r.Label));
             SkState? after = null;
             bool merged = false;
@@ -680,9 +676,10 @@ public sealed class SketchEditService(SwSession session)
                 d.SketchAddConstraints(id); // silently ignores ids that don't apply
                 d.ClearSelection2(true);
                 var now = SkState.Take(sketch);
-                merged = id == "sgMERGEPOINTS" && now.Points < before.Points;
+                // Verified: sgCOINCIDENT and sgMERGEPOINTS on two segment end points merge them (one point fewer, no relation).
+                merged = points && now.Points < before.Points;
                 if (now.Relations > before.Relations || merged) { after = now; break; }
-                if (!Diff(before, now).None)
+                if (!Diff(before, now).None || now.Points != before.Points)
                 {
                     string rb0 = Undo(ctx, d, name, before);
                     throw new SwException(ErrorCodes.VerifyFailed, $"'{id}' moved the sketch but added no relation. {rb0}");
@@ -693,6 +690,7 @@ public sealed class SketchEditService(SwSession session)
                     $"SOLIDWORKS ignored the relation '{rel}' for {labels}: no relation was added.",
                     "It may not apply to these entity types, already exist, or follow from other relations (sketch_info lists them).");
             var checks = new List<string> { merged ? $"points merged ({before.Points} → {after.Points} sketch points)" : $"relations {before.Relations} → {after.Relations}" };
+            if (rel == "merge" && !merged) checks.Add("coincident relation instead: SOLIDWORKS merges only segment end points");
             if (BecameOverDefined(sketch, before.Status))
             {
                 string state = ConstrainedName(sketch.GetConstrainedStatus());
@@ -700,10 +698,18 @@ public sealed class SketchEditService(SwSession session)
                 throw new SwException(ErrorCodes.VerifyFailed, $"'{rel}' conflicts with existing relations or dimensions (the sketch became {state}). {rb}",
                     "Delete the conflicting relation or dimension first, or relate other entities.");
             }
-            if (!is3D && !merged)
+            if (!is3D)
             {
-                var nowItems = refs.Select(r => ItemOf(r, m2s)).ToList();
-                if (RelationGeometry(rel, nowItems, checks) is string problem)
+                string? problem;
+                if (merged) problem = MergeGeometry(after, locs!, checks);
+                else if (rel == "pierce") problem = PierceGeometry(d, sketch, refs, checks);
+                else
+                {
+                    var nowItems = refs.Select(r => ItemOf(r, sketch, m2s)).ToList();
+                    if (nowItems.Any(i => i.Kind is "external" or "other")) checks.Add("geometry not checked (model geometry, or a segment of a non-parallel sketch)");
+                    problem = RelationGeometry(rel == "merge" ? "coincident" : rel, nowItems, checks);
+                }
+                if (problem is not null)
                 {
                     string rb = Undo(ctx, d, name, before);
                     throw new SwException(ErrorCodes.VerifyFailed, $"After '{rel}' the geometry doesn't satisfy it: {problem}. {rb}",
@@ -711,7 +717,7 @@ public sealed class SketchEditService(SwSession session)
                 }
             }
             var diff = Diff(before, after);
-            var related = refs.Where(r => r.Obj is ISketchSegment).Select(r => ((ISketchSegment)r.Obj).GetName())
+            var related = refs.Where(r => r.Obj is ISketchSegment s && InSketch(s, sketch)).Select(r => ((ISketchSegment)r.Obj).GetName())
                 .Where(after.Segs.ContainsKey).Distinct().ToList();
             return new SketchRelationResult
             {
@@ -751,6 +757,70 @@ public sealed class SketchEditService(SwSession session)
         };
         if (problem is not null)
             throw SwException.InvalidArgument($"'{rel}' takes {problem} (got {got}).", "sketch_info shows each segment's kind; points are {at:[x,y]}.");
+    }
+
+    /// <summary>pierce: one point of this sketch and a curve that can cross its plane (a model edge or a segment of another sketch).</summary>
+    private static void CheckPierceTargets(IReadOnlyList<Resolved> refs, ISketch sketch)
+    {
+        var curve = refs.FirstOrDefault(r => r.Obj is not ISketchPoint);
+        bool ok = refs.Count(r => r.Obj is ISketchPoint p && (p.GetSketch() is not ISketch o || SameSketch(o, sketch))) == 1 &&
+                  (curve?.Obj is IEdge || curve?.Obj is ISketchSegment s && !InSketch(s, sketch));
+        if (!ok)
+            throw SwException.InvalidArgument($"'pierce' takes a sketch point and a curve that crosses the sketch plane (got {string.Join(" + ", refs.Select(r => r.Label))}).",
+                "The curve is a model edge ({type:'edge', at:[x,y,z]}) or a segment of another sketch ({name:'Line1', sketch:'Sketch1'}).");
+    }
+
+    /// <summary>Where a sketch point sits, found again after the call through the segment it ends or centers (or a free point).</summary>
+    private sealed record PointLoc(string? Segment, char Which, Vec3 At);
+
+    private static PointLoc Locate(SkState s, Vec3 p)
+    {
+        foreach (var (n, g) in s.Segs)
+        {
+            if (g.HasEnds && g.Start.DistanceTo(p) < JoinTol) return new(n, 's', p);
+            if (g.HasEnds && g.End.DistanceTo(p) < JoinTol) return new(n, 'e', p);
+            if (g.Kind is "arc" or "circle" or "ellipse" && g.Center.DistanceTo(p) < JoinTol) return new(n, 'c', p);
+        }
+        return new(null, 'p', p);
+    }
+
+    private static Vec3? PositionOf(SkState s, PointLoc l) =>
+        l.Segment is not null && s.Segs.TryGetValue(l.Segment, out var g) ? l.Which switch { 's' => g.Start, 'e' => g.End, _ => g.Center } : null;
+
+    /// <summary>After a merge: the segment ends that held the two points now meet.</summary>
+    private static string? MergeGeometry(SkState after, IReadOnlyList<PointLoc> locs, List<string> checks)
+    {
+        var at = locs.Select(l => PositionOf(after, l)).ToList();
+        if (at.Any(p => p is null)) return null; // a free point (merges only happen between segment end points)
+        double gap = at.Max(p => p!.Value.DistanceTo(at[0]!.Value));
+        if (gap > Tol) return $"the merged points are {Units.Mm(gap)} mm apart";
+        checks.Add($"the segment ends meet at [{TopoQuery.Fmt(P2(at[0]!.Value))}]");
+        return null;
+    }
+
+    /// <summary>pierce: the sketch point now lies on the 3D curve (checked for edges of parts and segments of 2D sketches).</summary>
+    private static string? PierceGeometry(IModelDoc2 d, ISketch sketch, IReadOnlyList<Resolved> refs, List<string> checks)
+    {
+        var pt = (ISketchPoint)refs.First(r => r.Obj is ISketchPoint).Obj;
+        var curve = refs.First(r => r.Obj is not ISketchPoint).Obj;
+        var pm = SketchService.SketchToModel(sketch).ApplyPoint(new Vec3(pt.X, pt.Y, 0));
+        double? dist = null;
+        if (curve is IEdge e && d.GetType() == (int)swDocumentTypes_e.swDocPART && e.ClosestPoint(pm) is { Length: >= 3 } c)
+            dist = new Vec3(c[0], c[1], c[2]).DistanceTo(pm);
+        else if (curve is ISketchSegment s && OwnerOf(s) is ISketch owner && !owner.Is3D())
+        {
+            var q = SketchService.SketchToModel(owner).Inverse().ApplyPoint(pm); // the point in the other sketch's coordinates
+            double inPlane = DistanceTo(Read(s), new Vec3(q.X, q.Y, 0));
+            if (double.IsFinite(inPlane)) dist = Math.Sqrt(inPlane * inPlane + q.Z * q.Z);
+        }
+        if (dist is not double dd)
+        {
+            checks.Add("point-on-curve not checked (it is checked for edges of parts and lines/arcs of 2D sketches)");
+            return null;
+        }
+        if (dd > Tol) return $"the point is {Units.Mm(dd)} mm off the curve";
+        checks.Add($"the point lies on the curve, at [{TopoQuery.Fmt(Units.Mm(pm))}] model mm");
+        return null;
     }
 
     /// <summary>Tier-B check of a relation on the solved geometry; returns the problem or null.</summary>
@@ -914,8 +984,7 @@ public sealed class SketchEditService(SwSession session)
             var d = DocOf(ctx);
             var sketch = OpenSketch(ctx, d, "sketch_extend", twoD: true);
             string sketchName = ((IFeature)sketch).Name;
-            var s2m = SketchService.SketchToModel(sketch);
-            var m2s = s2m.Inverse();
+            var m2s = SketchService.SketchToModel(sketch).Inverse();
             var r = Refs(ctx, d, sketch, m2s, [segment], "segment", EntityKind.SketchSegment)[0];
             var seg = (ISketchSegment)r.Obj;
             string name = seg.GetName();
@@ -933,31 +1002,30 @@ public sealed class SketchEditService(SwSession session)
             };
             foreach (bool atEnd in ends)
             {
+                // The segment selected, then the pick point near the end to extend, in sketch coordinates (verified: on the
+                // Top plane the model coordinates of the same point extended the other end).
                 var pick = PickNear(g, atEnd);
-                var places = new List<Vec3> { pick };
-                if (!s2m.IsIdentity()) places.Add(s2m.ApplyPoint(pick)); // the coordinate space of SketchExtend is unverified
-                foreach (var place in places)
+                d.ClearSelection2(true);
+                if (!SelectOne(d, r, false, 0)) throw new SwException(ErrorCodes.FeatureFailed, $"Could not select {r.Label}.");
+                bool ok = d.SketchManager.SketchExtend(pick.X, pick.Y, 0);
+                d.ClearSelection2(true);
+                var after = SkState.Take(sketch);
+                var diff = Diff(before, after);
+                if (diff.None && after.Relations == before.Relations && after.Points == before.Points) continue; // nothing ahead of this end
+                var ng = after.Segs.GetValueOrDefault(name);
+                bool moved = ng is not null && (atEnd ? ng.End : ng.Start).DistanceTo(atEnd ? g.End : g.Start) > Tol;
+                bool kept = ng is not null && (atEnd ? ng.Start : ng.End).DistanceTo(atEnd ? g.Start : g.End) < Tol;
+                if (ng is null || ng.Length <= g.Length + Tol || !moved || !kept)
                 {
-                    d.ClearSelection2(true);
-                    if (!SelectOne(d, r, false, 0)) throw new SwException(ErrorCodes.FeatureFailed, $"Could not select {r.Label}.");
-                    bool ok = d.SketchManager.SketchExtend(place.X, place.Y, place.Z);
-                    d.ClearSelection2(true);
-                    var after = SkState.Take(sketch);
-                    var diff = Diff(before, after);
-                    if (after.Segs.TryGetValue(name, out var ng) && ng.Length > g.Length + Tol)
-                    {
-                        var checks = new List<string>
-                        {
-                            $"{name} {Units.Mm(g.Length)} → {Units.Mm(ng.Length)} mm (its {(atEnd ? "end" : "start")} extended)",
-                        };
-                        return Change(ctx, d, sketch, "extend", before, after, diff, checks, [r.Info("segment")]);
-                    }
-                    if (!diff.None)
-                    {
-                        string rb = Undo(ctx, d, sketchName, before);
-                        throw new SwException(ErrorCodes.VerifyFailed, $"SketchExtend changed the sketch without lengthening {name} (returned {ok}). {rb}");
-                    }
+                    string rb = Undo(ctx, d, sketchName, before);
+                    throw new SwException(ErrorCodes.VerifyFailed,
+                        $"SketchExtend changed the sketch without extending the {(atEnd ? "end" : "start")} of {name} (returned {ok}). {rb}");
                 }
+                var checks = new List<string>
+                {
+                    $"{name} {Units.Mm(g.Length)} → {Units.Mm(ng.Length)} mm (its {(atEnd ? "end" : "start")} moved to [{TopoQuery.Fmt(P2(atEnd ? ng.End : ng.Start))}], the other end stayed)",
+                };
+                return Change(ctx, d, sketch, "extend", before, after, diff, checks, [r.Info("segment")]);
             }
             throw new SwException(ErrorCodes.VerifyFailed,
                 $"{name} could not be extended: no segment lies ahead of {(which == "auto" ? "either end" : $"its {which}")}.",
@@ -1008,7 +1076,8 @@ public sealed class SketchEditService(SwSession session)
     {
         double dist = Units.PositiveM(distanceMm, "distanceMm");
         string sd = Lower(side ?? "outward");
-        if (sd is not ("outward" or "inward" or "both")) throw SwException.InvalidArgument($"side '{side}' is not supported.", "Use outward, inward or both.");
+        if (sd is not ("outward" or "inward" or "both" or "left" or "right"))
+            throw SwException.InvalidArgument($"side '{side}' is not supported.", "Use outward, inward or both for a closed loop; left, right or both for an open chain.");
         if (segments is null || segments.Count == 0)
             throw SwException.InvalidArgument("'segments' must name at least one segment (e.g. the four lines of a rectangle, or one of them with chain=true).");
         return session.RunAsync("sketch_offset", ctx =>
@@ -1022,51 +1091,82 @@ public sealed class SketchEditService(SwSession session)
             var seeds = refs.Select(r => ((ISketchSegment)r.Obj).GetName()).ToList();
             var loop = (chain ? Chain(before, seeds) : seeds).Select(n => before.Segs[n]).ToList();
             bool closed = IsClosedLoop(loop);
+            if (closed && sd is "left" or "right")
+                throw SwException.InvalidArgument($"The segments form a closed loop, so side '{sd}' is ambiguous.", "Use side outward, inward or both.");
+            if (!closed && sd is "outward" or "inward")
+                throw SwException.InvalidArgument($"The segments form an open chain, which has no inside (side '{sd}').",
+                    $"Use side left or right (seen along {seeds[0]} from its start to its end, as sketch_info lists them) or both; " +
+                    "for a loop, pass all its segments or chain=true.");
             var ob = BoxOf(loop);
-            double[] signs = sd switch { "inward" => [-1, 1], "both" => [1], _ => [1, -1] };
-            string? lastProblem = null;
-            foreach (double sign in signs)
+            // Verified: a positive distance offsets a closed loop outward (whatever its orientation) and an open chain to the
+            // right of the first selected segment (start → end); a negative one goes the other way; bothDirections makes both.
+            double sign = sd is "inward" or "left" ? -1 : 1;
+            d.ClearSelection2(true);
+            SelectAll(d, refs, 0);
+            bool ok = d.SketchManager.SketchOffset2(sign * dist, sd == "both", chain,
+                (int)swSkOffsetCapEndType_e.swSkOffsetNoCaps, (int)swSkOffsetMakeConstructionType_e.swSkOffsetDontMakeConstruction, false);
+            d.ClearSelection2(true);
+            var after = SkState.Take(sketch);
+            var diff = Diff(before, after);
+            if (diff.Created.Count == 0)
             {
-                d.ClearSelection2(true);
-                SelectAll(d, refs, 0);
-                bool ok = d.SketchManager.SketchOffset2(sign * dist, sd == "both", chain,
-                    (int)swSkOffsetCapEndType_e.swSkOffsetNoCaps, (int)swSkOffsetMakeConstructionType_e.swSkOffsetDontMakeConstruction, false);
-                d.ClearSelection2(true);
-                var after = SkState.Take(sketch);
-                var diff = Diff(before, after);
-                if (diff.Created.Count == 0)
-                {
-                    if (!diff.None)
-                    {
-                        string rb0 = Undo(ctx, d, sketchName, before);
-                        throw new SwException(ErrorCodes.VerifyFailed, $"SketchOffset2 changed the sketch but created no offset segments. {rb0}");
-                    }
-                    lastProblem = $"SketchOffset2 with {Units.Mm(sign * dist)} mm created nothing (returned {ok})";
-                    continue;
-                }
-                var made = diff.Created.Select(n => after.Segs[n]).ToList();
-                var nb = BoxOf(made);
-                string got = closed ? Classify(ob, nb, made, dist) : "open";
-                int matched = made.Count(m => OffsetMatches(m, loop, dist));
-                if ((!closed || got == sd) && matched > 0)
-                {
-                    var checks = new List<string>
-                    {
-                        closed ? $"{got}: loop {Size(ob)} → {Size(nb)} mm" : "open chain: offset to SOLIDWORKS' side for this sign",
-                        $"{matched} of {made.Count} new segments lie {Units.Mm(dist)} mm from the originals",
-                    };
-                    if (sign < 0) checks.Add("inward = negative distance");
-                    if (matched < made.Count) ctx.Warn($"{made.Count - matched} new segment(s) are not at {Units.Mm(dist)} mm from an original (corner arcs or joins?); check sketch_info.");
-                    return Change(ctx, d, sketch, "offset", before, after, diff, checks, refs.Select(x => x.Info("segments")).ToList(),
-                        side: got, box: [Units.Mm(nb.X0), Units.Mm(nb.Y0), Units.Mm(nb.X1), Units.Mm(nb.Y1)]);
-                }
-                string rb = Undo(ctx, d, sketchName, before);
-                lastProblem = $"with {Units.Mm(sign * dist)} mm the result went {got} (loop {Size(ob)} → {Size(nb)} mm, {matched} of {made.Count} segments at the distance); {rb}";
-                if (!rb.StartsWith("Rolled back", StringComparison.Ordinal)) break;
+                string rb0 = diff.None && after.Relations == before.Relations ? "Nothing changed." : Undo(ctx, d, sketchName, before);
+                throw new SwException(ErrorCodes.FeatureFailed, $"SketchOffset2 created no offset segments (returned {ok}). {rb0}",
+                    "An inward offset larger than the loop fails; check that the segments are the ones you mean.");
             }
-            throw new SwException(ErrorCodes.VerifyFailed, $"No {sd} offset of {Units.Mm(dist)} mm could be verified: {lastProblem}.",
-                "Check that the segments form the loop you mean (chain=true takes the whole connected loop); an inward offset larger than the loop fails.");
+            var made = diff.Created.Select(n => after.Segs[n]).ToList();
+            var nb = BoxOf(made);
+            int matched = made.Count(m => OffsetMatches(m, loop, dist));
+            string? got = closed ? Classify(ob, nb, made, dist) : OpenSide(before.Segs[seeds[0]], made, dist);
+            string? problem =
+                got is not null && got != sd ? (closed ? $"the result went {got} (loop {Size(ob)} → {Size(nb)} mm)" : $"the new segments lie {got} of {seeds[0]}") :
+                matched == 0 ? $"none of the {made.Count} new segments lies {Units.Mm(dist)} mm from an original" :
+                null;
+            if (problem is not null)
+            {
+                string rb = Undo(ctx, d, sketchName, before);
+                throw new SwException(ErrorCodes.VerifyFailed, $"The {sd} offset of {Units.Mm(dist)} mm could not be verified: {problem}. {rb}",
+                    "Check that the segments form the loop or chain you mean (chain=true takes the whole connected chain).");
+            }
+            var checks = new List<string>
+            {
+                closed ? $"{got}: loop {Size(ob)} → {Size(nb)} mm" :
+                got is null ? "open chain: the side was not checked (the first segment is not a line or arc)" : $"{got} of {seeds[0]} (start → end)",
+                $"{matched} of {made.Count} new segments lie {Units.Mm(dist)} mm from the originals",
+            };
+            if (matched < made.Count) ctx.Warn($"{made.Count - matched} new segment(s) are not at {Units.Mm(dist)} mm from an original (corner arcs or joins?); check sketch_info.");
+            return Change(ctx, d, sketch, "offset", before, after, diff, checks, refs.Select(x => x.Info("segments")).ToList(),
+                side: got ?? sd, box: [Units.Mm(nb.X0), Units.Mm(nb.Y0), Units.Mm(nb.X1), Units.Mm(nb.Y1)]);
         }, RunOptions.Write(doc), ct);
+    }
+
+    /// <summary>
+    /// Which side of an open chain's first segment the offset went: a point the distance off its middle, to the right or
+    /// left of its start → end direction, lies on a new segment. Null when the first segment is not a line or an arc.
+    /// </summary>
+    private static string? OpenSide(Geo first, IReadOnlyList<Geo> made, double d)
+    {
+        Vec3 mid, tangent;
+        switch (first.Kind)
+        {
+            case "line":
+                mid = (first.Start + first.End) / 2;
+                tangent = (first.End - first.Start).Normalized();
+                break;
+            case "arc":
+            {
+                double a = ArcMidAngle(first.Start, first.End, first.Center, first.Dir);
+                mid = first.Center + new Vec3(Math.Cos(a), Math.Sin(a), 0) * first.Radius;
+                tangent = new Vec3(-Math.Sin(a), Math.Cos(a), 0) * first.Dir;
+                break;
+            }
+            default:
+                return null;
+        }
+        var right = new Vec3(tangent.Y, -tangent.X, 0);
+        bool OnNew(Vec3 p) => made.Any(m => DistanceTo(m, p) < Tol);
+        bool r = OnNew(mid + right * d), l = OnNew(mid - right * d);
+        return r && l ? "both" : r ? "right" : l ? "left" : "unclear";
     }
 
     private static string Classify(Box2 ob, Box2 nb, IReadOnlyList<Geo> made, double d)
@@ -1201,8 +1301,10 @@ public sealed class SketchEditService(SwSession session)
             var (a, b, corner) = CornerOf(ctx, d, sketch, m2s, segments, at);
             string an = ((ISketchSegment)a.Obj).GetName(), bn = ((ISketchSegment)b.Obj).GetName();
             var before = SkState.Take(sketch);
+            // Verified: CreateChamfer(type, D, X) puts D on the second selected segment (distance-angle measures the angle
+            // from it too) and X on the first. Selecting b, then a puts distanceMm on a, the first segment of the corner.
             d.ClearSelection2(true);
-            SelectAll(d, [a, b], 0);
+            SelectAll(d, [b, a], 0);
             var made = d.SketchManager.CreateChamfer(apiType, d1, second);
             d.ClearSelection2(true);
             var after = SkState.Take(sketch);
@@ -1216,40 +1318,44 @@ public sealed class SketchEditService(SwSession session)
             }
             var checks = new List<string>();
             var cl = after.Segs[lines[0]];
-            if (corner is Vec3 pc)
+            var ga = before.Segs[an];
+            var gb = before.Segs[bn];
+            if (corner is Vec3 pc && ga.Kind == "line" && gb.Kind == "line")
             {
-                double da = cl.Start.DistanceTo(pc), db = cl.End.DistanceTo(pc);
+                // The chamfer end on a's line, and the one on b's.
+                bool startOnA = PointLineDistance(cl.Start, ga.Start, ga.End) <= PointLineDistance(cl.End, ga.Start, ga.End);
+                var (ea, eb) = startOnA ? (cl.Start, cl.End) : (cl.End, cl.Start);
+                double da = ea.DistanceTo(pc), db = eb.DistanceTo(pc);
+                double ang = Math.Acos(Math.Clamp((pc - ea).Normalized().Dot((eb - ea).Normalized()), -1, 1));
                 bool Near(double x, double y) => Math.Abs(x - y) < Tol;
-                bool ok = t switch
+                bool onLines = PointLineDistance(ea, ga.Start, ga.End) < Tol && PointLineDistance(eb, gb.Start, gb.End) < Tol;
+                bool ok = onLines && t switch
                 {
                     "equal" => Near(da, d1) && Near(db, d1),
-                    "distance_distance" => (Near(da, d1) && Near(db, second)) || (Near(da, second) && Near(db, d1)),
-                    _ => AngleAt(cl.Start, cl.End, pc, d1, second) || AngleAt(cl.End, cl.Start, pc, d1, second),
+                    "distance_distance" => Near(da, d1) && Near(db, second),
+                    _ => Near(da, d1) && Math.Abs(ang - second) < AngTol * 10,
                 };
+                string what = t == "distance_angle"
+                    ? $"{Units.Mm(da)} mm along {an}, {Math.Round(Units.Deg(ang), 6)}° from {an} ({Units.Mm(db)} mm along {bn})"
+                    : $"{Units.Mm(da)} mm along {an}, {Units.Mm(db)} mm along {bn}";
                 if (!ok)
                 {
                     string rb = Undo(ctx, d, sketchName, before);
                     throw new SwException(ErrorCodes.VerifyFailed,
-                        $"The chamfer line's ends are {Units.Mm(da)} and {Units.Mm(db)} mm from the corner [{TopoQuery.Fmt(P2(pc))}], which doesn't match the request. {rb}");
+                        $"The chamfer cuts the corner [{TopoQuery.Fmt(P2(pc))}] {what}, which doesn't match the request. {rb}");
                 }
-                checks.Add($"chamfer {lines[0]}: ends {Units.Mm(da)} / {Units.Mm(db)} mm from the corner");
+                checks.Add($"chamfer {lines[0]}: {what}");
+            }
+            else if (corner is Vec3 pc2 && t == "equal" && Math.Abs(cl.Start.DistanceTo(pc2) - d1) < Tol && Math.Abs(cl.End.DistanceTo(pc2) - d1) < Tol)
+            {
+                checks.Add($"chamfer {lines[0]}: both ends {Units.Mm(d1)} mm from the corner");
             }
             else
             {
-                checks.Add($"chamfer line {lines[0]} created (corner not computable, distances not checked)");
+                checks.Add($"chamfer line {lines[0]} created (distances checked only between two lines)");
             }
             return Change(ctx, d, sketch, "chamfer", before, after, diff, checks, [a.Info("segments"), b.Info("segments")]);
         }, RunOptions.Write(doc), ct);
-    }
-
-    /// <summary>distance-angle check: <paramref name="e1"/> lies <paramref name="dist"/> from the corner and the chamfer makes the angle with that side.</summary>
-    private static bool AngleAt(Vec3 e1, Vec3 e2, Vec3 corner, double dist, double angle)
-    {
-        if (Math.Abs(e1.DistanceTo(corner) - dist) > Tol) return false;
-        var u = (corner - e1).Normalized();
-        var v = (e2 - e1).Normalized();
-        double a = Math.Acos(Math.Clamp(u.Dot(v), -1, 1));
-        return Math.Abs(a - angle) < AngTol * 10 || Math.Abs(a - (Math.PI - angle)) < AngTol * 10;
     }
 
     // ================================================================================================ sketch_pattern
@@ -1278,8 +1384,16 @@ public sealed class SketchEditService(SwSession session)
                 if (n < 2) throw SwException.InvalidArgument("A circular pattern needs count ≥ 2 (the seed included).");
                 if (n > MaxInstances) throw SwException.InvalidArgument($"At most {MaxInstances} instances per call.");
                 CheckPoint(q.Center, "center", required: true);
-                if (!double.IsFinite(q.TotalAngleDeg) || q.TotalAngleDeg <= 0 || q.TotalAngleDeg > 360)
-                    throw SwException.InvalidArgument("totalAngleDeg must be in (0, 360].");
+                if (!double.IsFinite(q.TotalAngleDeg) || q.TotalAngleDeg == 0 || Math.Abs(q.TotalAngleDeg) > 360)
+                    throw SwException.InvalidArgument($"totalAngleDeg must be between -360 and 360 and not 0 (got {q.TotalAngleDeg}).",
+                        "360 = a full circle; less: the instances span that angle; negative = clockwise.");
+                // Verified: once count × step exceeds 360°, SOLIDWORKS spaces the instances 360°/count apart instead.
+                double stepDeg = Math.Abs(q.TotalAngleDeg) / (n - 1);
+                if (!FullCircle(q.TotalAngleDeg) && n * stepDeg > 360 + 1e-9)
+                    throw SwException.InvalidArgument(
+                        $"{n} instances spanning {q.TotalAngleDeg}° would be {Math.Round(stepDeg, 6)}° apart, but SOLIDWORKS spaces a circular sketch " +
+                        $"pattern evenly around the full circle once count × step exceeds 360°; {n} instances can span at most {Math.Round(360.0 * (n - 1) / n, 6)}°.",
+                        "Use totalAngleDeg 360 for an even full circle, or make each copy in its own call: count 2 with totalAngleDeg = the copy's angle (-180 to 180).");
                 break;
             }
             default:
@@ -1297,67 +1411,48 @@ public sealed class SketchEditService(SwSession session)
         var refs = Refs(ctx, d, sketch, m2s, q.Entities!, "entities", SketchKinds);
         var before = SkState.Take(sketch);
         var seeds = SeedGeos(refs, before);
-        int pointSeeds = refs.Count(r => r.Obj is ISketchPoint);
+        var pointSeeds = PointSeeds(refs);
         int nx = q.CountX ?? 1, ny = q.CountY ?? 1;
         double dx = nx > 1 ? Units.M(q.SpacingXMm!.Value) : 0, dy = ny > 1 ? Units.M(q.SpacingYMm!.Value) : 0;
-        double ax = Units.Rad(q.AngleDeg ?? 0);
-        var attempts = new List<(double Ax, double Ay)> { (ax, ax + Math.PI / 2) };
-        for (int i = 0; i < attempts.Count && i < 2; i++)
+        double ax = Units.Rad(q.AngleDeg ?? 0), ay = ax + Math.PI / 2;
+        // Verified: both angles are absolute directions from sketch +x (counter-clockwise), the spacings run along them and
+        // the counts include the seed.
+        d.ClearSelection2(true);
+        SelectAll(d, refs, 0);
+        bool ok = d.SketchManager.CreateLinearSketchStepAndRepeat(nx, ny, dx > 0 ? dx : Math.Max(dy, 0.001), dy > 0 ? dy : Math.Max(dx, 0.001),
+            ax, ay, "", false, false, false, false, false);
+        d.ClearSelection2(true);
+        var after = SkState.Take(sketch);
+        var diff = Diff(before, after);
+        if (diff.Created.Count == 0 && after.Points == before.Points)
         {
-            var (a1, a2) = attempts[i];
-            d.ClearSelection2(true);
-            SelectAll(d, refs, 0);
-            bool ok = d.SketchManager.CreateLinearSketchStepAndRepeat(nx, ny, dx > 0 ? dx : Math.Max(dy, 0.001), dy > 0 ? dy : Math.Max(dx, 0.001),
-                a1, a2, "", false, false, false, false, false);
-            d.ClearSelection2(true);
-            var after = SkState.Take(sketch);
-            var diff = Diff(before, after);
-            if (diff.Created.Count == 0 && after.Points == before.Points)
-            {
-                string rb0 = diff.None ? "Nothing changed." : Undo(ctx, d, sketchName, before);
-                throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS created no pattern instances (returned {ok}). {rb0}",
-                    "Check the entities and spacing (instances may not overlap the seed).");
-            }
-            var made = Copies(diff, after, seeds);
-            Vec3 Dir(double a) => new(Math.Cos(a), Math.Sin(a), 0);
-            var u = Dir(a1);
-            var v = Dir(a2);
-            List<Geo> Predict(Vec3 du, Vec3 dv)
-            {
-                var list = new List<Geo>();
-                foreach (var s in seeds)
-                    for (int ix = 0; ix < nx; ix++)
-                        for (int iy = 0; iy < ny; iy++)
-                            if (ix != 0 || iy != 0) list.Add(s with { Center = s.Anchor + du * (ix * dx) + dv * (iy * dy) });
-                return list;
-            }
-            bool countsOk = seeds.Count > 0 ? made.Count == seeds.Count * (nx * ny - 1)
-                                            : after.Points - before.Points == pointSeeds * (nx * ny - 1);
-            if (countsOk && (seeds.Count == 0 || MatchAll(made, Predict(u, v))))
-            {
-                var checks = new List<string>
-                {
-                    seeds.Count > 0 ? $"{made.Count} new segment(s) at the predicted positions" : $"{after.Points - before.Points} new point(s)",
-                };
-                if (i > 0) checks.Add("direction angle flipped by 180° to match the requested direction");
-                return Change(ctx, d, sketch, "pattern", before, after, diff, checks, refs.Select(r => r.Info("entities")).ToList());
-            }
-            if (i == 0 && countsOk && seeds.Count > 0)
-            {
-                foreach (var (su, sv) in new[] { (-1.0, 1.0), (1.0, -1.0), (-1.0, -1.0) })
-                    if (MatchAll(made, Predict(u * su, v * sv)))
-                    {
-                        attempts.Add((su < 0 ? a1 + Math.PI : a1, sv < 0 ? a2 + Math.PI : a2));
-                        break;
-                    }
-            }
-            string rb = Undo(ctx, d, sketchName, before);
-            if (attempts.Count == i + 1 || !rb.StartsWith("Rolled back", StringComparison.Ordinal))
-                throw new SwException(ErrorCodes.VerifyFailed,
-                    $"The pattern made {(seeds.Count > 0 ? $"{made.Count} segment(s)" : $"{after.Points - before.Points} point(s)")} " +
-                    $"where {(seeds.Count > 0 ? seeds.Count : pointSeeds) * (nx * ny - 1)} were expected at the requested spacing. {rb}");
+            string rb0 = diff.None && after.Relations == before.Relations ? "Nothing changed." : Undo(ctx, d, sketchName, before);
+            throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS created no pattern instances (returned {ok}). {rb0}",
+                "Check the entities and spacing (instances may not overlap the seed).");
         }
-        throw new SwException(ErrorCodes.VerifyFailed, "The linear pattern could not be verified.");
+        var made = Copies(diff, after, seeds);
+        var u = new Vec3(Math.Cos(ax), Math.Sin(ax), 0);
+        var v = new Vec3(Math.Cos(ay), Math.Sin(ay), 0);
+        var offsets = new List<Vec3>();
+        for (int ix = 0; ix < nx; ix++)
+            for (int iy = 0; iy < ny; iy++)
+                if (ix != 0 || iy != 0) offsets.Add(u * (ix * dx) + v * (iy * dy));
+        var expected = seeds.SelectMany(s => offsets.Select(o => MapGeo(s, p => p + o))).ToList();
+        bool segsOk = seeds.Count == 0 || MatchAll(made, expected);
+        bool ptsOk = pointSeeds.Count == 0 || NewPointsAt(before, after, pointSeeds.SelectMany(p => offsets.Select(o => p + o)));
+        if (!segsOk || !ptsOk)
+        {
+            string rb = Undo(ctx, d, sketchName, before);
+            throw new SwException(ErrorCodes.VerifyFailed,
+                $"The pattern's copies are not at the requested positions ({made.Count} segment(s) where {expected.Count} were expected" +
+                $"{(pointSeeds.Count > 0 ? $", the {pointSeeds.Count * offsets.Count} point(s) {(ptsOk ? "in place" : "not all in place")}" : "")}). {rb}");
+        }
+        var checks = new List<string>
+        {
+            $"{offsets.Count} instance(s) along {Math.Round(Units.Deg(ax), 6)}°{(ny > 1 ? $" and {Math.Round(Units.Deg(ay), 6)}°" : "")}: " +
+            $"{made.Count} new segment(s){(pointSeeds.Count > 0 ? $" and {pointSeeds.Count * offsets.Count} point(s)" : "")} at the predicted positions",
+        };
+        return Change(ctx, d, sketch, "pattern", before, after, diff, checks, refs.Select(r => r.Info("entities")).ToList());
     }
 
     private static SketchChangeResult CircularPattern(SwContext ctx, SketchPatternRequest q)
@@ -1369,75 +1464,89 @@ public sealed class SketchEditService(SwSession session)
         var refs = Refs(ctx, d, sketch, m2s, q.Entities!, "entities", SketchKinds);
         var center = ToSketch(q.Center!, m2s, "center", ctx);
         int n = q.Count ?? q.CountX ?? 2;
-        double total = Units.Rad(q.TotalAngleDeg);
+        // The step between instances, counter-clockwise positive: a full circle is split into n steps, a partial angle is
+        // spanned by the n instances (n - 1 steps).
+        double step = FullCircle(q.TotalAngleDeg) ? Math.Sign(q.TotalAngleDeg) * 2 * Math.PI / n : Units.Rad(q.TotalAngleDeg) / (n - 1);
         var before = SkState.Take(sketch);
         var seeds = SeedGeos(refs, before);
-        int pointSeeds = refs.Count(r => r.Obj is ISketchPoint);
-        // The API takes the center as seed + R·(cos A, sin A) (verified for a circle seed). Which point of a general
-        // selection is "the seed" is not verified: try the selection's box center, the first seed's anchor, the anchors' centroid.
-        var candidates = new List<(Vec3 P, string What)>();
-        void AddCand(Vec3 p, string what) { if (!candidates.Any(c => c.P.DistanceTo(p) < Tol)) candidates.Add((p, what)); }
-        var allPoints = refs.Where(r => r.Obj is ISketchPoint).Select(r => SketchPointPos((ISketchPoint)r.Obj)).ToList();
-        if (seeds.Count > 0)
+        var pointSeeds = PointSeeds(refs);
+        // Verified: SOLIDWORKS rotates about the middle of the selection's bounding box + R·(cos A, sin A), and
+        // PatternSpacing is the angle between instances, positive = clockwise.
+        var box = BoxOf(seeds, pointSeeds);
+        var reference = new Vec3((box.X0 + box.X1) / 2, (box.Y0 + box.Y1) / 2, 0);
+        double radius = reference.DistanceTo(center);
+        // Verified: it returns False for R = 0 and for a negative A (A = 270° works where -90° fails). Never send a call
+        // known to fail: after four failed calls a document faults (RPC_E_SERVERFAULT) when it is closed while active.
+        if (radius < MinPatternRadius)
+            throw new SwException(ErrorCodes.NotSupported,
+                $"The center [{TopoQuery.Fmt(P2(center))}] is the middle of the entities' bounding box, the point SOLIDWORKS carries around the " +
+                "circle; its API can't pattern about that point (radius 0).",
+                "Pattern geometry whose box middle is off the center (e.g. one half of a line through it), or draw the copies with sketch_add.");
+        double angle = NormAngle(Math.Atan2(center.Y - reference.Y, center.X - reference.X));
+        if (!(angle > 0) || angle >= 2 * Math.PI) angle = 0; // no -0 and no 2π from rounding
+        d.ClearSelection2(true);
+        SelectAll(d, refs, 0);
+        bool ok = d.SketchManager.CreateCircularSketchStepAndRepeat(radius, angle, n, -step, true, "", false, false, false);
+        d.ClearSelection2(true);
+        var after = SkState.Take(sketch);
+        var diff = Diff(before, after);
+        if (diff.Created.Count == 0 && after.Points == before.Points)
         {
-            var box = BoxOf(seeds);
-            AddCand(new Vec3((box.X0 + box.X1) / 2, (box.Y0 + box.Y1) / 2, 0), "the selection's box center");
-            AddCand(seeds[0].Anchor, "the first seed's center");
-            AddCand(seeds.Aggregate(Vec3.Zero, (s, g) => s + g.Anchor) / seeds.Count, "the seeds' centroid");
+            string rb0 = diff.None && after.Relations == before.Relations ? "Nothing changed." : Undo(ctx, d, sketchName, before);
+            throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS created no pattern instances (returned {ok}). {rb0}",
+                "Check the entities, count and center.");
         }
-        else
+        var made = Copies(diff, after, seeds);
+        var expected = Rotated(seeds, center, n, step);
+        bool segsOk = seeds.Count == 0 || MatchAll(made, expected);
+        bool ptsOk = pointSeeds.Count == 0 || NewPointsAt(before, after, RotatedPoints(pointSeeds, center, n, step));
+        string about = $"about [{TopoQuery.Fmt(P2(center))}]";
+        if (!segsOk || !ptsOk)
         {
-            AddCand(allPoints[0], "the first point");
-            AddCand(allPoints.Aggregate(Vec3.Zero, (s, p) => s + p) / allPoints.Count, "the points' centroid");
-        }
-        string? lastProblem = null;
-        foreach (var (seed, what) in candidates)
-        {
-            double radius = seed.DistanceTo(center);
-            if (radius < 1e-9) { lastProblem = $"the center lies on {what}"; continue; }
-            double angle = Math.Atan2(center.Y - seed.Y, center.X - seed.X);
-            d.ClearSelection2(true);
-            SelectAll(d, refs, 0);
-            bool ok = d.SketchManager.CreateCircularSketchStepAndRepeat(radius, angle, n, total, true, "", false, false, false);
-            d.ClearSelection2(true);
-            var after = SkState.Take(sketch);
-            var diff = Diff(before, after);
-            if (diff.Created.Count == 0 && after.Points == before.Points)
-            {
-                string rb0 = diff.None ? "Nothing changed." : Undo(ctx, d, sketchName, before);
-                throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS created no pattern instances (returned {ok}). {rb0}",
-                    "Check the entities, count and center.");
-            }
-            var made = Copies(diff, after, seeds);
-            string? layout = null;
-            if (seeds.Count > 0)
-            {
-                // Every copy must be a seed rotated about the requested center by k steps (k = 1 … n-1). A full circle is
-                // divided into n steps; for a partial angle the convention (n-1 or n steps, which sense) is unverified, so
-                // each is tried and the one that matches is reported.
-                bool full = Math.Abs(total - 2 * Math.PI) < 1e-9;
-                var steps = full ? new[] { total / n } : new[] { total / (n - 1), total / n };
-                foreach (double step in steps)
-                    foreach (int sense in new[] { 1, -1 })
-                        if (layout is null && MatchAll(made, Rotated(seeds, center, n, sense * step)))
-                            layout = $"{made.Count} copies rotated in steps of {Units.Deg(step)}° {(full ? "" : sense > 0 ? "counter-clockwise " : "clockwise ")}about [{TopoQuery.Fmt(P2(center))}]";
-            }
-            else if (after.Points - before.Points == pointSeeds * (n - 1))
-            {
-                layout = $"{after.Points - before.Points} new point(s) about [{TopoQuery.Fmt(P2(center))}]";
-            }
-            if (layout is not null)
-            {
-                var checks = new List<string> { layout, $"seed reference: {what}" };
-                return Change(ctx, d, sketch, "pattern", before, after, diff, checks, refs.Select(r => r.Info("entities")).ToList());
-            }
             string rb = Undo(ctx, d, sketchName, before);
-            lastProblem = $"with {what} as the seed the copies did not rotate about [{TopoQuery.Fmt(P2(center))}]; {rb}";
-            if (!rb.StartsWith("Rolled back", StringComparison.Ordinal)) break;
+            throw new SwException(ErrorCodes.VerifyFailed,
+                $"The copies are not the seeds rotated {about} in steps of {Math.Round(Units.Deg(step), 6)}° ({made.Count} segment(s) where " +
+                $"{expected.Count} were expected{(pointSeeds.Count > 0 ? $", the points {(ptsOk ? "in place" : "not all in place")}" : "")}). {rb}",
+                "Pattern lines, arcs, circles and points (the rotation reference of other kinds may differ), or report this case.");
         }
-        throw new SwException(ErrorCodes.VerifyFailed, $"The circular pattern could not be verified: {lastProblem}.",
-            "Pattern a single circle or arc (its center is the seed), or report this case.");
+        var checks = new List<string>
+        {
+            $"{made.Count} segment cop{(made.Count == 1 ? "y" : "ies")}{(pointSeeds.Count > 0 ? $" and {pointSeeds.Count * (n - 1)} point(s)" : "")} " +
+            $"rotated {about} in steps of {Math.Round(Units.Deg(Math.Abs(step)), 6)}° {(step > 0 ? "counter-clockwise" : "clockwise")}",
+        };
+        // Verified: SOLIDWORKS also adds one sketch point at the pattern's center.
+        if (NewPointsAt(before, after, [center])) checks.Add($"SOLIDWORKS added a sketch point at the center [{TopoQuery.Fmt(P2(center))}]");
+        return Change(ctx, d, sketch, "pattern", before, after, diff, checks, refs.Select(r => r.Info("entities")).ToList());
     }
+
+    private static bool FullCircle(double totalAngleDeg) => Math.Abs(Math.Abs(totalAngleDeg) - 360) < 1e-9;
+
+    /// <summary>The selected sketch points' positions (sketch coordinates).</summary>
+    private static List<Vec3> PointSeeds(IEnumerable<Resolved> refs) =>
+        refs.Where(r => r.Obj is ISketchPoint).Select(r => SketchPointPos((ISketchPoint)r.Obj)).ToList();
+
+    private static IEnumerable<Vec3> RotatedPoints(IReadOnlyList<Vec3> points, Vec3 center, int count, double step)
+    {
+        foreach (var p in points)
+            for (int k = 1; k < count; k++)
+                yield return Rotate(p, center, k * step);
+    }
+
+    /// <summary><paramref name="p"/> turned by <paramref name="a"/> (counter-clockwise) about <paramref name="center"/>.</summary>
+    private static Vec3 Rotate(Vec3 p, Vec3 center, double a)
+    {
+        double c = Math.Cos(a), s = Math.Sin(a);
+        var v = p - center;
+        return center + new Vec3(v.X * c - v.Y * s, v.X * s + v.Y * c, 0);
+    }
+
+    /// <summary>A segment moved by a rigid map of the sketch plane (a reflection reverses arcs).</summary>
+    private static Geo MapGeo(Geo g, Func<Vec3, Vec3> f, bool flips = false) =>
+        g with { Start = f(g.Start), End = f(g.End), Center = f(g.Center), Dir = flips ? -g.Dir : g.Dir };
+
+    /// <summary>True when each expected position holds more sketch points than before (a new point landed there).</summary>
+    private static bool NewPointsAt(SkState before, SkState after, IEnumerable<Vec3> expected) =>
+        expected.All(p => after.PointsAt.Count(x => x.DistanceTo(p) < Tol * 10) > before.PointsAt.Count(x => x.DistanceTo(p) < Tol * 10));
 
     /// <summary>The seed segments' geometry (points are counted separately).</summary>
     private static List<Geo> SeedGeos(IEnumerable<Resolved> refs, SkState s) =>
@@ -1453,21 +1562,20 @@ public sealed class SketchEditService(SwSession session)
         return diff.Created.Select(n => after.Segs[n]).Where(g => g.Kind != "text" && (constructionSeeds || !g.Construction)).ToList();
     }
 
-    /// <summary>The expected copies of a circular pattern (anchor in <see cref="Geo.Center"/>, as <see cref="MatchAll"/> wants).</summary>
+    /// <summary>The expected copies of a circular pattern: each seed turned k·step about the center (k = 1 … count - 1).</summary>
     private static List<Geo> Rotated(IReadOnlyList<Geo> seeds, Vec3 center, int count, double step)
     {
         var list = new List<Geo>();
         foreach (var s in seeds)
             for (int k = 1; k < count; k++)
             {
-                double a = k * step, c = Math.Cos(a), sn = Math.Sin(a);
-                var v = s.Anchor - center;
-                list.Add(s with { Center = center + new Vec3(v.X * c - v.Y * sn, v.X * sn + v.Y * c, 0) });
+                double a = k * step;
+                list.Add(MapGeo(s, p => Rotate(p, center, a)));
             }
         return list;
     }
 
-    /// <summary>True when every created segment matches a distinct expected one (kind, size and anchor, the anchor in <see cref="Geo.Center"/>).</summary>
+    /// <summary>True when every created segment matches a distinct expected one (kind, size, anchor and end points).</summary>
     private static bool MatchAll(IReadOnlyList<Geo> made, IReadOnlyList<Geo> expected)
     {
         if (made.Count != expected.Count) return false;
@@ -1476,16 +1584,25 @@ public sealed class SketchEditService(SwSession session)
         {
             int k = -1;
             for (int i = 0; i < expected.Count && k < 0; i++)
-            {
-                var e = expected[i];
-                if (!used[i] && e.Kind == m.Kind && Math.Abs(e.Radius - m.Radius) < Tol && Math.Abs(e.Length - m.Length) < Tol * 10 &&
-                    e.Center.DistanceTo(m.Anchor) < Tol * 10)
+                if (!used[i] && SameCopy(expected[i], m))
                     k = i;
-            }
             if (k < 0) return false;
             used[k] = true;
         }
         return true;
+    }
+
+    /// <summary>
+    /// A created segment is the expected copy: same kind, radius and length, the anchor in place, and the end points in
+    /// place in either order (so a copy that was moved but not turned fails).
+    /// </summary>
+    private static bool SameCopy(Geo e, Geo m)
+    {
+        const double t = Tol * 10;
+        if (e.Kind != m.Kind || Math.Abs(e.Radius - m.Radius) > Tol || Math.Abs(e.Length - m.Length) > t || e.Anchor.DistanceTo(m.Anchor) > t)
+            return false;
+        if (!e.HasEnds || !m.HasEnds) return e.HasEnds == m.HasEnds;
+        return (e.Start.DistanceTo(m.Start) < t && e.End.DistanceTo(m.End) < t) || (e.Start.DistanceTo(m.End) < t && e.End.DistanceTo(m.Start) < t);
     }
 
     // ================================================================================================= sketch_mirror
@@ -1507,47 +1624,38 @@ public sealed class SketchEditService(SwSession session)
             if (refs.Any(r => SameEntity(r, line))) throw SwException.InvalidArgument("'entities' must not contain the mirror line itself.");
             var before = SkState.Take(sketch);
             var seeds = SeedGeos(refs, before);
-            var expected = seeds.Select(g => g with { Center = Reflect(g.Anchor, lg.Start, lg.End) }).ToList();
-            int pointSeeds = refs.Count(r => r.Obj is ISketchPoint);
-            // Selection marks for SketchMirror are unverified: entities on mark 1 and the line on mark 2 (like the
-            // PropertyManager boxes), then everything on mark 0 with the line last. A wrong result is undone before the
-            // next convention is tried.
-            string? problem = null;
-            for (int attempt = 0; attempt < 2; attempt++)
+            var expected = seeds.Select(g => MapGeo(g, p => Reflect(p, lg.Start, lg.End), flips: true)).ToList();
+            var pointSeeds = PointSeeds(refs);
+            // Verified: the entities on mark 1 and the mirror line on mark 2. With everything on mark 0 SOLIDWORKS takes a
+            // centerline of the selection as the axis (even one meant to be mirrored) and mirrors nothing about a solid line.
+            d.ClearSelection2(true);
+            SelectAll(d, refs, 1);
+            if (!SelectOne(d, line, true, 2)) throw new SwException(ErrorCodes.FeatureFailed, $"Could not select {line.Label}.");
+            d.SketchMirror();
+            d.ClearSelection2(true);
+            var after = SkState.Take(sketch);
+            var diff = Diff(before, after);
+            if (diff.Created.Count == 0 && after.Points == before.Points)
             {
-                d.ClearSelection2(true);
-                SelectAll(d, refs, attempt == 0 ? 1 : 0);
-                if (!SelectOne(d, line, true, attempt == 0 ? 2 : 0)) throw new SwException(ErrorCodes.FeatureFailed, $"Could not select {line.Label}.");
-                d.SketchMirror();
-                d.ClearSelection2(true);
-                var after = SkState.Take(sketch);
-                var diff = Diff(before, after);
-                if (diff.Created.Count == 0 && after.Points == before.Points)
-                {
-                    if (!diff.None)
-                    {
-                        string rb0 = Undo(ctx, d, sketchName, before);
-                        throw new SwException(ErrorCodes.VerifyFailed, $"SketchMirror changed the sketch but made no copies. {rb0}");
-                    }
-                    continue;
-                }
-                var made = Copies(diff, after, seeds);
-                bool ok = seeds.Count > 0 ? MatchAll(made, expected) : after.Points - before.Points >= pointSeeds;
-                if (ok)
-                {
-                    var checks = new List<string>
-                    {
-                        seeds.Count > 0 ? $"{made.Count} mirror cop{(made.Count == 1 ? "y" : "ies")} at the reflected positions" : $"{after.Points - before.Points} new point(s)",
-                    };
-                    return Change(ctx, d, sketch, "mirror", before, after, diff, checks, [.. refs.Select(r => r.Info("entities")), line.Info("about")]);
-                }
-                string rb = Undo(ctx, d, sketchName, before);
-                problem = $"SketchMirror made {made.Count} segment(s) that are not the {seeds.Count} mirror image(s) about {line.Label}. {rb}";
-                if (!rb.StartsWith("Rolled back", StringComparison.Ordinal)) break;
+                string rb0 = diff.None && after.Relations == before.Relations ? "Nothing changed." : Undo(ctx, d, sketchName, before);
+                throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS mirrored nothing about {line.Label}. {rb0}",
+                    "Check that 'about' is a straight line or centerline of this sketch.");
             }
-            if (problem is not null) throw new SwException(ErrorCodes.VerifyFailed, problem, "Mirror about a centerline (sketch_add kind centerline).");
-            throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS mirrored nothing about {line.Label}.",
-                "Check that 'about' is a straight line or centerline of this sketch.");
+            var made = Copies(diff, after, seeds);
+            bool segsOk = seeds.Count == 0 || MatchAll(made, expected);
+            bool ptsOk = pointSeeds.Count == 0 || NewPointsAt(before, after, pointSeeds.Select(p => Reflect(p, lg.Start, lg.End)));
+            if (!segsOk || !ptsOk)
+            {
+                string rb = Undo(ctx, d, sketchName, before);
+                throw new SwException(ErrorCodes.VerifyFailed,
+                    $"SketchMirror made {made.Count} segment(s){(pointSeeds.Count > 0 ? $" and {after.Points - before.Points} point(s)" : "")} that are not " +
+                    $"the mirror images of the {seeds.Count + pointSeeds.Count} entit{(seeds.Count + pointSeeds.Count == 1 ? "y" : "ies")} about {line.Label}. {rb}");
+            }
+            var checks = new List<string>
+            {
+                $"{made.Count + pointSeeds.Count} mirror cop{(made.Count + pointSeeds.Count == 1 ? "y" : "ies")} at the reflected positions about {line.Label}",
+            };
+            return Change(ctx, d, sketch, "mirror", before, after, diff, checks, [.. refs.Select(r => r.Info("entities")), line.Info("about")]);
         }, RunOptions.Write(doc), ct);
     }
 
@@ -1750,11 +1858,13 @@ public sealed class SketchEditService(SwSession session)
 
     private static Vec3 SketchPointPos(ISketchPoint p) => new(p.X, p.Y, 0);
 
-    /// <summary>The sketch's segments (by name), point count, relation count and constrained status.</summary>
+    /// <summary>The sketch's segments (by name), points, relation count and constrained status.</summary>
     private sealed class SkState
     {
         public required Dictionary<string, Geo> Segs { get; init; }
         public int Points { get; init; }
+        /// <summary>Every sketch point's position (sketch coordinates in m; model coordinates in a 3D sketch).</summary>
+        public required List<Vec3> PointsAt { get; init; }
         public int Relations { get; init; }
         public int Status { get; init; }
 
@@ -1762,7 +1872,8 @@ public sealed class SketchEditService(SwSession session)
         {
             var segs = new Dictionary<string, Geo>(StringComparer.Ordinal);
             foreach (var seg in s.Segments()) segs[seg.GetName()] = Read(seg);
-            return new SkState { Segs = segs, Points = s.Points().Count, Relations = RelationCount(s), Status = s.GetConstrainedStatus() };
+            var pts = s.Points().Select(V).ToList();
+            return new SkState { Segs = segs, Points = pts.Count, PointsAt = pts, Relations = RelationCount(s), Status = s.GetConstrainedStatus() };
         }
     }
 
@@ -1781,8 +1892,10 @@ public sealed class SketchEditService(SwSession session)
         a.Center.DistanceTo(b.Center) < Tol && Math.Abs(a.Radius - b.Radius) < Tol && Math.Abs(a.Length - b.Length) < Tol;
 
     /// <summary>
-    /// Undoes the last operation (IModelDoc2.EditUndo2(1), unverified inside a sketch) and checks that the sketch is back
-    /// to <paramref name="before"/>. Returns a sentence for the error message ("Rolled back (undo)." when it is).
+    /// Undoes the last operation with IModelDoc2.EditUndo2(1) and checks that the sketch is back to <paramref name="before"/>.
+    /// Verified: inside a sketch it undoes one offset, chamfer, pattern, mirror, relation, merge or extend and the sketch
+    /// stays open. Call it only after a call that changed something: after a no-op it undoes an earlier step (once it
+    /// closed the sketch). Returns a sentence for the error message ("Rolled back (undo)." when it is).
     /// </summary>
     private static string Undo(SwContext ctx, IModelDoc2 d, string sketchName, SkState before)
     {
@@ -1795,7 +1908,7 @@ public sealed class SketchEditService(SwSession session)
             return "Undo also closed the sketch: re-open it with sketch_edit and check it with sketch_info.";
         }
         var now = SkState.Take(active);
-        return Diff(before, now).None && now.Relations == before.Relations
+        return Diff(before, now).None && now.Relations == before.Relations && now.Points == before.Points
             ? "Rolled back (undo)."
             : "Rollback incomplete: the sketch still differs from before (check sketch_info).";
     }
@@ -1991,7 +2104,8 @@ public sealed class SketchEditService(SwSession session)
     {
         if (r.Kind == EntityKind.Origin && r.Obj is IFeature origin)
         {
-            // The origin as an external sketch point ("Point1@Origin", unverified), else the origin feature.
+            // The origin as an external sketch point ("Point1@Origin", EXTSKETCHPOINT; verified for dimensions and
+            // coincident), else the origin feature.
             if (d.Extension.SelectByID2($"Point1@{origin.Name}", "EXTSKETCHPOINT", 0, 0, 0, append, mark, null, 0)) return true;
             return origin.Select2(append, mark);
         }
@@ -2004,16 +2118,22 @@ public sealed class SketchEditService(SwSession session)
         public Vec3 Anchor => Kind is "arc" or "circle" ? C : Kind == "line" ? (A + B) / 2 : P;
     }
 
-    private static Item ItemOf(Resolved r, Xform m2s)
+    private static Item ItemOf(Resolved r, ISketch open, Xform m2s)
     {
         switch (r.Obj)
         {
             case ISketchPoint p:
-                return new Item(r, "point", new Vec3(p.X, p.Y, 0), default, default, default, 0, 1);
+            {
+                var at = new Vec3(p.X, p.Y, 0);
+                if (p.GetSketch() is ISketch owner && !SameSketch(owner, open))
+                    return Projected(r, new Geo("point", at, at, at, 0, 0, false, false), "point", owner, open, m2s);
+                return new Item(r, "point", at, default, default, default, 0, 1);
+            }
             case ISketchSegment s:
             {
                 var g = Read(s);
                 string k = g.Kind is "line" or "arc" or "circle" ? g.Kind : "other";
+                if (OwnerOf(s) is ISketch owner && !SameSketch(owner, open)) return Projected(r, g, k, owner, open, m2s);
                 return new Item(r, k, g.Start, g.Start, g.End, g.Center, g.Radius, g.Dir);
             }
             default:
@@ -2022,9 +2142,39 @@ public sealed class SketchEditService(SwSession session)
                     var o = m2s.ApplyPoint(Vec3.Zero);
                     return new Item(r, "point", new Vec3(o.X, o.Y, 0), default, default, default, 0, 1);
                 }
-                return new Item(r, "external", default, default, default, default, 0, 1);
+                return External(r);
         }
     }
+
+    private static Item External(Resolved r) => new(r, "external", default, default, default, default, 0, 1);
+
+    /// <summary>
+    /// A segment of another sketch in this sketch's coordinates. Its coordinates are its own sketch's, so it is mapped
+    /// through the model. Only a sketch on a parallel plane maps without distortion (lengths, angles and radii kept); a
+    /// segment of any other sketch counts as external geometry (SOLIDWORKS relates its projection, verified for coincident).
+    /// </summary>
+    private static Item Projected(Resolved r, Geo g, string kind, ISketch owner, ISketch open, Xform m2s)
+    {
+        if (open.Is3D() || owner.Is3D() || kind == "other") return External(r);
+        var o2m = SketchService.SketchToModel(owner);
+        var n = m2s.ApplyVector(o2m.ApplyVector(Vec3.UnitZ));
+        if (Math.Abs(Math.Abs(n.Z) - 1) > 1e-9) return External(r);
+        Vec3 Map(Vec3 q)
+        {
+            var x = m2s.ApplyPoint(o2m.ApplyPoint(q));
+            return new Vec3(x.X, x.Y, 0);
+        }
+        var a = Map(g.Start);
+        return new Item(r, kind, a, a, Map(g.End), Map(g.Center), g.Radius, n.Z < 0 ? -g.Dir : g.Dir);
+    }
+
+    /// <summary>The sketch a segment belongs to.</summary>
+    private static ISketch? OwnerOf(ISketchSegment s) => s.GetSketch();
+
+    private static bool SameSketch(ISketch a, ISketch b) =>
+        string.Equals(((IFeature)a).Name, ((IFeature)b).Name, StringComparison.OrdinalIgnoreCase);
+
+    private static bool InSketch(ISketchSegment s, ISketch sketch) => OwnerOf(s) is not ISketch o || SameSketch(o, sketch);
 
     // ============================================================================================ shared: corners
 
@@ -2257,13 +2407,15 @@ public sealed class SketchEditService(SwSession session)
 
     private readonly record struct Box2(double X0, double Y0, double X1, double Y1);
 
-    private static Box2 BoxOf(IEnumerable<Geo> gs)
+    /// <summary>The tight box of the segments (arcs to their extreme points) and of extra points.</summary>
+    private static Box2 BoxOf(IEnumerable<Geo> gs, IEnumerable<Vec3>? points = null)
     {
         double x0 = double.MaxValue, y0 = double.MaxValue, x1 = double.MinValue, y1 = double.MinValue;
         void Add(Vec3 p)
         {
             x0 = Math.Min(x0, p.X); y0 = Math.Min(y0, p.Y); x1 = Math.Max(x1, p.X); y1 = Math.Max(y1, p.Y);
         }
+        foreach (var p in points ?? []) Add(p);
         foreach (var g in gs)
         {
             switch (g.Kind)
