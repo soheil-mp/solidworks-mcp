@@ -152,15 +152,17 @@ public class FeatureManagementLiveTests(LiveFixture fx) : LiveTest(fx)
     [Fact]
     public async Task Dimension_set_restores_the_value_when_a_feature_breaks()
     {
+        // Not with a fillet radius: SOLIDWORKS lets a fillet overflow its faces (r50 and even r1000 next to the 20 mm front
+        // face rebuild without an error, VERIFIED live). A shell thicker than the part does fail.
         var b = await BlockAsync("fm_dimset_break");
-        string fillet = await FilletAsync(b.Doc);
-        var radius = (await M.DimensionListAsync(b.Doc, fillet)).Dimensions.Single(x => x.Unit == "mm");
-        Assert.Equal(5, radius.Value, 1e-9);
-        // r50 can't fit on the 20 mm high front face: SOLIDWORKS rejects it or the fillet fails to rebuild.
-        var ex = await Assert.ThrowsAsync<SwException>(() => M.DimensionSetAsync(b.Doc, [new DimensionValue { Name = radius.Name, Value = 50 }]));
+        var shell = await new PartFeatureService(S).ShellAsync(new ShellRequest { Doc = b.Doc, RemoveFaces = [new EntityRef { At = [0, 20, 0] }], ThicknessMm = 2 });
+        double v0 = await VolumeAsync(b.Doc);
+        var t = (await M.DimensionListAsync(b.Doc, shell.Feature.Name)).Dimensions.Single(x => x.Unit == "mm");
+        Assert.Equal(2, t.Value, 1e-9);
+        var ex = await Assert.ThrowsAsync<SwException>(() => M.DimensionSetAsync(b.Doc, [new DimensionValue { Name = t.Name, Value = 40 }]));
         Assert.Contains(ex.Code, new[] { ErrorCodes.RebuildError, ErrorCodes.VerifyFailed, ErrorCodes.InvalidArgument });
-        Assert.Equal(5, (await M.DimensionListAsync(b.Doc, fillet)).Dimensions.Single(x => x.Name == radius.Name).Value, 1e-9);
-        Assert.Equal(120000 - FilletDv, await VolumeAsync(b.Doc), V);
+        Assert.Equal(2, (await M.DimensionListAsync(b.Doc, shell.Feature.Name)).Dimensions.Single(x => x.Name == t.Name).Value, 1e-9);
+        Assert.Equal(v0, await VolumeAsync(b.Doc), V);
         Assert.Empty((await M.RebuildAsync(b.Doc)).Errors);
     }
 

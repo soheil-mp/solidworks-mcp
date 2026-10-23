@@ -271,10 +271,14 @@ public sealed class FeatureManagementService(SwSession session)
         object? def;
         try { def = f.Definition(); }
         catch (Exception ex) when (!ComArgs.IsDisconnect(ex)) { return null; }
+        // Cut or boss from the type name ("Cut", "RevCut"): IsBossFeature() reads false for API-made boss extrudes ("ICE").
+        bool cut;
+        try { cut = (f.GetTypeName2() ?? "").Contains("Cut", StringComparison.OrdinalIgnoreCase); }
+        catch (Exception ex) when (!ComArgs.IsDisconnect(ex)) { cut = false; }
         return def switch
         {
-            IExtrudeFeatureData2 x => Extrude(x),
-            IRevolveFeatureData2 r => Revolve(r),
+            IExtrudeFeatureData2 x => Extrude(x, cut),
+            IRevolveFeatureData2 r => Revolve(r, cut),
             ISimpleFilletFeatureData2 s => Fillet(s),
             IChamferFeatureData2 c => Chamfer(c),
             IShellFeatureData sh => Shell(sh),
@@ -285,7 +289,7 @@ public sealed class FeatureManagementService(SwSession session)
         };
     }
 
-    private static FeatureDefinition Extrude(IExtrudeFeatureData2 x)
+    private static FeatureDefinition Extrude(IExtrudeFeatureData2 x, bool cut)
     {
         int end1 = Try(() => x.GetEndCondition(true)) ?? -1;
         bool both = Try(() => x.BothDirections) == true;
@@ -294,7 +298,7 @@ public sealed class FeatureManagementService(SwSession session)
         return new FeatureDefinition
         {
             Kind = "extrude",
-            Cut = Try(() => x.IsBossFeature()) == false ? true : null,
+            Cut = cut ? true : null,
             Thin = Try(() => x.IsThinFeature()) == true ? true : null,
             EndCondition = FeatureManagementLogic.EndConditionName(end1),
             DepthMm = FeatureManagementLogic.HasDepth(end1) ? Mm(Try(() => x.GetDepth(true))) : null,
@@ -307,7 +311,7 @@ public sealed class FeatureManagementService(SwSession session)
         };
     }
 
-    private static FeatureDefinition Revolve(IRevolveFeatureData2 r)
+    private static FeatureDefinition Revolve(IRevolveFeatureData2 r, bool cut)
     {
         int type = Try(() => r.Type) ?? -1;
         bool two = type is (int)swRevolveType_e.swRevolveTypeTwoDirection or (int)swRevolveType_e.swRevolveTypeTwoDirection360Degrees;
@@ -315,7 +319,7 @@ public sealed class FeatureManagementService(SwSession session)
         {
             Kind = "revolve",
             Type = FeatureManagementLogic.RevolveTypeName(type),
-            Cut = Try(() => r.IsBossFeature()) == false ? true : null,
+            Cut = cut ? true : null,
             Thin = Try(() => r.IsThinFeature()) == true ? true : null,
             AngleDeg = Deg(Try(() => r.GetRevolutionAngle(true))),
             Angle2Deg = two ? Deg(Try(() => r.GetRevolutionAngle(false))) : null,

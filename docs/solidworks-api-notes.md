@@ -199,6 +199,13 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
 | Suppress | `IFeature.SetSuppression2(swSuppressFeature = 0 / swUnSuppressFeature = 1, swThisConfiguration = 1, null)` | Per configuration. |
 | Rebuild state | `IFeature.GetErrorCode2(out bool isWarning)` gives 0 = OK. `GetTypeName2()` returns types like `ProfileFeature`, `3DProfileFeature`, `Extrusion`/`ICE` (API extrudes show `ICE`), `Cut`, `Revolution`, `Sweep`, `Blend` (loft), `Fillet`, `Chamfer`, `Shell`, `HoleWzd`, `LPattern`, `CirPattern`, `MirrorPattern`, `RefPlane`, `RefAxis`, `RefPoint`, `Helix`, `ExtruRefSurface`, `SheetMetal`, `SMBaseFlange`, `FlatPattern`, `WeldmentFeature`, `MateGroup`, `MateCoincident`, `MateDistanceDim`. | **A failed call still uses up the feature name**: always read `IFeature.Name`. |
 
+- **Fillets overflow** (VERIFIED). A constant-radius fillet doesn't fail when the radius is larger than a neighbouring
+  face: r50 and even r1000 on the top edge of a 100 × 20 × 60 block rebuild without an error (r1000 leaves 7 099 mm³
+  of the block). Check the volume change, not the error code, to catch a runaway radius. A shell thicker than the
+  part does fail.
+- **Boss or cut** from the feature type name (`Cut`, `RevCut`): `IExtrudeFeatureData2.IsBossFeature()` reads false for an
+  API-made boss extrude (`ICE`). VERIFIED.
+
 ## 5. Reference geometry
 - **Plane.** Select the base plane or entity (marks 0/1/2 for multiple constraints), then
   `IFeatureManager.InsertRefPlane(c1, v1, c2, v2, c3, v3)`. VERIFIED for an offset (`8` = distance, `+256` = flip).
