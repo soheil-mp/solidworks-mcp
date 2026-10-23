@@ -1144,7 +1144,7 @@ List the assembly's mates: name, type, alignment, entity kinds and components, d
 
 ### `asm_pattern` — Pattern / mirror components
 
-Pattern or mirror components as instances of the same files: linear along a direction (optional second one), circular about an axis, or mirror about a plane (opposite-hand files are not made). Counts include the seed. Verified: every new instance's placement (the seed moved by i·spacing, turned by k·angle, or reflected), else rolled back.
+Pattern or mirror components as instances of the same files: linear along a direction (optional second one), circular about an axis, or mirror about a plane; oppositeHand:true writes mirrored part files instead (never replacing one). Counts include the seed. Verified: every new instance's placement (the seed moved by i·spacing, turned by k·angle, or reflected; opposite hands vertex by vertex), else rolled back.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -1161,6 +1161,9 @@ Pattern or mirror components as instances of the same files: linear along a dire
 | `totalAngleDeg` | number |  | circular: with equalSpacing the angle spanned (default 360 = full circle), else the angle between instances. |
 | `equalSpacing` | boolean |  | circular: spread the instances evenly (default true). |
 | `plane` | object |  | mirror: the plane, e.g. {name:'right'} or {component:'base-1', name:'front'}. |
+| `oppositeHand` | boolean |  | mirror: make opposite-hand parts (new mirrored part files) instead of instances. Default: `false`. |
+| `suffix` | string |  | oppositeHand: appended to the seed part's file name (default "_mirror"). |
+| `folder` | string |  | oppositeHand: folder for the new files (default: the seed parts' folder). |
 | `keepOnFailure` | boolean |  | Keep the result even if verification fails (for diagnosis). Default: `false`. |
 | `doc` | string |  | Assembly (handle, title or path); default: the target document. |
 

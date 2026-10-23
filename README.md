@@ -107,7 +107,7 @@ the server.
 | bodies (11) | move/copy, delete, combine, split; direct face edits (`face_edit`: delete and heal, offset, move); surfaces: extrude, revolve, planar, offset, knit, thicken |
 | sheetmetal (7) | base flange, edge flange, miter flange (around corners, closed trays), hem (closed, open, teardrop, rolled), sketched bend, flatten, flat-pattern DXF/DWG |
 | weldments (1) | `weldment_member`: structural members (tube, pipe, channel, angle, beam profiles) along 2D or 3D sketch lines, mitered or butt corners |
-| assembly (10) | insert, mates (standard, limit, symmetric, width, hinge, gear, rack and pinion), mate list, component list/set/move, interference, replace, linear/circular patterns and mirror of components, exploded views |
+| assembly (10) | insert, mates (standard, limit, symmetric, width, hinge, gear, rack and pinion), mate list, component list/set/move, interference, replace, linear/circular patterns and mirror of components (also as new opposite-hand parts), exploded views |
 | drawing (13) | sheet setup, standard/projected/section/detail views, model dimensions, dimensions, notes, BOM, center marks, datums, surface finish, tolerance frames, balloons, hole and revision tables, info |
 | export (1) | `model_export`: STEP (AP203/214/242), IGES, Parasolid, STL, 3MF, images, eDrawings; PDF/DWG/DXF from drawings |
 | properties (13) | materials, custom properties, equations, configurations, appearance |
@@ -116,7 +116,7 @@ the server.
 
 ### Live test status
 Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check the result against an exact answer
-(volumes, positions, angles, file headers, restored system options). All 351 pass:
+(volumes, positions, angles, file headers, restored system options). All 352 pass:
 
 | Area | Live tests |
 |---|---|
@@ -131,7 +131,7 @@ Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check th
 | Bodies, surfaces, sheet metal (including hems, sketched bends and miter flanges) | 51 |
 | Direct face editing (also on an imported STEP) | 6 |
 | Weldments | 4 |
-| Assembly (including component patterns, mirror, mechanical mates and exploded views) | 24 |
+| Assembly (including component patterns, mirror, opposite hands, mechanical mates and exploded views) | 25 |
 | Drawing (including GD&T, balloons, hole and revision tables) | 29 |
 | Simulation (static) | 9 |
 
@@ -151,8 +151,7 @@ PDF, a flat blank and its DXF).
   `NOT_SUPPORTED` instead of passing the file off as AP242.
 - **Tapped holes** are made as their tap-drill holes, without thread geometry, unless `SWMCP_EXPERIMENTAL=1`.
 - **Not available:** screw mates (SOLIDWORKS 2025 ignores their pitch set through the API, so `asm_mate_add` refuses
-  them), sheet-metal jogs, and opposite-hand files from `asm_pattern {kind:"mirror"}` (copies are
-  instances of the same file). Gear mates read their ratio back reversed; the tool accepts and reports that.
+  them) and sheet-metal jogs. Gear mates read their ratio back reversed; the tool accepts and reports that.
 
 A typical modelling loop:
 

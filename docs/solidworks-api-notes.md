@@ -398,6 +398,16 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   component copies them as instances (no new files): a `MirrorCompFeat` feature, its copies `ReferencePattern`. A copy's
   part bounding-box centre lands on the reflection of the seed's; about the Front plane its axes came out x, y mirrored
   and z flipped (a rigid copy can't mirror all three).
+- **Opposite-hand components** (VERIFIED 2026-10-24). `MirrorComponents3` with the seeds as `ComponentsToMirror` (from
+  VBA) returned Empty and made nothing. What works is `FeatureManager.CreateDefinition(swFmMirrorComponent = 116)` as
+  `IMirrorComponentFeatureData`: `MirrorPlane` (the plane feature), `MirrorType` 0 (bounding-box centre),
+  `OppositeHandComponents` (`DispatchWrapper[]`), `CreateDerivedConfigurations = false`, `PlaceFilesInOneFolder = true`,
+  `MirrorComponentsFolderLocation` (no trailing backslash), `MirroredComponentFilenames` (names without extension) with
+  `NameModifierType = swMirrorComponentName_Custom` (2), `ReplaceFileLocations` (one "" per name),
+  `MirrorTransferOptions = ImportSolids` (1), `BreakLinksToOriginalPart = false`, **`PreserveZAxis = false`**, then
+  `CreateFeature`: a `MirrorCompFeat` whose new component references the new part file, which SOLIDWORKS writes at once
+  (its path comes back lower-cased). With `PreserveZAxis = true` (SOLIDWORKS' example) the copy sat turned 180° about y
+  off its mirror image; with false, a handed L at x 40..70 landed exactly on x -70..-40, every vertex reflected.
 
 ## 9. Drawing
 - **Default drawing template:** US Letter (279.4 × 215.9), 1:1, third angle, **no sheet format**, units **CGS**. Set MMGS

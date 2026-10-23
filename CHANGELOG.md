@@ -33,7 +33,7 @@
   - weldments: `weldment_member` (structural members along 2D or 3D sketch lines);
   - assembly: `asm_insert`, `asm_mate_add` (also limit distance/angle, symmetric, width, hinge, gear and rack-and-pinion
     mates), `asm_mate_list`, `asm_component_list`, `asm_component_set`,
-    `asm_component_move`, `asm_interference`, `asm_replace`, `asm_pattern` (linear, circular, mirror),
+    `asm_component_move`, `asm_interference`, `asm_replace`, `asm_pattern` (linear, circular, mirror, opposite-hand parts),
     `asm_explode` (exploded views);
   - drawing: `drw_sheet_setup`, `drw_views_standard`, `drw_view_projected`, `drw_view_section`, `drw_view_detail`,
     `drw_dimensions_auto`, `drw_dimension_add`, `drw_note_add`, `drw_annotation_add` (datum, surface finish, tolerance frame,
@@ -48,7 +48,7 @@
   golden scenarios (plate, enclosure, edit, assembly, drawing, sheet metal).
 - Install: `tools/install.ps1` publishes into a versioned folder and registers the server with Claude Code; when Smart
   App Control blocks the exe, it registers `dotnet solidworks-mcp.dll` instead.
-- Live-tested against SOLIDWORKS 2025 SP1.2: 351 live tests across all areas pass. Fixes found that way include:
+- Live-tested against SOLIDWORKS 2025 SP1.2: 352 live tests across all areas pass. Fixes found that way include:
   - coupled system options (STL quality with deviation and angle) are saved and restored as one group, also after a
     crash (an STL export had left a user's STL quality at coarse);
   - Hole Wizard holes are placed exactly (a model-space ray pick) and through-all holes work;

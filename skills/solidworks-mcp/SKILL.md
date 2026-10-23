@@ -127,7 +127,8 @@ with `segments:["Line5",…], corner:"none"`. The result lists each member's bod
    count:4, spacingMm:25, direction:"+x"}` (a second row: `direction2`, `count2`, `spacing2Mm`), `{kind:"circular",
    components:["bolt-1"], count:6, axis:{component:"flange-1", at:[x,y,z]}}` (a bore face), or `{kind:"mirror",
    components:["bracket-1"], plane:{name:"right"}}`. Copies are instances of the same file, so a part that isn't
-   symmetric comes out turned, not mirrored.
+   symmetric comes out turned, not mirrored; for a true left-hand version add `oppositeHand:true` (a new part file
+   `<part>_mirror.sldprt` next to the seed, or `suffix`/`folder`; existing files are never replaced).
 5. Check with `asm_interference` and `asm_component_list` (origins and rotations), then `view_screenshot`.
 6. Exploded view (for assembly instructions or a drawing): `asm_explode {steps:[{components:["lid-1"], direction:"+y",
    distanceMm:60}, {components:["bolt-1","bolt-2"], direction:"+y", distanceMm:120}]}`; `collapse:true` keeps the view

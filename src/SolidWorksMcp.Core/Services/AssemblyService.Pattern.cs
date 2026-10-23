@@ -28,6 +28,12 @@ public sealed record AsmPatternRequest
     public double? TotalAngleDeg { get; init; }
     public bool? EqualSpacing { get; init; }
     public EntityRef? Plane { get; init; }
+    /// <summary>mirror: opposite-hand parts (new, mirrored part files) instead of instances of the seeds.</summary>
+    public bool OppositeHand { get; init; }
+    /// <summary>oppositeHand: the new file's name is the seed part's name plus this (default "_mirror").</summary>
+    public string? Suffix { get; init; }
+    /// <summary>oppositeHand: the folder for the new files (default: the seed parts' folder).</summary>
+    public string? Folder { get; init; }
     public bool KeepOnFailure { get; init; }
 }
 
@@ -42,6 +48,8 @@ public sealed class AsmPatternResult : ToolResult
     public int InstanceCount { get; init; }
     /// <summary>Top-level components after the pattern.</summary>
     public int ComponentCount { get; init; }
+    /// <summary>oppositeHand: the part files written (new; nothing was overwritten).</summary>
+    public IReadOnlyList<string>? Files { get; init; }
     public required IReadOnlyList<string> Verified { get; init; }
     public IReadOnlyList<ResolvedInfo>? Resolved { get; init; }
 }
@@ -70,7 +78,7 @@ public sealed partial class AssemblyService
     }
 
     /// <summary>The validated numbers of a pattern request (lengths in m, angles in rad).</summary>
-    private sealed record PatternSpec(string Kind, int N1, double S1, int N2, double S2, double Step, double TotalRad, bool Equal);
+    private sealed record PatternSpec(string Kind, int N1, double S1, int N2, double S2, double Step, double TotalRad, bool Equal, bool OppositeHand = false);
 
     private static PatternSpec PatternSpecOf(string kind, AsmPatternRequest q)
     {
@@ -78,6 +86,14 @@ public sealed partial class AssemblyService
         {
             if (given) throw SwException.InvalidArgument($"'{what}' does not apply to kind '{kind}'.");
         }
+        if (!(kind == "mirror" && q.OppositeHand))
+        {
+            NotFor("oppositeHand", q.OppositeHand);
+            if (q.Suffix is not null || q.Folder is not null)
+                throw SwException.InvalidArgument("'suffix' and 'folder' are for opposite-hand mirrors (kind 'mirror' with oppositeHand:true).");
+        }
+        else if (q.Suffix is { } sfx && (sfx.Length is 0 or > 64 || sfx.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0 || sfx.Trim() != sfx))
+            throw SwException.InvalidArgument($"'suffix' must be 1 to 64 characters that can go in a file name (got \"{sfx}\").", "For example \"_mirror\" or \"-LH\".");
         switch (kind)
         {
             case "linear":
@@ -142,7 +158,7 @@ public sealed partial class AssemblyService
                          })
                     NotFor(what, given);
                 if (q.Plane is null) throw SwException.InvalidArgument("kind 'mirror' needs 'plane', e.g. {name:'right'} or {component:'base-1', name:'front'}.");
-                return new PatternSpec(kind, 2, 0, 1, 0, 0, 0, false);
+                return new PatternSpec(kind, 2, 0, 1, 0, 0, 0, false, q.OppositeHand);
             }
         }
     }
@@ -192,6 +208,7 @@ public sealed partial class AssemblyService
                 refs.Add(plane.Info!);
                 break;
         }
+        var hand = spec.OppositeHand ? PlanOppositeHand(ctx, q, seeds, seedFiles) : null;
 
         using var prefs = ctx.SystemPrefs();
         prefs.Toggle(SystemPrefIds.ShowErrorsEveryRebuild, false);
@@ -210,17 +227,18 @@ public sealed partial class AssemblyService
             {
                 "linear" => CreateLinear(ctx, d, seeds, dir1!, dir2, spec, flip1, flip2, attempts),
                 "circular" => CreateCircular(ctx, d, seeds, axis!, spec, attempts),
-                _ => CreateMirror(ctx, d, asm, seeds, plane!, attempts),
+                _ => hand is null ? CreateMirror(ctx, d, asm, seeds, plane!, attempts) : CreateOppositeHand(d, seeds, plane!, hand, attempts),
             };
             d.ClearSelection2(true);
             Safe(() => d.EditRebuild3(), false);
 
             var created = Snapshot.Take(d).Features.Where(kv => !before.Features.ContainsKey(kv.Key)).Select(kv => kv.Value).ToList();
             var fresh = asm.Components(true).Where(c => !namesBefore.Contains(c.Name2)).ToList();
-            string what = $"{spec.Kind} pattern of {string.Join(", ", seeds.Select(s => s.Name2))}";
+            string what = $"{(hand is null ? spec.Kind : "opposite-hand mirror")} pattern of {string.Join(", ", seeds.Select(s => s.Name2))}";
             if (created.Count == 0 && fresh.Count == 0)
                 throw new SwException(ErrorCodes.FeatureFailed,
-                    $"asm_pattern: SOLIDWORKS created no {what}" + (attempts.Count > 0 ? $" ({string.Join("; ", attempts)})." : "."),
+                    $"asm_pattern: SOLIDWORKS created no {what}" + (attempts.Count > 0 ? $" ({string.Join("; ", attempts)})." : ".") +
+                    (hand is null ? "" : DropHandFiles(ctx, hand)),
                     PatternHint(spec.Kind));
 
             var main = feat is not null && created.Any(f => Safe(() => f.GetID(), -1) == Safe(() => feat.GetID(), -2))
@@ -242,10 +260,12 @@ public sealed partial class AssemblyService
                     problem = $"{fresh.Count} new component(s) appeared instead of {expectedNew}";
                 else
                 {
-                    checks.Add($"{main.Name} ({main.GetTypeName2()}) created without errors; {fresh.Count} new instance(s), components {countBefore} → {countBefore + fresh.Count}");
+                    checks.Add($"{main.Name} ({main.GetTypeName2()}) created without errors; {fresh.Count} new {(hand is null ? "instance" : "component")}(s), " +
+                               $"components {countBefore} → {countBefore + fresh.Count}");
                     var files = fresh.Select(CompPath).ToList();
                     var stray = files.Where(f => !seedFiles.Any(s => SamePath(s, f))).Distinct().ToList();
-                    if (stray.Count > 0) problem = $"instances reference other files ({string.Join(", ", stray.Select(System.IO.Path.GetFileName))})";
+                    if (hand is not null) problem = CheckOppositeHand(ctx, seeds, fresh, plane!, hand, checks);
+                    else if (stray.Count > 0) problem = $"instances reference other files ({string.Join(", ", stray.Select(System.IO.Path.GetFileName))})";
                     else
                     {
                         var actual = fresh.Select(c => FrameOf(ctx, c)).Select(f => new Placement(f.Origin, f.R)).ToList();
@@ -279,12 +299,15 @@ public sealed partial class AssemblyService
             }
             if (problem is not null)
             {
-                string tail = q.KeepOnFailure ? "The pattern was kept (keepOnFailure)." : FeatureVerifier.Rollback(ctx, d, before);
+                string tail = q.KeepOnFailure ? "The pattern was kept (keepOnFailure)."
+                    : FeatureVerifier.Rollback(ctx, d, before) + (hand is null ? "" : DropHandFiles(ctx, hand));
                 string verb = code == ErrorCodes.VerifyFailed ? "doesn't match the request" : "failed";
                 throw new SwException(code, $"asm_pattern: the {what} {verb}: {problem}. {tail}", PatternHint(spec.Kind));
             }
 
             if (tried.Count > 1) checks.Add("redone with the direction flipped (SOLIDWORKS ran it the other way first)");
+            if (hand is not null)
+                foreach (var t in hand.Targets) ctx.Paths.RecordWritten(t);
             var counts = MateCounts(d);
             d.GraphicsRedraw2();
             return new AsmPatternResult
@@ -296,6 +319,7 @@ public sealed partial class AssemblyService
                 Instances = fresh.Take(20).Select(c => Info(ctx, c, counts)).ToList(),
                 InstanceCount = fresh.Count,
                 ComponentCount = asm.GetComponentCount(true),
+                Files = hand?.Targets.Select(OnDisk).ToList(),
                 Verified = checks,
                 Resolved = refs.Count > 0 ? refs : null,
             };
@@ -496,6 +520,170 @@ public sealed partial class AssemblyService
             }
         }
         return null;
+    }
+
+    /// <summary>The opposite-hand part files to write: for each seed part its name plus the suffix, in one folder.</summary>
+    private sealed record OppositeHandPlan(string Folder, List<string> Names, List<string> Targets);
+
+    /// <summary>Plans the opposite-hand files before anything is made: parts only, one per part, none existing or open yet.</summary>
+    private static OppositeHandPlan PlanOppositeHand(SwContext ctx, AsmPatternRequest q, List<IComponent2> seeds, List<string> seedFiles)
+    {
+        for (int k = 0; k < seeds.Count; k++)
+        {
+            if (!seedFiles[k].EndsWith(".sldprt", StringComparison.OrdinalIgnoreCase))
+                throw SwException.InvalidArgument($"'{seeds[k].Name2}' is not a part; opposite-hand copies are made of parts.",
+                    "Mirror subassemblies as instances (leave oppositeHand out).");
+            for (int j = 0; j < k; j++)
+                if (SamePath(seedFiles[j], seedFiles[k]))
+                    throw SwException.InvalidArgument($"'{seeds[j].Name2}' and '{seeds[k].Name2}' are instances of the same part; list one of them.",
+                        "One opposite-hand file is made per part.");
+        }
+        string? folder = q.Folder;
+        if (folder is null)
+        {
+            var dirs = seedFiles.Select(f => System.IO.Path.GetDirectoryName(f)!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (dirs.Count != 1) throw SwException.InvalidArgument("The seed parts are in different folders.", "Pass 'folder' for the opposite-hand files.");
+            folder = dirs[0];
+        }
+        var names = new List<string>();
+        var targets = new List<string>();
+        foreach (var f in seedFiles)
+        {
+            string name = System.IO.Path.GetFileNameWithoutExtension(f) + (q.Suffix ?? "_mirror");
+            string target;
+            try
+            {
+                target = ctx.Paths.ForWrite(System.IO.Path.Combine(folder, name + ".sldprt"), overwrite: false, out _, "folder");
+            }
+            catch (SwException e) when (e.Code == ErrorCodes.IoError)
+            {
+                throw new SwException(ErrorCodes.IoError, e.Message, "Choose another suffix or folder: existing files are never replaced.");
+            }
+            if (targets.Any(t => string.Equals(t, target, StringComparison.OrdinalIgnoreCase)))
+                throw SwException.InvalidArgument($"Two seed parts would both become '{System.IO.Path.GetFileName(target)}'.", "Mirror them in separate calls.");
+            if ((object?)ctx.App.GetOpenDocumentByName(target) is not null)
+                throw new SwException(ErrorCodes.IoError, $"'{target}' is open in SOLIDWORKS.", "Choose another suffix or folder.");
+            names.Add(name);
+            targets.Add(target);
+        }
+        return new OppositeHandPlan(System.IO.Path.GetDirectoryName(targets[0])!, names, targets);
+    }
+
+    /// <summary>
+    /// Opposite-hand copies through IMirrorComponentFeatureData (VERIFIED 2026-10-24): the seeds as OppositeHandComponents,
+    /// placed about their bounding-box centres, new part files under the planned names in one folder (SOLIDWORKS writes
+    /// them at once), solid bodies transferred, PreserveZAxis false (true left the copy turned 180° off its mirror image).
+    /// </summary>
+    private static IFeature? CreateOppositeHand(IModelDoc2 d, List<IComponent2> seeds, PatternRef plane, OppositeHandPlan hand, List<string> attempts)
+    {
+        var fm = d.FeatureManager;
+        if ((object?)fm.CreateDefinition((int)swFeatureNameID_e.swFmMirrorComponent) is not IMirrorComponentFeatureData data)
+        {
+            attempts.Add("CreateDefinition(MirrorComponent) returned nothing");
+            return null;
+        }
+        data.MirrorPlane = plane.Api(d) ?? throw new SwException(ErrorCodes.FeatureFailed, $"Could not get {plane.Label} as the mirror plane.");
+        data.MirrorType = (int)swMirrorComponentMirrorType_e.swMirrorType_CenterOfBoundingBox;
+        data.OppositeHandComponents = ComArgs.DispatchArray(seeds);
+        data.CreateDerivedConfigurations = false;
+        data.PlaceFilesInOneFolder = true;
+        data.MirrorComponentsFolderLocation = hand.Folder;
+        data.MirroredComponentFilenames = hand.Names.ToArray();
+        data.NameModifierType = (int)swMirrorComponentNameModifier_e.swMirrorComponentName_Custom;
+        data.ReplaceFileLocations = hand.Names.Select(_ => "").ToArray();
+        data.MirrorTransferOptions = (int)swMirrorPartOptions_e.swMirrorPartOptions_ImportSolids;
+        data.BreakLinksToOriginalPart = false;
+        data.PreserveZAxis = false;
+        data.PropagateFromOriginalPart = false;
+        data.SyncFlexibleSubAssemblies = false;
+        d.ClearSelection2(true);
+        return Create(fm, data, "MirrorComponent", attempts);
+    }
+
+    /// <summary>
+    /// Each seed got one new component on its opposite-hand file, written by this call, whose part holds the seed part's
+    /// volume and whose vertices, in the assembly, are the seed's vertices reflected about the plane: a mirror image, which
+    /// a turned copy of a handed part can't be.
+    /// </summary>
+    private static string? CheckOppositeHand(SwContext ctx, List<IComponent2> seeds, List<IComponent2> fresh, PatternRef plane, OppositeHandPlan hand,
+        List<string> checks)
+    {
+        var mu = ctx.Math;
+        int vertices = 0;
+        for (int k = 0; k < seeds.Count; k++)
+        {
+            string file = System.IO.Path.GetFileName(hand.Targets[k]);
+            if (!File.Exists(hand.Targets[k])) return $"'{file}' was not written";
+            var c = fresh.FirstOrDefault(x => SamePath(CompPath(x), hand.Targets[k]));
+            if (c is null) return $"no new component references '{file}'";
+            var seedPts = PartVertices(seeds[k]);
+            var newPts = PartVertices(c);
+            if (seedPts.Count == 0) return $"the vertices of '{seeds[k].Name2}' could not be read";
+            if (newPts.Count != seedPts.Count) return $"'{c.Name2}' has {newPts.Count} vertices, its seed {seedPts.Count}";
+            var got = newPts.Select(p => mu.AsmMapPoint(c.Transform2, p)).ToList();
+            int step = Math.Max(1, seedPts.Count / 500); // at most about 500 vertices compared per part
+            for (int i = 0; i < seedPts.Count; i += step)
+            {
+                var want = Reflect(mu.AsmMapPoint(seeds[k].Transform2, seedPts[i]), plane.P, plane.U);
+                if (!got.Any(g => g.DistanceTo(want) <= PosTol * 10))
+                    return $"'{c.Name2}' has no vertex at [{Pt(want)}], the reflection of a vertex of '{seeds[k].Name2}': it is not the seed's mirror image";
+            }
+            double v0 = PartVolume(seeds[k]), v1 = PartVolume(c);
+            if (Math.Abs(v1 - v0) > 1e-6 * v0 + 1e-15) return $"'{c.Name2}' holds {Units.Mm3(v1)} mm³, its seed {Units.Mm3(v0)} mm³";
+            vertices += seedPts.Count;
+        }
+        checks.Add($"each new part file ({string.Join(", ", hand.Targets.Select(System.IO.Path.GetFileName))}) is placed as the mirror image of its seed " +
+                   $"about the plane through [{Pt(plane.P)}] with normal [{Dir(plane.U)}]: all {vertices} vertices reflected, the same volume");
+        return null;
+    }
+
+    /// <summary>The vertices of a part component's solid bodies, in part space.</summary>
+    private static List<Vec3> PartVertices(IComponent2 c) =>
+        c.AsmModelDoc() is IPartDoc p
+            ? p.AllBodies(visibleOnly: false).Where(b => b.GetType() == (int)swBodyType_e.swSolidBody)
+                .SelectMany(b => b.Vertices()).Select(v => Vec3.From(v.Point())).ToList()
+            : [];
+
+    /// <summary>The volume of a part component's solid bodies (m³).</summary>
+    private static double PartVolume(IComponent2 c) => c.AsmModelDoc() is IModelDoc2 md ? Snapshot.Take(md).Volume : 0;
+
+    /// <summary>After a failed opposite-hand mirror: closes and deletes the files it wrote (none of them existed before).</summary>
+    private static string DropHandFiles(SwContext ctx, OppositeHandPlan hand)
+    {
+        var gone = new List<string>();
+        foreach (var t in hand.Targets)
+        {
+            Safe(() =>
+            {
+                ctx.App.CloseDoc(t);
+                return true;
+            }, false);
+            if (!File.Exists(t)) continue;
+            try
+            {
+                File.Delete(t);
+                gone.Add(System.IO.Path.GetFileName(t));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                ctx.Warn($"The new file '{t}' could not be deleted ({e.Message}).");
+            }
+        }
+        return gone.Count == 0 ? "" : $" The new file(s) {string.Join(", ", gone)} were deleted.";
+    }
+
+    /// <summary>The path as the file system spells it (SOLIDWORKS lower-cases the names of the files it writes).</summary>
+    private static string OnDisk(string path)
+    {
+        try
+        {
+            if (System.IO.Path.GetDirectoryName(path) is { } dir && Directory.EnumerateFiles(dir, System.IO.Path.GetFileName(path)).FirstOrDefault() is { } hit)
+                return hit;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+        }
+        return path;
     }
 
     private static IFeature? Create(IFeatureManager fm, object data, string what, List<string> attempts)

@@ -31,6 +31,7 @@ public sealed class LiveFixture : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         if (!Enabled) return;
+        SweepStaleTestFolders();
         _session = new SwSession(SwOptions.FromEnvironment());
         await _session.ConnectAsync(launch: false);
         var docs = await new DocumentService(_session).ListAsync();
@@ -56,6 +57,29 @@ public sealed class LiveFixture : IAsyncLifetime
 
     /// <summary>The allow-listed system preferences (the ones the server may touch), for before/after comparison.</summary>
     public Task<Dictionary<string, string>> PreferencesAsync() => TestHooks.PreferencesAsync(Session);
+
+    private static readonly System.Text.RegularExpressions.Regex TestFolder = new(@"^swmcp_[a-z]+_[0-9a-f]{32}$");
+
+    /// <summary>
+    /// Deletes the test classes' folders (%TEMP%\swmcp_&lt;area&gt;_&lt;guid&gt;) that earlier runs left behind, over an hour
+    /// old: SOLIDWORKS keeps its current directory in the folder it last saved to, so a class can't always remove its
+    /// own folder. Best effort; whatever is in use stays.
+    /// </summary>
+    private static void SweepStaleTestFolders()
+    {
+        var cutoff = DateTime.Now - TimeSpan.FromHours(1);
+        foreach (var dir in Directory.EnumerateDirectories(Path.GetTempPath(), "swmcp_*"))
+        {
+            try
+            {
+                if (TestFolder.IsMatch(Path.GetFileName(dir)) && Directory.GetLastWriteTime(dir) < cutoff) Directory.Delete(dir, recursive: true);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // in use: the next run tries again
+            }
+        }
+    }
 }
 
 /// <summary>

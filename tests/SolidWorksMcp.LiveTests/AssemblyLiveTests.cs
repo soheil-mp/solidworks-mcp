@@ -100,6 +100,21 @@ public class AssemblyLiveTests(LiveFixture fx) : LiveTest(fx)
         return await SaveAsync(doc, name);
     }
 
+    /// <summary>
+    /// A handed L, 10 thick (y 0..10): the outline x 0..30, z 0..20 with the corner x 20..30, z 10..20 cut away, so no turn
+    /// of it is its mirror image (12 vertices, 5000 mm³).
+    /// </summary>
+    private async Task<PartFile> LAsync(string name)
+    {
+        string doc = await NewPartAsync(name);
+        await Sk.StartAsync(doc, new EntityRef { Name = "top" }, false);
+        await Sk.AddAsync(doc, [new SketchEntity { Kind = "polyline", Closed = true, Points = [[0, 0, 0], [30, 0, 0], [30, 0, 10], [20, 0, 10], [20, 0, 20], [0, 0, 20]] }]);
+        var r = await Fs.ExtrudeAsync(new ExtrudeRequest { Doc = doc, DepthMm = 10 });
+        Assert.Equal(5000, r.Verified.VolumeDeltaMm3, V);
+        AssertBox(r.Model.Box, [0, 0, 0], [30, 10, 20]);
+        return await SaveAsync(doc, name);
+    }
+
     /// <summary>A 40 × 10 × 40 plate (y 0..10, centred in x and z) with an r 5 bore along y through its origin.</summary>
     private async Task<PartFile> PlateAsync(string name)
     {
@@ -787,6 +802,47 @@ public class AssemblyLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.Equal(box.Path, copy.Path, ignoreCase: true);
         Assert.Contains(m.Verified, c => c.Contains("reflection", StringComparison.Ordinal));
         Assert.Equal(6, m.ComponentCount);
+    }
+
+    [Fact]
+    public async Task Opposite_hand_mirrors_write_new_mirrored_parts_at_the_mirror_image()
+    {
+        // VERIFIED recipe (IMirrorComponentFeatureData, PreserveZAxis false). The L at x = 40 (box x 40..70, z 0..20) mirrored
+        // about the right plane: a new part file next to the seed, its component on x -70..-40, every vertex reflected.
+        var l = await LAsync("hand");
+        string asm = await NewAssemblyAsync("asm_hand");
+        string nl = (await InsertAsync(asm, l.Path, [40, 0, 0])).Component.Name;
+        var right = new EntityRef { Name = "right" };
+        var m = await Pattern(new() { Doc = asm, Kind = "mirror", Components = [nl], Plane = right, OppositeHand = true });
+        Assert.Equal("MirrorCompFeat", m.FeatureType);
+        var copy = Assert.Single(m.Instances);
+        AssertBox(copy.Box, [-70, 0, 0], [-40, 10, 20]);
+        string file = Assert.Single(m.Files!);
+        Assert.Equal(Path.Combine(_dir, $"{l.Name}_mirror.sldprt"), file, ignoreCase: true);
+        Assert.True(File.Exists(file));
+        Assert.Equal(file, copy.Path, ignoreCase: true);
+        Assert.Contains(m.Verified, c => c.Contains("all 12 vertices reflected, the same volume", StringComparison.Ordinal));
+
+        // Again: the file exists, so nothing is made; with another suffix about the front plane (z = 0) it works.
+        var again = await Assert.ThrowsAsync<SwException>(() => Pattern(new() { Doc = asm, Kind = "mirror", Components = [nl], Plane = right, OppositeHand = true }));
+        Assert.Equal(ErrorCodes.IoError, again.Code);
+        Assert.Equal(2, (await Asm.ComponentListAsync(asm, false, 100, 0)).Total);
+        var lh = await Pattern(new() { Doc = asm, Kind = "mirror", Components = [nl], Plane = new EntityRef { Name = "front" }, OppositeHand = true, Suffix = "-LH" });
+        AssertBox(Assert.Single(lh.Instances).Box, [40, 0, -20], [70, 10, 0]);
+        Assert.EndsWith($"{l.Name}-LH.sldprt", Assert.Single(lh.Files!), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(3, lh.ComponentCount);
+
+        // Refused before anything changes: two instances of one part, a bad suffix, a folder outside the write roots,
+        // and the opposite-hand options on other kinds.
+        string n2 = (await InsertAsync(asm, l.Path, [40, 40, 0])).Component.Name;
+        async Task<string> Refused(AsmPatternRequest q) => (await Assert.ThrowsAsync<SwException>(() => Pattern(q))).Code;
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Kind = "mirror", Components = [nl, n2], Plane = right, OppositeHand = true, Suffix = "_x" }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Kind = "mirror", Components = [nl], Plane = right, OppositeHand = true, Suffix = "a/b" }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Kind = "mirror", Components = [nl], Plane = right, OppositeHand = true, Suffix = "_y", Folder = @"C:\Windows\swmcp" }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Kind = "mirror", Components = [nl], Plane = right, Suffix = "_y" }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Kind = "linear", Components = [nl], Count = 2, SpacingMm = 50, Direction = "+x", OppositeHand = true }));
+        Assert.Equal(4, (await Asm.ComponentListAsync(asm, false, 100, 0)).Total);
+        Assert.False(File.Exists(Path.Combine(_dir, $"{l.Name}_x.sldprt")));
     }
 
     [Fact]
