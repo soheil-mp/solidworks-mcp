@@ -37,4 +37,45 @@ public static class DialogRules
     /// </summary>
     public static readonly DialogRule ImportDiagnosticsNo =
         new("SOLIDWORKS", @"Import\s*Diagnos", "No", "Import Diagnostics prompt after an import (declined)");
+
+    // ---- Simulation (sim_static, sim_delete). Meshing and solving are single blocking COM calls that show progress
+    // windows. A rule with an empty Button only TOLERATES its window: the watchdog never presses anything, and the
+    // dispatcher doesn't end the call early with DIALOG_BLOCKING because of it. A window whose title or text reads like
+    // a question, a warning or an error is never tolerated, so real prompts still surface. Titles and texts of the
+    // progress windows are not verified live yet.
+
+    /// <summary>Matches a title or text that contains no question mark and no warning or failure words.</summary>
+    private const string NotAPrompt =
+        @"^(?!.*(\?|fail|error|warning|unstable|excessive|insufficient|invalid|cannot|could\s*not|unable|license)).*";
+
+    /// <summary>The meshing progress window ("Mesh Progress", "Meshing…").</summary>
+    public static readonly DialogRule SimulationMeshProgress =
+        new(NotAPrompt + @"\bmesh", NotAPrompt, "", "Simulation mesh progress (tolerated)");
+
+    /// <summary>
+    /// The solver status window (elapsed time, memory usage, solver or progress readouts), whatever its title. Progress
+    /// text is required, so a plain information box (which needs an answer) is never tolerated into a long stall.
+    /// </summary>
+    public static readonly DialogRule SimulationSolverProgress =
+        new(NotAPrompt, @"^(?=.*(elapsed\s*time|memory\s*usage|solver\s*:|solving|in\s+progress|iteration|\d+\s*%))(?!.*(\?|fail|error|warning|unstable|excessive|insufficient|invalid|cannot|could\s*not|unable|license)).*",
+            "", "Simulation solver progress (tolerated)");
+
+    /// <summary>A progress window titled after the running study, e.g. "MCP Static 1a2b (-Default-)".</summary>
+    public static DialogRule SimulationStudyProgress(string study) =>
+        new(NotAPrompt + System.Text.RegularExpressions.Regex.Escape(study), NotAPrompt, "", $"Simulation progress of '{study}' (tolerated)");
+
+    /// <summary>
+    /// "Do you want to save Simulation data?" (title "Simulation", VERIFIED on close), should unloading the add-in ask
+    /// it about a study the call just deleted: do not save. Stricter than <see cref="SimulationSaveNo"/>, so a solver
+    /// question such as "save the results of this solution?" is never answered.
+    /// </summary>
+    public static readonly DialogRule SimulationDataSaveNo =
+        new("Simulation", @"save\s+(the\s+)?Simulation\s+data", "No", "Simulation data save prompt (not saving)");
+
+    /// <summary>sim_static: the progress windows of a static study run, and the save prompt at add-in unload.</summary>
+    public static IReadOnlyList<DialogRule> SimulationRun(string study) =>
+        [SimulationStudyProgress(study), SimulationMeshProgress, SimulationSolverProgress, SimulationDataSaveNo];
+
+    /// <summary>sim_delete: the save prompt at add-in unload.</summary>
+    public static IReadOnlyList<DialogRule> SimulationCleanup => [SimulationDataSaveNo];
 }
