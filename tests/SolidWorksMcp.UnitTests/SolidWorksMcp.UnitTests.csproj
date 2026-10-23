@@ -46,4 +46,10 @@
     <Compile Include="..\..\src\SolidWorksMcp.Core\Win32\NativeMethods.cs" Link="Core\Win32\NativeMethods.cs" />
   </ItemGroup>
 
+  <!-- bodies / sheet metal: body_move's rotation math and the flat-pattern DXF reader. -->
+  <ItemGroup>
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Services\BodyMotion.cs" Link="Core\Services\BodyMotion.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Services\FlatPatternDxf.cs" Link="Core\Services\FlatPatternDxf.cs" />
+  </ItemGroup>
+
 </Project>
