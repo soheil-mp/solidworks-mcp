@@ -101,7 +101,9 @@ Parasolid and more). Existing files need `overwrite:true`. `doc_open` imports ST
    its own plane (`ref_plane {kind:"offset", base:{name:"top"}, offsetMm:30}`).
 
 **Sheet metal.** Sketch a closed outline, then `sheetmetal_base_flange {thicknessMm:2, bendRadiusMm:1}`. Add bends
-with `sheetmetal_edge_flange`, fold edges back with `sheetmetal_hem {edges:[…], lengthMm:8}` (closed by default; open needs
+with `sheetmetal_edge_flange`; for walls around corners (or all round, a tray) use one `sheetmetal_miter_flange
+{edges:[…edges of the top face that meet end to end…], lengthMm:10}` (the walls go up from the face whose edges you
+pick, mitered where they meet); fold edges back with `sheetmetal_hem {edges:[…], lengthMm:8}` (closed by default; open needs
 `gapMm`, teardrop and rolled `radiusMm`), bend the plate along a line with `sheetmetal_bend {fromMm:[x,y,z], toMm:[x,y,z],
 angleDeg:90}` (the larger side stays unless you give `fixedAtMm`), check the blank with `sheetmetal_flatten {flat:true}`,
 save the part, then

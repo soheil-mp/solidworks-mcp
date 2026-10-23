@@ -8,7 +8,7 @@ using SolidWorksMcp.Server.Hosting;
 
 namespace SolidWorksMcp.Server.Tools;
 
-/// <summary>Sheet metal: base flange, edge flange, flatten / fold and the flat-pattern DXF/DWG.</summary>
+/// <summary>Sheet metal: base, edge and miter flanges, hems, sketched bends, flatten / fold and the flat-pattern DXF/DWG.</summary>
 [McpServerToolType, Toolset("sheetmetal")]
 public sealed class SheetMetalTools(SwSession session)
 {
@@ -56,6 +56,27 @@ public sealed class SheetMetalTools(SwSession session)
             Doc = doc, Edges = edges, LengthMm = lengthMm, AngleDeg = angleDeg, Position = position, BendRadiusMm = bendRadiusMm,
             KeepOnFailure = keepOnFailure,
         }, cancellationToken), progress, "sheetmetal_edge_flange");
+
+    [McpServerTool(Name = "sheetmetal_miter_flange", Title = "Sheet-metal miter flange", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Sheet-metal miter flange: one flange along a chain of straight edges of the sheet's face (top or bottom), mitered " +
+                 "where they meet; the tool sketches its profile (a line lengthMm long at angleDeg) at the chain's free end. Verified: " +
+                 "position and gap read back, volume about length x edges x thickness, the part grown toward the flange; else rolled back.")]
+    public Task<string> SheetMetalMiterFlange(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("Straight edges of one face of the sheet that meet end to end (any order), e.g. [{type:'edge',at:[0,0,15]},{type:'edge',at:[25,0,0]}].")] EntityRef[] edges,
+        [Description("Flange length in mm (at 90°: its height above that face).")] double lengthMm,
+        [Description("Wall angle from the sheet in degrees (0 to 180; 90 = square, less leans outward).")] double angleDeg = 90,
+        [Description("material_inside | material_outside | bend_outside")] string position = "material_inside",
+        [Description("Bend radius in mm (default: the sheet's).")] double? bendRadiusMm = null,
+        [Description("Rip gap at the mitered corners in mm.")] double gapMm = 0.1,
+        [Description(KeepDesc)] bool keepOnFailure = false,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_svc.MiterFlangeAsync(new MiterFlangeRequest
+        {
+            Doc = doc, Edges = edges, LengthMm = lengthMm, AngleDeg = angleDeg, Position = position, BendRadiusMm = bendRadiusMm, GapMm = gapMm,
+            KeepOnFailure = keepOnFailure,
+        }, cancellationToken), progress, "sheetmetal_miter_flange");
 
     [McpServerTool(Name = "sheetmetal_hem", Title = "Sheet-metal hem", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Sheet-metal hem: folds the sheet back on itself along straight edges of its face, closed (flat on the sheet), open " +

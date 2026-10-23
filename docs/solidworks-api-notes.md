@@ -298,8 +298,18 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   useDefaultRadius, radius, flip, bendPos /*0 centerline, 1 material inside, 2 material outside, 3 bend outside*/, null)`:
   a `SM3dBend` feature ("Sketched Bend1"). Bending the 15 mm side of the 50 x 30 x 2 plate up by 90° kept the volume, and
   nothing reached past the line any more.
+- **Miter flange** (VERIFIED 2026-10-24). An open profile sketch on a plane normal to the first edge at the chain's free
+  end (the sheet's end face there, or a `RefPlane` from the edge (perpendicular) and the end vertex (coincident)) holding
+  one line from the vertex away from the face, then the sketch selected on **mark 0** and the edges on **mark 1**, then
+  `FeatureManager.InsertSheetMetalMiterFlange(useDefaultRadius, r, ripGap, true /*default relief*/, false, 0.5, 0.0001,
+  0.0001, 1 /*rectangular*/, false, flangePos /*1 material inside, 2 outside, 3 bend outside*/, 0, 0, null)`: a
+  `SMMiteredFlange` ("Miter Flange1") with one `Miterbend<n>` sub-feature per edge. On the 50 x 30 x 2 plate (r 1) a 10 mm
+  profile on one 50 mm edge added exactly 50 x (12 + 2π) mm³ (material inside: the base loses r + t), 50 x (16 + 2π)
+  (outside) and 50 x (18 + 2π) (bend outside); two edges round a corner, three (a U) and all four (a tray) work, and the
+  flat blank with K 0.5 is exact (the tray's 68.283 x 48.283). The new feature sits before `Flat-Pattern1`, which stays
+  last in the tree.
 - **Jog: UNRESOLVED.** `IModelDoc2.InsertSheetMetalJog(angle, radius, offset, flip, fixProjLen, 1, 1)` with the same
-  selections made nothing.
+  selections (the fixed face on mark 0, 1 or 2) made nothing.
 
 - **Base flange side** (VERIFIED). For a closed profile `InsertSheetMetalBaseFlange2`'s `ThickenDir` changes nothing (both values
   thicken toward −normal), and neither does `IBaseFlangeFeatureData.ReverseThickness`; `ReverseDirection` (through

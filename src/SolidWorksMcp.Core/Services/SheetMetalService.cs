@@ -317,13 +317,7 @@ public sealed partial class SheetMetalService(SwSession session)
             if (!double.IsFinite(q.AngleDeg) || q.AngleDeg <= 0 || q.AngleDeg >= 180)
                 throw SwException.InvalidArgument($"angleDeg must be between 0 and 180 (exclusive; got {q.AngleDeg}).");
             double angle = Units.Rad(q.AngleDeg);
-            int position = BodyKit.Norm(q.Position) switch
-            {
-                null or "material_inside" or "inside" => (int)swFlangePositionTypes_e.swFlangePositionTypeMaterialInside,
-                "material_outside" or "outside" => (int)swFlangePositionTypes_e.swFlangePositionTypeMaterialOutside,
-                "bend_outside" => (int)swFlangePositionTypes_e.swFlangePositionTypeBendOutside,
-                _ => throw SwException.InvalidArgument($"Unknown position '{q.Position}'.", "Use material_inside, material_outside or bend_outside."),
-            };
+            int position = FlangePosition(q.Position);
             if (q.BendRadiusMm is double br && (!double.IsFinite(br) || br < 0))
                 throw SwException.InvalidArgument($"bendRadiusMm must be 0 or positive (got {br}).", "Leave it out for the sheet's default radius.");
             if (q.Edges is null || q.Edges.Count == 0)

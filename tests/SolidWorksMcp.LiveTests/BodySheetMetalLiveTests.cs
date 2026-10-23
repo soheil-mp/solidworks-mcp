@@ -720,6 +720,117 @@ public class BodySheetMetalLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.Equal(features, await FeatureCountAsync(doc));
     }
 
+    // ================================================================== sheetmetal_miter_flange
+
+    [Fact]
+    public async Task Miter_flange_on_one_edge_adds_the_wall_and_the_bend_exactly()
+    {
+        // VERIFIED recipe: the profile line on the end face x = -25, the sketch on mark 0 and the edge on mark 1. Material
+        // inside keeps the outer face at z = 15: per mm of edge the base loses 3 x 2, the r 1..3 quarter annulus (2π) and the
+        // 9 x 2 wall come in.
+        string doc = await SheetAsync("miter_one");
+        var r = await Sm.MiterFlangeAsync(new MiterFlangeRequest { Doc = doc, Edges = [new EntityRef { Type = "edge", At = [0, 0, 15] }], LengthMm = 10 });
+        Assert.Equal("SMMiteredFlange", r.Feature.Type);
+        Assert.Equal(50 * (12 + 2 * Math.PI), r.Verified.VolumeDeltaMm3, 0.01);
+        AssertBox(r.Model.Box, [-25, -2, -15], [25, 10, 15]);
+        Assert.Contains(r.Verified.Checks!, c => c.StartsWith("position and rip gap", StringComparison.Ordinal));
+        Assert.Contains(r.Verified.Checks!, c => c.StartsWith("1 bend(s): Miterbend1", StringComparison.Ordinal));
+        Assert.NotNull(r.ConsumedSketch);
+        Assert.Equal(1, r.Model.Bodies);
+        // K = 0.5: the flat blank is 27 + the bend's mid arc π/2 x 2 + 9 = 39.142 mm wide.
+        var flat = await Sm.FlattenAsync(doc, true);
+        Assert.Equal(50, flat.FlatSizeMm![0], 0.001);
+        Assert.Equal(36 + Math.PI, flat.FlatSizeMm[1], 0.001);
+    }
+
+    [Fact]
+    public async Task Miter_flange_around_a_corner_bottom_edges_angles_and_positions()
+    {
+        // Two top edges meeting at (25, 0, 15): one flange, mitered at the corner, two bends.
+        string doc = await SheetAsync("miter_corner");
+        var c = await Sm.MiterFlangeAsync(new MiterFlangeRequest
+        {
+            Doc = doc, Edges = [new EntityRef { Type = "edge", At = [25, 0, 0] }, new EntityRef { Type = "edge", At = [0, 0, 15] }], LengthMm = 10,
+        });
+        Assert.Contains(c.Verified.Checks!, x => x.StartsWith("2 bend(s): Miterbend1, Miterbend2", StringComparison.Ordinal));
+        Assert.InRange(c.Verified.VolumeDeltaMm3, 80 * (12 + 2 * Math.PI) - 2 * 3.1 * 24.3, 80 * (12 + 2 * Math.PI)); // less the miter at the corner
+        AssertBox(c.Model.Box, [-25, -2, -15], [25, 10, 15]);
+
+        // A bottom edge: the flange goes down.
+        string down = await SheetAsync("miter_down");
+        var d = await Sm.MiterFlangeAsync(new MiterFlangeRequest { Doc = down, Edges = [new EntityRef { Type = "edge", At = [0, -2, 15] }], LengthMm = 10 });
+        Assert.Equal(50 * (12 + 2 * Math.PI), d.Verified.VolumeDeltaMm3, 0.01);
+        AssertBox(d.Model.Box, [-25, -12, -15], [25, 0, 15]);
+
+        // 45°: the wall leans out, away from the sheet.
+        string lean = await SheetAsync("miter_45");
+        var l = await Sm.MiterFlangeAsync(new MiterFlangeRequest { Doc = lean, Edges = [new EntityRef { Type = "edge", At = [0, 0, 15] }], LengthMm = 10, AngleDeg = 45 });
+        AssertBox(l.Model.Box, [-25, -2, -15], [25, 8.485, 22.071]);
+
+        // Material outside: the wall's inner face at z = 15 (the base trimmed by 1); bend outside: the bend starts there.
+        string outside = await SheetAsync("miter_outside");
+        var o = await Sm.MiterFlangeAsync(new MiterFlangeRequest { Doc = outside, Edges = [new EntityRef { Type = "edge", At = [0, 0, 15] }], LengthMm = 10, Position = "material_outside" });
+        Assert.Equal(50 * (16 + 2 * Math.PI), o.Verified.VolumeDeltaMm3, 0.5);
+        Assert.Equal(17, o.Model.Box!.Max[2], 0.01);
+        string bendOut = await SheetAsync("miter_bend_outside");
+        var b = await Sm.MiterFlangeAsync(new MiterFlangeRequest { Doc = bendOut, Edges = [new EntityRef { Type = "edge", At = [0, 0, 15] }], LengthMm = 10, Position = "bend_outside" });
+        Assert.Equal(50 * (18 + 2 * Math.PI), b.Verified.VolumeDeltaMm3, 0.5);
+        Assert.Equal(18, b.Model.Box!.Max[2], 0.01);
+    }
+
+    [Fact]
+    public async Task Miter_flange_around_all_four_edges_makes_a_tray_with_an_exact_blank()
+    {
+        string doc = await SheetAsync("miter_tray");
+        var r = await Sm.MiterFlangeAsync(new MiterFlangeRequest
+        {
+            Doc = doc, LengthMm = 10,
+            Edges = [new EntityRef { Type = "edge", At = [0, 0, 15] }, new EntityRef { Type = "edge", At = [25, 0, 0] },
+                new EntityRef { Type = "edge", At = [0, 0, -15] }, new EntityRef { Type = "edge", At = [-25, 0, 0] }],
+        });
+        Assert.Contains(r.Verified.Checks!, x => x.StartsWith("4 bend(s)", StringComparison.Ordinal));
+        Assert.Contains(r.Verified.Checks!, x => x.Contains("4 corner(s)", StringComparison.Ordinal));
+        AssertBox(r.Model.Box, [-25, -2, -15], [25, 10, 15]);
+        // K = 0.5: the 44 x 24 base plus, on every side, the bend's mid arc (π) and the 9 mm wall.
+        var flat = await Sm.FlattenAsync(doc, true);
+        Assert.Equal(62 + 2 * Math.PI, flat.FlatSizeMm![0], 0.001);
+        Assert.Equal(42 + 2 * Math.PI, flat.FlatSizeMm[1], 0.001);
+    }
+
+    [Fact]
+    public async Task Miter_flange_on_a_slanted_end_sketches_on_a_plane_normal_to_the_edge()
+    {
+        // A parallelogram sheet: neither end face of the top edge z = 15 (x -20..25) is normal to it.
+        string doc = await NewPartAsync("miter_slanted");
+        await Sk.StartAsync(doc, new EntityRef { Name = "top" }, false);
+        await Sk.AddAsync(doc, [new SketchEntity { Kind = "polyline", Closed = true, Points = [[-25, 0, -15], [20, 0, -15], [25, 0, 15], [-20, 0, 15]] }]);
+        await Sk.FinishAsync(doc);
+        await Sm.BaseFlangeAsync(new BaseFlangeRequest { Doc = doc, ThicknessMm = 2, BendRadiusMm = 1 });
+        var r = await Sm.MiterFlangeAsync(new MiterFlangeRequest { Doc = doc, Edges = [new EntityRef { Type = "edge", At = [0, 0, 15] }], LengthMm = 10 });
+        Assert.Contains(r.AlsoCreated!, f => f.Type == "RefPlane");
+        Assert.InRange(r.Verified.VolumeDeltaMm3, 45 * (12 + 2 * Math.PI) * 0.8, 45 * (12 + 2 * Math.PI) * 1.1);
+        Assert.Equal(10, r.Model.Box!.Max[1], 0.01);
+    }
+
+    [Fact]
+    public async Task Miter_flanges_on_bad_edges_or_parameters_are_refused()
+    {
+        string doc = await SheetAsync("miter_bad");
+        int features = await FeatureCountAsync(doc);
+        var top = new EntityRef { Type = "edge", At = [0, 0, 15] };
+        async Task Refused(MiterFlangeRequest q) => Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() => Sm.MiterFlangeAsync(q))).Code);
+        await Refused(new MiterFlangeRequest { Doc = doc, Edges = [top, new EntityRef { Type = "edge", At = [0, 0, -15] }], LengthMm = 10 }); // not a chain
+        await Refused(new MiterFlangeRequest { Doc = doc, Edges = [top, new EntityRef { Type = "edge", At = [25, -2, 0] }], LengthMm = 10 }); // top and bottom
+        await Refused(new MiterFlangeRequest { Doc = doc, Edges = [new EntityRef { Type = "edge", At = [25, -1, 15] }], LengthMm = 10 }); // across the thickness
+        await Refused(new MiterFlangeRequest { Doc = doc, Edges = [top], LengthMm = 0 });
+        await Refused(new MiterFlangeRequest { Doc = doc, Edges = [top], LengthMm = 10, AngleDeg = 180 });
+        await Refused(new MiterFlangeRequest { Doc = doc, Edges = [top], LengthMm = 10, Position = "sideways" });
+        await Refused(new MiterFlangeRequest { Doc = doc, Edges = [top], LengthMm = 10, GapMm = -1 });
+        Assert.Equal(features, await FeatureCountAsync(doc));
+        string plain = await BlockAsync("miter_plain");
+        await Refused(new MiterFlangeRequest { Doc = plain, Edges = [new EntityRef { Type = "edge", At = [0, 20, 30] }], LengthMm = 10 });
+    }
+
     [Fact]
     public async Task Hems_without_their_sizes_on_bad_edges_or_plain_parts_are_refused()
     {
