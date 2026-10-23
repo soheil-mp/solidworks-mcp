@@ -1,6 +1,7 @@
 """MCP protocol smoke test and scenario runner for solidworks-mcp.
 
     python tools/mcp_smoke.py <path-to-solidworks-mcp.exe>              # protocol checks (no SOLIDWORKS needed)
+    python tools/mcp_smoke.py <path-to-solidworks-mcp.dll>              # the same through dotnet (Smart App Control)
     python tools/mcp_smoke.py <exe> --scenario plate                   # + a live modelling scenario (SOLIDWORKS running)
     python tools/mcp_smoke.py <exe> --scenario all                     # plate, enclosure, edit, assembly, drawing
 

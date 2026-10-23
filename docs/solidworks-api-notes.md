@@ -259,6 +259,18 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   in opposite directions** (the API help says so, despite the name). The outward normal of a face at a point is the
   surface normal from `ISurface.EvaluateAtPoint` (first three values), reversed when it returns true.
 
+- **Weldment structural members** (VERIFIED 2026-10-23; UNRESOLVED in the old server). With the path sketch finished:
+  `FeatureManager.InsertWeldmentFeature()` (once: a `WeldmentFeature`), `CreateStructuralMemberGroup()`, its `Segments`
+  = the sketch's lines and arcs as a `DispatchWrapper[]` (read back with `GetSegmentsCount`), `ApplyCornerTreatment`,
+  `CornerTreatmentType` (`swSolidworksWeldmentEndCondOptions_e`: 1 miter, 2 butt1, 3 butt2), `Angle` (rad); then
+  `InsertStructuralWeldment5(profilePath, 1, false, new[] { new DispatchWrapper(group) }, size)`. Profiles are
+  `<weldment profiles>\<standard>\<type>.sldlfp` (`swFileLocationsWeldmentProfiles` 29, e.g.
+  `ProgramData\SOLIDWORKS\SOLIDWORKS 2025\weldment profiles\iso\square tube.sldlfp`) and **each size is a configuration**
+  of the file (`ISldWorks.GetConfigurationNames(path)`: "40 x 40 x 4"). The feature is `WeldMemberFeat`, one solid body
+  per segment. A 400 × 300 rectangle in ISO square tube 40 x 40 x 4 gave 534.8 mm² of section per mm on every member,
+  mitered members 20 mm (half the profile) longer than their segment at each end. A group holds contiguous (or parallel)
+  segments: a table frame from one 3D sketch is two calls, the top rectangle (miter) and the legs (no corner treatment).
+
 ## 7. Sheet metal
 - **Base flange** (VERIFIED, exact volume).
   - The sketch must be **closed and selected**; an open sketch returns null.

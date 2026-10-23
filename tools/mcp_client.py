@@ -27,12 +27,14 @@ class ToolError(Exception):
 
 
 class McpClient:
-    def __init__(self, exe: str, env: dict | None = None, protocol: str = "2025-06-18", timeout: float = 300.0):
+    def __init__(self, exe: str | list[str], env: dict | None = None, protocol: str = "2025-06-18", timeout: float = 300.0):
         e = dict(os.environ)
         if env:
             e.update(env)
         self.timeout = timeout
-        self.proc = subprocess.Popen([exe], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        # A .dll runs through the dotnet host (the fallback when Smart App Control blocks the exe).
+        cmd = list(exe) if isinstance(exe, list) else ["dotnet", exe] if exe.lower().endswith(".dll") else [exe]
+        self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                      text=True, encoding="utf-8", bufsize=1, env=e)
         self._out: "queue.Queue[dict]" = queue.Queue()
         self.notifications: list[dict] = []

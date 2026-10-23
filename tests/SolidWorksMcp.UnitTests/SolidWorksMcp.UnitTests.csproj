@@ -46,6 +46,7 @@
     <Compile Include="..\..\src\SolidWorksMcp.Core\Services\DrawingAnnotationSpec.cs" Link="Core\Services\DrawingAnnotationSpec.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Services\SimulationMath.cs" Link="Core\Services\SimulationMath.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Services\VbaText.cs" Link="Core\Services\VbaText.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Services\WeldmentSpec.cs" Link="Core\Services\WeldmentSpec.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Win32\DialogRules.cs" Link="Core\Win32\DialogRules.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Win32\DialogWatchdog.cs" Link="Core\Win32\DialogWatchdog.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Win32\Dialogs.cs" Link="Core\Win32\Dialogs.cs" />

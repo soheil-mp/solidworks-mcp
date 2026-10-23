@@ -104,6 +104,11 @@ Parasolid and more). Existing files need `overwrite:true`. `doc_open` imports ST
 with `sheetmetal_edge_flange`, check the blank with `sheetmetal_flatten {flat:true}`, save the part, then
 `sheetmetal_export_flat {path:"bracket_flat.dxf"}` for the laser cutter.
 
+**Weldment frames.** Sketch the frame's centre lines (a 2D sketch, or `sketch_start {threeD:true}` with [x,y,z] points),
+then `weldment_member {type:"square tube", size:"40 x 40 x 4"}` (ISO by default; a wrong type or size lists the real
+ones). One call per group of contiguous or parallel lines: e.g. a table's top rectangle (corners mitered), then its legs
+with `segments:["Line5",…], corner:"none"`. The result lists each member's body and length.
+
 **Assemblies.**
 1. Save each part first (`doc_save {mode:"as", path:"cube.sldprt"}`): components must be files.
 2. `doc_new {type:"assembly"}`, then `asm_insert {path:"cube.sldprt", originMm:[0,0,0]}`. The first component is fixed;

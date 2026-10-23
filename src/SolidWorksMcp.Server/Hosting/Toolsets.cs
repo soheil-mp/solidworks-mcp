@@ -19,7 +19,7 @@ public sealed class ToolsetAttribute(string name) : Attribute
 public static class Toolsets
 {
     public static readonly string[] All =
-        ["session", "documents", "inspect", "sketch", "features", "reference", "bodies", "sheetmetal", "assembly", "drawing", "export", "properties", "simulation", "automation"];
+        ["session", "documents", "inspect", "sketch", "features", "reference", "bodies", "sheetmetal", "weldments", "assembly", "drawing", "export", "properties", "simulation", "automation"];
 
     /// <summary>tool name → (toolset, read-only).</summary>
     public static IReadOnlyDictionary<string, (string Toolset, bool ReadOnly)> Catalog { get; } = Build();

@@ -10,7 +10,7 @@
   - verified feature creation with automatic rollback;
   - entity references by id, point, query and name;
   - compact input schemas (the EntityRef fields are explained once, in the server instructions).
-- Tools (122):
+- Tools (123):
   - session: `sw_status`, `sw_connect`, `sw_help`, `dialog_list`, `dialog_respond`;
   - documents: `doc_new` (part, assembly, drawing), `doc_open` (native files and STEP/IGES/Parasolid/SAT/STL imports),
     `doc_list`, `doc_activate`, `doc_save`, `doc_close`, `doc_rebuild`, `doc_undo`, `doc_units_set`;
@@ -29,6 +29,7 @@
     move faces of any body, imported ones too), `surface_extrude`,
     `surface_revolve`, `surface_planar`, `surface_offset`, `surface_knit`, `surface_thicken`;
   - sheet metal: `sheetmetal_base_flange`, `sheetmetal_edge_flange`, `sheetmetal_flatten`, `sheetmetal_export_flat`;
+  - weldments: `weldment_member` (structural members along 2D or 3D sketch lines);
   - assembly: `asm_insert`, `asm_mate_add`, `asm_mate_list`, `asm_component_list`, `asm_component_set`,
     `asm_component_move`, `asm_interference`, `asm_replace`, `asm_pattern` (linear, circular, mirror);
   - drawing: `drw_sheet_setup`, `drw_views_standard`, `drw_view_projected`, `drw_view_section`, `drw_view_detail`,
@@ -42,7 +43,7 @@
   - automation: `vba_run` (off by default).
 - Tests: unit tests, offline contract tests, live tests per area with exact oracles, and `tools/mcp_smoke.py` with the
   golden scenarios (plate, enclosure, edit, assembly, drawing).
-- Live-tested against SOLIDWORKS 2025 SP1.2: 332 live tests across all areas pass. Fixes found that way include:
+- Live-tested against SOLIDWORKS 2025 SP1.2: 336 live tests across all areas pass. Fixes found that way include:
   - coupled system options (STL quality with deviation and angle) are saved and restored as one group, also after a
     crash (an STL export had left a user's STL quality at coarse);
   - Hole Wizard holes are placed exactly (a model-space ray pick) and through-all holes work;
