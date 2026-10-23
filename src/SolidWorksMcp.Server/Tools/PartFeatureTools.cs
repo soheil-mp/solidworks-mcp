@@ -86,9 +86,9 @@ public sealed class PartFeatureTools(SwSession session)
     [McpServerTool(Name = "feature_hole", Title = "Hole Wizard holes", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Hole Wizard holes at points on planar faces, drilled against the face normal: drill, clearance (fit), counterbore, " +
                  "countersink, tapped. One HoleWzd feature per point. Verified per hole: a coaxial cylinder of the planned diameter (blind: " +
-                 "the requested depth, without the drill tip) and volume removed; on any failure all holes are rolled back. The drill " +
-                 "recipe is live-verified; clearance, counterbore and countersink are newer (their faces are checked); tapped is made as its " +
-                 "tap-drill hole unless SWMCP_EXPERIMENTAL=1.")]
+                 "the requested depth, without the drill tip) and volume removed; on any failure all holes are rolled back. Drill, " +
+                 "clearance, counterbore, countersink and through_all are live-verified; tapped is made as its tap-drill hole (no thread " +
+                 "geometry) unless SWMCP_EXPERIMENTAL=1.")]
     public Task<string> FeatureHole(
         IProgress<ProgressNotificationValue> progress,
         [Description("Hole centers in model mm, on a planar face: [[x,y,z], ...].")] double[][] points,

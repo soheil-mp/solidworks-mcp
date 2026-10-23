@@ -673,28 +673,38 @@ public sealed class PartFeatureService(SwSession session)
     }
 
     /// <summary>
-    /// Selects the face with the pick point at the hole center (Hole Wizard places the hole there). SelectByID2 with
-    /// coordinates is the verified recipe; a ray along the face normal is the fallback. The selection is read back.
+    /// Selects the face with the pick point at the hole center (Hole Wizard places the hole exactly there). A ray along
+    /// the face normal picks in model space; SelectByID2 with coordinates picks through the screen, so its pick point
+    /// is rounded to a pixel (live: 0.1-0.15 mm off at normal zoom) and is only the fallback. The pick point is read
+    /// back and the first method that hits the center wins.
     /// </summary>
     private static void SelectFaceAt(SwContext ctx, IModelDoc2 d, IFace2 face, Vec3 c, Vec3 n, string label)
     {
-        d.ClearSelection2(true);
-        bool ok = d.Extension.SelectByID2("", "FACE", c.X, c.Y, c.Z, false, 0, null, 0) && SelectedIs(d, face);
-        if (!ok)
+        Vec3? best = null;
+        foreach (var how in new[] { "ray", "point" })
         {
             d.ClearSelection2(true);
             var s = c + n * 1e-4; // 0.1 mm in front of the face, looking back at it
-            ok = d.Extension.SelectByRay(s.X, s.Y, s.Z, -n.X, -n.Y, -n.Z, 1e-5, (int)swSelectType_e.swSelFACES, false, 0, 0) && SelectedIs(d, face);
+            bool ok = how == "ray"
+                ? d.Extension.SelectByRay(s.X, s.Y, s.Z, -n.X, -n.Y, -n.Z, 1e-5, (int)swSelectType_e.swSelFACES, false, 0, 0)
+                : d.Extension.SelectByID2("", "FACE", c.X, c.Y, c.Z, false, 0, null, 0);
+            if (!ok || !SelectedIs(d, face)) continue;
+            var sp = ComArgs.Doubles((object?)d.Sel().GetSelectionPoint2(1, -1));
+            if (sp.Length < 3) return; // no pick point to check: the hole check will tell where it went
+            var at = Vec3.From(sp);
+            if (at.DistanceTo(c) <= 1e-7) return;
+            best ??= at;
+            if (how == "point")
+            {
+                ctx.Warn($"The face was picked at [{Pt(at)}] instead of [{Pt(c)}]; the hole check will tell where it went.");
+                return;
+            }
         }
-        if (!ok)
-        {
-            d.ClearSelection2(true);
-            throw new SwException(ErrorCodes.FeatureFailed, $"Could not select {label} at [{Pt(c)}] mm for the hole.",
-                "Move the point away from the face's edges, or check that nothing else covers the face there.");
-        }
-        var sp = ComArgs.Doubles((object?)d.Sel().GetSelectionPoint2(1, -1));
-        if (sp.Length >= 3 && Vec3.From(sp).DistanceTo(c) > HoleAxisTol)
-            ctx.Warn($"The face was picked at [{Pt(Vec3.From(sp))}] instead of [{Pt(c)}]; the hole check will tell where it went.");
+        d.ClearSelection2(true);
+        throw new SwException(ErrorCodes.FeatureFailed,
+            best is { } b ? $"Could not pick {label} exactly at [{Pt(c)}] mm for the hole (closest pick [{Pt(b)}])."
+                          : $"Could not select {label} at [{Pt(c)}] mm for the hole.",
+            "Move the point away from the face's edges, or check that nothing else covers the face there.");
     }
 
     private static bool SelectedIs(IModelDoc2 d, IFace2 face)
@@ -1599,7 +1609,9 @@ internal sealed record HolePlan(HoleCall Primary, HoleCall? Fallback, string? No
         }
         if (diameterMm is double dd && (!double.IsFinite(dd) || dd <= 0 || dd > 500))
             throw SwException.InvalidArgument($"diameterMm must be a positive diameter in mm (got {dd}).");
-        int endType = endName == "blind" ? (int)swEndConditions_e.swEndCondBlind : (int)swEndConditions_e.swEndCondThroughAll;
+        // VERIFIED live: HoleWizard5 returns nothing with swEndCondThroughAll (1) whatever the depth; swEndCondThroughAllBoth (9)
+        // makes the through-all hole (there is no material on the other side of the start face).
+        int endType = endName == "blind" ? (int)swEndConditions_e.swEndCondBlind : (int)swEndConditions_e.swEndCondThroughAllBoth;
         int stdIndex = std switch
         {
             "iso" => (int)swWzdHoleStandards_e.swStandardISO,
@@ -1647,7 +1659,7 @@ internal sealed record HolePlan(HoleCall Primary, HoleCall? Fallback, string? No
                     Size = sizeLabel, EndType = endType, DiameterMm = dia, DepthMm = depth, Values = Unused,
                     MinDiameterMm = diameterMm ?? cl.Close, MaxDiameterMm = diameterMm ?? cl.Loose,
                 };
-                return new HolePlan(call, null, "Clearance holes are a best-guess Hole Wizard recipe (not verified live yet); the diameter was checked.");
+                return new HolePlan(call, null, null); // live-verified (diameter and faces)
             }
             case "counterbore":
             {
@@ -1664,7 +1676,7 @@ internal sealed record HolePlan(HoleCall Primary, HoleCall? Fallback, string? No
                     Size = sizeLabel, EndType = endType, DiameterMm = dia, DepthMm = depth, Values = v,
                     MinDiameterMm = diameterMm ?? cl.Close, MaxDiameterMm = diameterMm ?? cl.Loose, CboreDiameterMm = cb.D, CboreDepthMm = cb.Depth,
                 };
-                return new HolePlan(call, null, "Counterbore holes are a best-guess Hole Wizard recipe (not verified live yet); the faces were checked.");
+                return new HolePlan(call, null, null); // live-verified (diameter and faces)
             }
             case "countersink":
             {
@@ -1681,7 +1693,7 @@ internal sealed record HolePlan(HoleCall Primary, HoleCall? Fallback, string? No
                     Size = sizeLabel, EndType = endType, DiameterMm = dia, DepthMm = depth, Values = v,
                     MinDiameterMm = diameterMm ?? cl.Close, MaxDiameterMm = diameterMm ?? cl.Loose, CsinkDiameterMm = cs, CsinkAngleDeg = 90,
                 };
-                return new HolePlan(call, null, "Countersink holes are a best-guess Hole Wizard recipe (not verified live yet); the faces were checked.");
+                return new HolePlan(call, null, null); // live-verified (diameter and faces)
             }
             default: // tapped
             {
