@@ -132,6 +132,31 @@ public sealed class DrawingTools(SwSession session)
         CancellationToken cancellationToken = default) =>
         ResultJson.Serialize(await _svc.NoteAddAsync(text, atMm, heightMm, view, doc, cancellationToken));
 
+    [McpServerTool(Name = "drw_annotation_add", Title = "Drawing annotation", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("GD&T and symbols in a view, on an edge of the view's model (model mm): datum feature (label), surface finish " +
+                 "(roughness Ra), geometric tolerance frame (characteristic, tolerance, Ø, MMC/LMC, datums) or a BOM balloon. " +
+                 "Verified: label, roughness, frame or balloon text and the attachment read back; otherwise removed.")]
+    public async Task<string> DrwAnnotationAdd(
+        [Description("datum | surface_finish | gtol | balloon")] string kind,
+        [Description("View name (drw_info lists views).")] string view,
+        [Description("Edge or vertex it points to (model mm), e.g. {type:'edge',at:[0,20,10]}; gtol: optional.")] EntityRef? at = null,
+        [Description("Symbol position [x,y] sheet mm; default: beside the edge, outside the view.")] double[]? atMm = null,
+        [Description("datum: the letter, e.g. A (default).")] string? label = null,
+        [Description("surface_finish: roughness Ra in µm, e.g. \"1.6\".")] string? roughness = null,
+        [Description("surface_finish: basic (default) | machining_required | no_machining")] string? finish = null,
+        [Description("gtol: flatness, straightness, circularity, cylindricity, line_profile, surface_profile, parallelism, perpendicularity, angularity, position, concentricity, symmetry, circular_runout, total_runout")] string? characteristic = null,
+        [Description("gtol: tolerance in mm, e.g. \"0.05\".")] string? tolerance = null,
+        [Description("gtol: a diameter (Ø) tolerance zone.")] bool diameter = false,
+        [Description("gtol: none (default) | mmc | lmc")] string? material = null,
+        [Description("gtol: datum letters, e.g. [\"A\",\"B\"].")] string[]? datums = null,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ResultJson.Serialize(await _svc.AnnotationAddAsync(new DrwAnnotationRequest
+        {
+            Doc = doc, Kind = kind, View = view, At = at, AtMm = atMm, Label = label, Roughness = roughness, Finish = finish,
+            Characteristic = characteristic, Tolerance = tolerance, Diameter = diameter, Material = material, Datums = datums,
+        }, cancellationToken));
+
     [McpServerTool(Name = "drw_bom_add", Title = "Bill of materials", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("BOM / bill of materials table (top level) for the model shown in a view. Returns the rows and columns read back from the table.")]
     public Task<string> DrwBomAdd(

@@ -181,7 +181,7 @@ public sealed record DrwSheetRequest
 /// (view type, orientation from IView.ModelToViewTransform, scale, outline; dimension values against the geometry; note
 /// text and position; BOM rows) and removes what it created when a hard check fails.
 /// </summary>
-public sealed class DrawingService(SwSession session)
+public sealed partial class DrawingService(SwSession session)
 {
     private const double PosTol = 1e-5;  // m on the sheet (0.01 mm)
     private const double DirTol = 1e-3;  // unit-vector comparisons (orientations read from a transform)
@@ -1212,13 +1212,37 @@ public sealed class DrawingService(SwSession session)
     /// what got selected is drawn where the requested entity is; IView.SelectEntity is the fallback.
     /// </summary>
     private static void SelectInView(SwContext ctx, IModelDoc2 d, ViewHit hit, Resolved r, OnSheet g, Xform t, bool part, bool append,
-        string arg, List<string> checks)
+        string arg, List<string> checks, bool pickFirst = false)
     {
         // The exact entity first (IView.SelectEntity, then IEntity.Select4 with the view in the SelectData), the sheet pick
         // last. Live: the pick by coordinates found no edge in a view, and a failed pick with append also dropped the
-        // selection made before it, so the second of two edges was refused.
+        // selection made before it, so the second of two edges was refused. Annotations (one entity, pickFirst) try the
+        // pick first: a leader attaches where the entity was picked, not at its end point.
         var sm = d.Sel();
         int before = sm.GetSelectedObjectCount2(-1);
+        if (pickFirst && !append && before == 0)
+        {
+            // A pick in the active view selects the view itself (type 12) as well as the entity under the point (VERIFIED):
+            // keep the entity, drop the rest. Its pick point is where a leader attaches.
+            var p = g.Pick;
+            if (d.Extension.SelectByID2("", g.Kind == "point" ? "VERTEX" : "EDGE", p.X, p.Y, p.Z, false, 0, null, 0))
+            {
+                int n = sm.GetSelectedObjectCount2(-1), keep = -1;
+                for (int i = 1; i <= n && keep < 0; i++)
+                    if (sm.DrwSelected(i) is IEdge or IVertex && (!part || DrawnAlike(sm.DrwSelected(i), g, t))) keep = i;
+                if (keep > 0)
+                {
+                    for (int i = n; i >= 1; i--)
+                        if (i != keep) sm.DeSelect2(i, -1);
+                    if (sm.GetSelectedObjectCount2(-1) == 1 && sm.DrwSelected(1) is IEdge or IVertex)
+                    {
+                        checks.Add($"'{arg}' picked at its sheet position");
+                        return;
+                    }
+                }
+            }
+            d.ClearSelection2(true);
+        }
         if (hit.View.SelectEntity(r.Obj, append) && sm.GetSelectedObjectCount2(-1) == before + 1)
         {
             checks.Add($"'{arg}' selected through the view (IView.SelectEntity)");

@@ -521,6 +521,34 @@ internal static class DrawingLayout
     }
 
     /// <summary>
+    /// Where an annotation goes by default (sheet mm): out from its attachment point, away from the view's centre, until it
+    /// is 8 mm clear of the view (and at least 15 mm from the point); above the view's top-left corner without one. A spot
+    /// within 12 mm of an annotation already there (<paramref name="taken"/>) moves down 12 mm at a time until it is free.
+    /// </summary>
+    public static (double X, double Y) AnnotationSpot(SheetRect view, (double X, double Y)? pick, IReadOnlyList<(double X, double Y)>? taken = null)
+    {
+        (double X, double Y) spot;
+        if (pick is not (double px, double py)) spot = (view.X0, view.Y1 + 12);
+        else
+        {
+            double dx = px - view.Cx, dy = py - view.Cy, len = Math.Sqrt(dx * dx + dy * dy);
+            if (len < 1e-6) (dx, dy, len) = (1, 1, Math.Sqrt(2));
+            dx /= len;
+            dy /= len;
+            spot = (px + dx * 15, py + dy * 15);
+            for (double s = 15; s < 1000; s += 5)
+            {
+                double x = px + dx * s, y = py + dy * s;
+                if (x <= view.X0 - 8 || x >= view.X1 + 8 || y <= view.Y0 - 8 || y >= view.Y1 + 8) { spot = (x, y); break; }
+            }
+        }
+        if (taken is { Count: > 0 })
+            for (int k = 0; k < 20 && taken.Any(t => Math.Sqrt((t.X - spot.X) * (t.X - spot.X) + (t.Y - spot.Y) * (t.Y - spot.Y)) < 12); k++)
+                spot = (spot.X, spot.Y - 12);
+        return (Math.Round(spot.X, 3), Math.Round(spot.Y, 3));
+    }
+
+    /// <summary>
     /// Where a dimension's text goes by default (sheet mm): horizontal above or below the view, vertical to its right or
     /// left, others 10 mm outward from the view centre through the picked points' centroid.
     /// </summary>

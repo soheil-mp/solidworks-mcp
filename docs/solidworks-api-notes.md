@@ -384,6 +384,22 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   sketches had no dimensions.
 - **Export:** PDF (`%PDF-1.4`), DWG (`AC1015` = R2000) and DXF through `SaveAs`. A PNG export of a drawing renders the
   current window.
+- **Annotations on a model edge** (VERIFIED 2026-10-23). Activate the view and select the edge, then:
+  - datum: `IModelDoc2.InsertDatumTag2()` → `IDatumTag`; `SetLabel("A")`, `GetLabel()`;
+  - surface finish: `IModelDocExtension.InsertSurfaceFinishSymbol3(swSFSymType_e, swSTRAIGHT, x, y, 0, swSFNone,
+    swDOT_ARROWHEAD, "", "", "", "", maxRoughness, "", "")` → `ISFSymbol`; `GetSymbol()` is the type,
+    `GetText(swSFSymbolMaximumRoughness = 5)` the roughness;
+  - tolerance frame: `IModelDoc2.InsertGtol()` → `IGtol`; `SetFrameSymbols2(1, "<IGTOL-POSI>", diameter, "<MOD-MMC>",
+    false, "", "", "", "")` and `SetFrameValues2(1, "0.1", "", "A", "B", "C")`; `GetFrameValues(1)` = [tol1, tol2, datum1,
+    datum2, datum3], `GetFrameSymbols3(1)[0]` = the symbol. The codes are the ISO ones in
+    `ProgramData\SOLIDWORKS\SOLIDWORKS 2025\lang\english\gtol.sym` (FLAT, STRAIGHT, CIRC, CYL, LPROF, SPROF, PARA, PERP,
+    ANGULAR, POSI, CONC, SYMMETRY, SRUN, TRUN; modifiers MMC, LMC);
+  - balloon: `IModelDocExtension.InsertBOMBalloon2(CreateBalloonOptions())` → `INote`; `IsBomBalloon()`,
+    `GetBomBalloonText(true)` ("1" with a BOM in the drawing).
+  - Each is attached (`IAnnotation.GetAttachedEntityCount3()` = 1) and moved with `SetPosition2(x, y, 0)` (sheet m).
+- **Leaders attach where the edge was picked** (VERIFIED). `IView.SelectEntity(edge)` selects it without a point, and a
+  leader then ends at the edge's start (a view corner). `SelectByID2("", "EDGE", sheetX, sheetY, z, …)` in the active view
+  selects **two** objects, the view itself (type 12) and the edge: deselect the view, and the leader ends at the pick.
 
 ## 10. Export (system preferences: always restore)
 - **Through `SaveAs`, by extension:** `.step/.stp`, `.igs`, `.x_t`, `.stl` (written with an **uppercase `.STL`**

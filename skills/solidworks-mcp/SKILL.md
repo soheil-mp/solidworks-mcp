@@ -122,9 +122,13 @@ with `sheetmetal_edge_flange`, check the blank with `sheetmetal_flatten {flat:tr
 1. Save the part or assembly.
 2. `doc_new {type:"drawing"}` (A3 landscape, ISO, first angle; change it with `drw_sheet_setup`).
 3. `drw_views_standard {model:"bracket.sldprt"}` (front, top, right, iso), then `drw_dimensions_auto`.
-4. Add `drw_view_section`, `drw_view_detail`, `drw_note_add`, and `drw_bom_add` for assemblies. `drw_info` lists the
+4. GD&T and symbols on model edges: `drw_annotation_add {kind:"datum", view, at:{type:"edge", at:[x,y,z]}, label:"A"}`,
+   `{kind:"gtol", characteristic:"position", tolerance:"0.1", diameter:true, material:"mmc", datums:["A"], at:…}`,
+   `{kind:"surface_finish", roughness:"1.6", at:…}` or a `balloon` (after `drw_bom_add`). Each is placed beside its edge
+   unless you pass `atMm`.
+5. Add `drw_view_section`, `drw_view_detail`, `drw_note_add`, and `drw_bom_add` for assemblies. `drw_info` lists the
    views with their positions.
-5. `model_export {path:"bracket.pdf"}` (or .dwg/.dxf).
+6. `model_export {path:"bracket.pdf"}` (or .dwg/.dxf).
 
 **Stress check.** `sim_static {material:"AISI 1020", fixedFaces:[{at:[0,5,5]}],
 loads:[{kind:"pressure", faces:[{at:[50,10,5]}], valueMpa:0.1}]}` meshes, solves and returns the maximum von Mises

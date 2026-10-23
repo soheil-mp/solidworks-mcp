@@ -537,4 +537,70 @@ public class DrawingLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.NotNull(cm.Hint);
         await Fails(ErrorCodes.EntityNotFound, () => Drw.CenterMarksAsync(["No Such View"], drw));
     }
+
+    // ------------------------------------------------------------------ drw_annotation_add
+
+    private Task<DrwAnnotationResult> Annotate(string drw, string view, string kind, EntityRef? at, Func<DrwAnnotationRequest, DrwAnnotationRequest>? more = null)
+    {
+        var q = new DrwAnnotationRequest { Doc = drw, View = view, Kind = kind, At = at };
+        return Drw.AnnotationAddAsync(more is null ? q : more(q));
+    }
+
+    private static EntityRef Edge(double x, double y, double z) => new() { Type = "edge", At = [x, y, z] };
+
+    [Fact]
+    public async Task Datum_surface_finish_and_tolerance_frames_attach_to_model_edges_and_read_back()
+    {
+        var (drw, r) = await ViewsAsync("drw_gdt", ["front"], hole: true);
+        string front = r.Views[0].Name;
+
+        var datum = await Annotate(drw, front, "datum", Edge(0, 30, 20), q => q with { Label = "A" });
+        Assert.Equal("A", datum.Text);
+        Assert.True(datum.AttachedTo >= 1);
+        Assert.Contains(datum.Checks!, c => c.Contains("label 'A' read back", StringComparison.Ordinal));
+
+        var finish = await Annotate(drw, front, "surface_finish", Edge(50, 0, 20), q => q with { Roughness = "1.6", Finish = "machining_required" });
+        Assert.Equal("machining_required Ra 1.6", finish.Text);
+        Assert.True(finish.AttachedTo >= 1);
+
+        // Position of the Ø20 hole: Ø0.1 at MMC relative to datum A, on the hole's edge on the front face.
+        var pos = await Annotate(drw, front, "gtol", Edge(10, 0, 20),
+            q => q with { Characteristic = "position", Tolerance = "0.1", Diameter = true, Material = "mmc", Datums = ["A"] });
+        Assert.Equal("position Ø0.1 (MMC) | A", pos.Text);
+        Assert.True(pos.AttachedTo >= 1);
+
+        // Flatness of the top face's edge: a form tolerance, no datum; placed where asked.
+        var flat = await Annotate(drw, front, "gtol", Edge(0, 30, 20), q => q with { Characteristic = "flatness", Tolerance = "0.05", AtMm = [60, 250] });
+        Assert.Equal("flatness 0.05", flat.Text);
+        Assert.Equal(60, flat.AtMm![0], 1e-3);
+        Assert.Equal(250, flat.AtMm![1], 1e-3);
+    }
+
+    [Fact]
+    public async Task Balloon_on_a_part_view_with_a_bom_shows_item_1()
+    {
+        var (drw, r) = await ViewsAsync("drw_balloon", ["front"]);
+        string front = r.Views[0].Name;
+        await Drw.BomAddAsync(front, null, null, drw);
+        var b = await Annotate(drw, front, "balloon", Edge(0, 30, 20));
+        Assert.Equal("1", b.Text);
+        Assert.True(b.AttachedTo >= 1);
+    }
+
+    [Fact]
+    public async Task Annotations_that_cant_work_are_refused()
+    {
+        var (drw, r) = await ViewsAsync("drw_gdt_bad", ["front"]);
+        string front = r.Views[0].Name;
+        var edge = Edge(0, 30, 20);
+        await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "weld", edge));
+        await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "datum", null));
+        await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "datum", edge, q => q with { Label = "I" }));
+        await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "datum", edge, q => q with { Roughness = "1.6" }));
+        await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "gtol", edge, q => q with { Characteristic = "perpendicularity", Tolerance = "0.1" }));
+        await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "gtol", edge, q => q with { Characteristic = "flatness", Tolerance = "0.1", Datums = ["A"] }));
+        await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "gtol", edge, q => q with { Characteristic = "flatness", Tolerance = "-1" }));
+        await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "gtol", edge, q => q with { Characteristic = "wobble", Tolerance = "0.1" }));
+        await Fails(ErrorCodes.EntityNotFound, () => Annotate(drw, "No Such View", "datum", edge));
+    }
 }
