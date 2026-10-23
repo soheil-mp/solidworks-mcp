@@ -281,11 +281,10 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   and `(0, 1, null)` folds it again.
 - **Flat DXF** (VERIFIED). `IPartDoc.ExportToDWG2(path, modelPath /*saved part*/, 1 /*sheet metal*/, true, null, false,
   false, 1 + 4 /*geometry + bend lines*/, null)`.
-- **Edge flange: UNRESOLVED.** `InsertSheetMetalEdgeFlange2(edges[], null, 129, π/2, r, 1, 0, 1, 0.5, 0, 0, 1, null)`
-  returned null; profile sketches are probably needed.
-- **Weldments.** `InsertWeldmentFeature()` works. **Structural members (`InsertStructuralWeldment5`): UNRESOLVED.**
-  Profiles live at `ProgramData\SOLIDWORKS\SOLIDWORKS 2025\weldment profiles\<std>\<type>.sldlfp`, with sizes as
-  configurations (`ISldWorks.GetConfigurationNames(path)`).
+- **Edge flange.** `InsertSheetMetalEdgeFlange2(edges[], null, 129, π/2, r, 1, 0, 1, 0.5, 0, 0, 1, null)` with edges alone
+  returned null. Profile sketches are needed: the server makes them with `IModelDoc2.InsertSketchForEdgeFlange` and passes
+  them to `InsertSheetMetalEdgeFlange2` (the live tests pass; the result's `method` names the variant that worked).
+- **Weldments**: structural members are VERIFIED, see §6 (*Weldment structural members*).
 
 - **Base flange side** (VERIFIED). For a closed profile `InsertSheetMetalBaseFlange2`'s `ThickenDir` changes nothing (both values
   thicken toward −normal), and neither does `IBaseFlangeFeatureData.ReverseThickness`; `ReverseDirection` (through
