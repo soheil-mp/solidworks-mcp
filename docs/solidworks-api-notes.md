@@ -382,6 +382,11 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
   `IsLine`/`IsCircle`, `CircleParams` (`[center xyz, axis xyz, r]`), `GetLength3(t0, t1)`.
 - **Geometry check.** `IBody2.Check3` returns faults. The old server's check was fake.
 
+- **Measure with arcs/circles** (VERIFIED). `IMeasure.Distance` follows `ArcOption`, default 0 = center: a hole's top circle
+  to the Top Plane under it read 20.62 (center to the hole's bottom circle on that plane), 1 = minimum gave the true 20,
+  2 = maximum 22.36. Set `ArcOption = 1` before `Calculate` for "the distance".
+- **Touching faces** (VERIFIED): `Distance` is -1 (not applicable); `Angle` (rad) and `IsPerpendicular` still read.
+
 ## 13. Display, views, images
 - **Named views.** `IModelDoc2.ShowNamedView2("*Isometric", -1)`, then `ViewZoomtofit2()`.
 - **Display mode.** `IModelView.DisplayMode` takes `swViewDisplayMode_e` values: 1 wireframe, 2 hidden lines removed,

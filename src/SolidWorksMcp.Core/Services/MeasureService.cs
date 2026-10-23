@@ -213,6 +213,11 @@ public sealed class MeasureService(SwSession session)
                     throw new SwException(ErrorCodes.Internal, $"Selecting the {(two ? "two entities" : "entity")} gave {n} selected objects.");
                 var m = d.Extension.CreateMeasure()
                         ?? throw new SwException(ErrorCodes.Internal, "SOLIDWORKS returned no Measure object.");
+                // With an arc or circle, Distance follows ArcOption, whose default (center) measures from the arc's center
+                // (live: a hole's top circle to the plane under it read 20.62 instead of 20). Distance is the minimum; the
+                // center-based reading is reported as centerDistanceMm.
+                bool arcs = two && (IsArcLike(ra) || IsArcLike(rb!));
+                if (arcs) m.ArcOption = (int)swMeasureArcCircleOption_e.swMeasureArcCircle_MinimumDistance;
                 // The verified recipe passes VBA's Nothing; C# examples pass null (VT_EMPTY). Both mean "the selection".
                 if (!m.Calculate(ComArgs.Nothing) && !m.Calculate(ComArgs.Empty))
                     throw new SwException(ErrorCodes.NotSupported, $"SOLIDWORKS could not measure {Describe(ra, rb)}.",
@@ -236,7 +241,7 @@ public sealed class MeasureService(SwSession session)
                     Doc = ctx.Title(d),
                     DistanceMm = two ? Len(m.Distance) : null,
                     NormalDistanceMm = two ? Len(m.NormalDistance) : null,
-                    CenterDistanceMm = two ? Len(m.CenterDistance) : null,
+                    CenterDistanceMm = two ? Len(m.CenterDistance) ?? (arcs ? CenterReading(d) : null) : null,
                     AngleDeg = two ? Ang(m.Angle) : null,
                     DeltaMm = two && Applies(dx) && Applies(dy) && Applies(dz) ? [Mm(dx), Mm(dy), Mm(dz)] : null,
                     LengthMm = Len(m.Length),
@@ -258,6 +263,19 @@ public sealed class MeasureService(SwSession session)
                 return r;
             });
         }, RunOptions.Read(doc), ct);
+
+    /// <summary>The distance of the current selection with ArcOption center-to-center, from a second Measure object.</summary>
+    private static double? CenterReading(IModelDoc2 d)
+    {
+        try
+        {
+            var m = d.Extension.CreateMeasure();
+            if (m is null) return null;
+            m.ArcOption = (int)swMeasureArcCircleOption_e.swMeasureArcCircle_CenterToCenter;
+            return m.Calculate(ComArgs.Nothing) || m.Calculate(ComArgs.Empty) ? Len(m.Distance) : null;
+        }
+        catch (COMException e) when (!ComArgs.IsDisconnect(e)) { return null; }
+    }
 
     private static string Describe(Resolved a, Resolved? b) => b is null ? a.Label : $"{a.Label} and {b.Label}";
 

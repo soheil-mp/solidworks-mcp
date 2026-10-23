@@ -429,7 +429,8 @@ public class ReferenceLiveTests(LiveFixture fx) : LiveTest(fx)
         string doc = await BlockAsync("measure_angle");
         var r = await Measure.MeasureAsync(doc, Face(0, 20, 0), Face(0, 10, 30));
         Assert.Equal(90, r.AngleDeg!.Value, 1e-6);
-        Assert.Equal(0, r.DistanceMm!.Value, L);
+        // SOLIDWORKS reports no distance for faces that touch (-1, "not applicable"; VERIFIED live).
+        Assert.True(r.DistanceMm is null or 0, $"distance {r.DistanceMm}");
         Assert.True(r.Perpendicular);
     }
 
