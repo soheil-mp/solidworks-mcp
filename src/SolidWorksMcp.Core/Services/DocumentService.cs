@@ -51,8 +51,7 @@ public sealed class DocumentService(SwSession session)
         session.RunAsync("doc_new", ctx =>
         {
             var docType = ParseType(type);
-            if (docType == swDocumentTypes_e.swDocDRAWING)
-                throw new SwException(ErrorCodes.NotSupported, "Drawings are not available yet in this version (planned for M4).");
+            bool drawing = docType == swDocumentTypes_e.swDocDRAWING;
             int unitSystem = ParseUnits(units);
             string tpl = template is null
                 ? ctx.App.GetUserPreferenceStringValue(docType switch
@@ -66,7 +65,12 @@ public sealed class DocumentService(SwSession session)
                 throw new SwException(ErrorCodes.IoError, $"Template not found: '{tpl}'.",
                     "Pass 'template' with the full path of a .prtdot/.asmdot/.drwdot file (Tools > Options > Default Templates).");
 
-            var doc = (object?)ctx.App.NewDocument(tpl, 0, 0, 0) as IModelDoc2
+            // Drawings: A3 paper, and the sheet-format dialog kept off while the drawing is made (DrawingService).
+            using var drawingPrefs = drawing ? DrawingService.NewDrawingPrefs(ctx) : null;
+            object? made = drawing
+                ? (object?)ctx.App.NewDocument(tpl, DrawingService.NewPaper, DrawingService.NewWidthM, DrawingService.NewHeightM)
+                : (object?)ctx.App.NewDocument(tpl, 0, 0, 0);
+            var doc = made as IModelDoc2
                       ?? throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS could not create a {type} from '{tpl}'.");
             ctx.Documents.SetClass(doc, DocClass.Owned, "created");
             ctx.Documents.Target = doc;
@@ -79,9 +83,10 @@ public sealed class DocumentService(SwSession session)
                 int got = doc.Extension.GetUserPreferenceInteger((int)swUserPreferenceIntegerValue_e.swUnitSystem, 0);
                 if (got != unitSystem) ctx.Warn($"Unit system could not be set (reads {UnitName(got)}).");
             }
+            string sheet = drawing ? DrawingService.SetupNewDrawing(ctx, doc, keepTemplateSheet: template is not null) : "";
             if (!string.IsNullOrWhiteSpace(name) && !doc.SetTitle2(name)) ctx.Warn($"Could not set the title to '{name}'.");
             ctx.Documents.Track(doc).StampAfterLastOp = doc.GetUpdateStamp();
-            return new DocResult { Doc = ctx.Title(doc), Document = Info(ctx, doc), Message = $"Created {type} from {Path.GetFileName(tpl)}; it is now the target document." };
+            return new DocResult { Doc = ctx.Title(doc), Document = Info(ctx, doc), Message = $"Created {type} from {Path.GetFileName(tpl)}{sheet}; it is now the target document." };
         }, null, ct);
 
     // ------------------------------------------------------------------ list

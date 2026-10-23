@@ -771,7 +771,7 @@ public class HelpGuideTests
         {
             var r = Guide.Get(t.Name);
             Assert.Equal(t.Name, r.Topic);
-            Assert.InRange(r.Text.Length, 200, 6000);
+            Assert.InRange(r.Text.Length, 200, t.Name == "tools" ? 100 * Toolsets.Catalog.Count : 6000); // the generated 'tools' topic has one line per tool
         }
         Assert.Equal("workflow_plate", Guide.Get("Plate").Topic);
         Assert.Equal("workflow_enclosure", Guide.Get("workflow-enclosure").Topic);
