@@ -771,7 +771,8 @@ public class HelpGuideTests
         {
             var r = Guide.Get(t.Name);
             Assert.Equal(t.Name, r.Topic);
-            Assert.InRange(r.Text.Length, 200, 6000);
+            // The generated tools topic grows with the catalog (about 75 characters per tool); the written guides stay short.
+            Assert.InRange(r.Text.Length, 200, t.Name == "tools" ? 100 * Guide.Tools().Count : 6000);
         }
         Assert.Equal("workflow_plate", Guide.Get("Plate").Topic);
         Assert.Equal("workflow_enclosure", Guide.Get("workflow-enclosure").Topic);

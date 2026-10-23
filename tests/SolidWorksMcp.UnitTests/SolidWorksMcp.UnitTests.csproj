@@ -39,6 +39,7 @@
     <Compile Include="..\..\src\SolidWorksMcp.Core\Model\ToolResult.cs" Link="Core\Model\ToolResult.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Prefs\PreferenceJournal.cs" Link="Core\Prefs\PreferenceJournal.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Prefs\SystemPrefIds.cs" Link="Core\Prefs\SystemPrefIds.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Services\DrawingLayout.cs" Link="Core\Services\DrawingLayout.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Services\VbaText.cs" Link="Core\Services\VbaText.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Win32\DialogRules.cs" Link="Core\Win32\DialogRules.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Win32\DialogWatchdog.cs" Link="Core\Win32\DialogWatchdog.cs" />

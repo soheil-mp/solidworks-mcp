@@ -37,4 +37,12 @@ public static class DialogRules
     /// </summary>
     public static readonly DialogRule ImportDiagnosticsNo =
         new("SOLIDWORKS", @"Import\s*Diagnos", "No", "Import Diagnostics prompt after an import (declined)");
+
+    /// <summary>
+    /// "The section line does not completely cut through … make this a partial section?" when a section line ends inside
+    /// the part (drw_view_section validates the line first, so this is a safety net): decline, so no partial section is
+    /// made. Title and text are not verified live yet.
+    /// </summary>
+    public static readonly DialogRule PartialSectionNo =
+        new("SOLIDWORKS|Section", "partial section", "No", "partial section-view prompt (declined)");
 }
