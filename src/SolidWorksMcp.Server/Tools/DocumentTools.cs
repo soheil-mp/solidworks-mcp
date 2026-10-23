@@ -13,12 +13,13 @@ public sealed class DocumentTools(SwSession session)
     private readonly DocumentService _svc = new(session);
 
     [McpServerTool(Name = "doc_new", Title = "New document", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-    [Description("Creates a new part or assembly (owned by this server) and makes it the target document. Units default to MMGS " +
-                 "(mm, g, s) whatever the template says.")]
+    [Description("Creates a new part, assembly or drawing (owned by this server) and makes it the target document. Units default to MMGS " +
+                 "(mm, g, s) whatever the template says. A drawing starts as A3 landscape, ISO sheet format, first angle, 1:1 " +
+                 "(drw_sheet_setup changes it).")]
     public async Task<string> DocNew(
-        [Description("part | assembly")] string type = "part",
+        [Description("part | assembly | drawing")] string type = "part",
         [Description("mmgs (default) | cgs | mks | ips | template (keep the template's units).")] string units = "mmgs",
-        [Description("Optional template file (.prtdot/.asmdot); default: the user's default template.")] string? template = null,
+        [Description("Optional template file (.prtdot/.asmdot/.drwdot); default: the user's default template.")] string? template = null,
         [Description("Optional document name (used as the file name when saved).")] string? name = null,
         CancellationToken cancellationToken = default) =>
         ResultJson.Serialize(await _svc.NewAsync(type, units, template, name, cancellationToken));
