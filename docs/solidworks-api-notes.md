@@ -199,6 +199,11 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
 | Suppress | `IFeature.SetSuppression2(swSuppressFeature = 0 / swUnSuppressFeature = 1, swThisConfiguration = 1, null)` | Per configuration. |
 | Rebuild state | `IFeature.GetErrorCode2(out bool isWarning)` gives 0 = OK. `GetTypeName2()` returns types like `ProfileFeature`, `3DProfileFeature`, `Extrusion`/`ICE` (API extrudes show `ICE`), `Cut`, `Revolution`, `Sweep`, `Blend` (loft), `Fillet`, `Chamfer`, `Shell`, `HoleWzd`, `LPattern`, `CirPattern`, `MirrorPattern`, `RefPlane`, `RefAxis`, `RefPoint`, `Helix`, `ExtruRefSurface`, `SheetMetal`, `SMBaseFlange`, `FlatPattern`, `WeldmentFeature`, `MateGroup`, `MateCoincident`, `MateDistanceDim`. | **A failed call still uses up the feature name**: always read `IFeature.Name`. |
 
+- **Draft** (VERIFIED). `IFeatureManager.InsertMultiFaceDraft(angle, flip, false, 0, false, false)` with the neutral plane or
+  face on mark 1 and the faces to draft on mark 2. The Draft feature owns no faces: the tilted faces still report the
+  feature they came from, and `Draft1.GetFaceCount()` is 0, so check the faces of the bodies. 5° on the four sides
+  of a 100 × 60 × 20 block about its bottom face: V = 125 680.9 mm³ (the analytic tapered block). A rollback rebuilds
+  the part, which disconnects faces resolved before it: resolve again before retrying.
 - **Fillets overflow** (VERIFIED). A constant-radius fillet doesn't fail when the radius is larger than a neighbouring
   face: r50 and even r1000 on the top edge of a 100 × 20 × 60 block rebuild without an error (r1000 leaves 7 099 mm³
   of the block). Check the volume change, not the error code, to catch a runaway radius. A shell thicker than the

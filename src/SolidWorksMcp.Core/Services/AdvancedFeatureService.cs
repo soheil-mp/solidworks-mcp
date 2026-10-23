@@ -163,14 +163,16 @@ public sealed class AdvancedFeatureService(SwSession session)
     private const double PosTol = 2e-6;     // m: positions read back from SOLIDWORKS geometry
     private const double OnFaceTol = 1e-5;  // m: loft-profile points on the loft's faces (0.01 mm)
     private const int ProfileMark = 1, GuideMark = 2, PathMark = 4; // verified (sweep and loft)
-    private const int NeutralMark = 1, DraftFaceMark = 2;            // best reading; the call retries without marks
+    private const int NeutralMark = 1, DraftFaceMark = 2;            // VERIFIED live; the call still retries without marks
 
     private static readonly FeatureSpec SweepSpec = new("feature_sweep", ["Sweep"], VolumeRule.Increase);
     private static readonly FeatureSpec SweepCutSpec = new("feature_sweep", ["SweepCut", "ICE"], VolumeRule.Decrease);
     private static readonly FeatureSpec LoftSpec = new("feature_loft", ["Blend"], VolumeRule.Increase);
     private static readonly FeatureSpec LoftCutSpec = new("feature_loft", ["BlendCut", "ICE"], VolumeRule.Decrease);
     private static readonly FeatureSpec HelixSpec = new("feature_helix", ["Helix"], VolumeRule.Any, RequireFaces: false);
-    private static readonly FeatureSpec DraftSpec = new("feature_draft", ["Draft"], VolumeRule.Change);
+    // A draft owns no faces (live: the drafted faces still report Boss-Extrude1), so the face count proves nothing; the
+    // intent check (every planar face turned by the angle) and the volume change do.
+    private static readonly FeatureSpec DraftSpec = new("feature_draft", ["Draft"], VolumeRule.Change, RequireFaces: false);
     private static readonly FeatureSpec RibSpec = new("feature_rib", ["Rib"], VolumeRule.Increase);
     private static readonly FeatureSpec ThreadSpec = new("feature_thread_cosmetic", ["CosmeticThread"], VolumeRule.Any, RequireFaces: false);
 
@@ -713,14 +715,23 @@ public sealed class AdvancedFeatureService(SwSession session)
             using var prefs = ctx.SystemPrefs();
             prefs.Toggle(SystemPrefIds.ShowErrorsEveryRebuild, false);
             var before = Snapshot.Take(d);
+            bool firstAttempt = true;
             FeatureOutcome Attempt(bool marks)
             {
+                // A failed attempt was rolled back, which rebuilds the part and disconnects the faces resolved before
+                // (live: RPC_E_DISCONNECTED on the retry): resolve them again for every attempt after the first.
+                if (!firstAttempt)
+                {
+                    neutral = EntityResolver.Resolve(ctx, d, q.Neutral, "neutral", EntityKind.Plane, EntityKind.Face);
+                    faces = EntityResolver.ResolveAll(ctx, d, q.Faces, "faces", EntityKind.Face);
+                }
+                firstAttempt = false;
                 var picks = new List<Pick> { new(neutral.Label, (doc, mk) => neutral.Select(doc, true, mk), marks ? NeutralMark : 0) };
                 picks.AddRange(faces.Select(f => new Pick(f.Label, (doc, mk) => f.Select(doc, true, mk), marks ? DraftFaceMark : 0)));
                 SelectAll(d, picks);
                 object? api = d.FeatureManager.InsertMultiFaceDraft(ang, q.Flip, false, (int)swDraftFacePropagationType_e.swFacePropNone, false, false);
                 d.ClearSelection2(true);
-                return Verify(ctx, d, before, DraftSpec, (main, _, checks) => DraftIntent(main, targets, m, ang, checks), q.KeepOnFailure, api, DraftHint);
+                return Verify(ctx, d, before, DraftSpec, (main, _, checks) => DraftIntent((IPartDoc)d, main, targets, m, ang, checks), q.KeepOnFailure, api, DraftHint);
             }
 
             FeatureOutcome o;
@@ -750,10 +761,14 @@ public sealed class AdvancedFeatureService(SwSession session)
     private sealed record DraftTarget(string Label, Vec3? N0, Vec3 HingePoint, Vec3 HingeDir);
 
     /// <summary>Tier B: each planar face reappears turned by the draft angle about its hinge line (within 0.01°).</summary>
-    private static List<string> DraftIntent(IFeature main, List<DraftTarget> targets, Vec3 m, double ang, List<string> checks)
+    private static List<string> DraftIntent(IPartDoc part, IFeature main, List<DraftTarget> targets, Vec3 m, double ang, List<string> checks)
     {
+        // The drafted faces belong to the feature they came from (live: Boss-Extrude1, and Draft1.GetFaces() is empty),
+        // so look among all faces of the solid bodies.
+        var faces = FeatureFaces(main);
+        if (faces.Count == 0) faces = part.Bodies(swBodyType_e.swSolidBody).SelectMany(b => b.Faces()).ToList();
         var planes = new List<(Vec3 N, Vec3 P)>();
-        foreach (var f in FeatureFaces(main))
+        foreach (var f in faces)
         {
             var g = Topology.Describe(f);
             if (g.Surface == "plane" && g.Normal is Vec3 n && PointOn(f) is Vec3 p) planes.Add((n, p));
