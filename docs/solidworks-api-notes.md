@@ -315,6 +315,19 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
   creates three standard views.
 - **Projected view:** select the parent `DRAWINGVIEW`, then `CreateUnfoldedViewAt3(x, y, 0, false)`. The direction follows
   the position.
+- **View objects** (VERIFIED). Methods on the `IView` objects `ISheet.GetViews` / `IDrawingDoc.GetViews` return
+  (`GetAnnotations`, `AutoInsertCenterMarks2`, counts) did nothing; the same calls on views from `GetFirstView` /
+  `GetNextView` work. A heavily used session can also stop listing a view's annotations: restart SOLIDWORKS.
+- **Don't pick to confirm** (VERIFIED). A `SelectByID2` pick at a sheet point (to confirm a cut line or detail circle)
+  deactivated the parent view; the entity then went to the sheet's sketch and `CreateSectionViewAt5` /
+  `CreateDetailViewAt4` made nothing. Draw with the view active and `AddToDB` on, in sheet coordinates (m), and select
+  the segment with `Select4(false, null)`.
+- **Model edges in a view** (VERIFIED). `IView.SelectEntity(edge, append)` (or `IEntity.Select4` with `SelectData.View`)
+  selects the exact edge; a pick by sheet coordinates found no edge, and a failed pick with append dropped the
+  earlier selection.
+- **Sheet scale** (VERIFIED). An empty sheet is rescaled when its first view is inserted (1:2 set before read 1:1 after
+  the rebuild): set the scale after the views exist; views with `UseSheetScale = 1` follow it.
+- **BOM of a part** (VERIFIED): bomType 1 (parts only); top-level (2) returns nothing for a part.
 - **Dimension between edges in a view** (VERIFIED, 60 mm).
   - `ActivateView(name)`, select edges with `SelectByID2("", "EDGE", sheetX, sheetY, 0, …)`, then `AddDimension2(x, y, 0)`
     produces `"RD1@Drawing View1"`, a reference dimension.

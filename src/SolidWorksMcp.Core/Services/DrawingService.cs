@@ -463,12 +463,10 @@ public sealed class DrawingService(SwSession session)
                              "is left for these; they may overlap (pass a smaller scale, or use another drawing).");
             }
             bool perView = !SameScale(sc, sheetScale);
-            if (perView && existing.Count == 0)
-            {
-                SetSheetScale(drw, sheet, sc);
-                perView = false;
-                checks.Add($"sheet scale set to {DrawingLayout.FormatScale(sc)}" + (fixedScale is null ? " to fit the views" : ""));
-            }
+            // VERIFIED live: SOLIDWORKS rescales an empty sheet when its first view is inserted (a 1:2 set before that read
+            // 1:1 again after the next rebuild), so an empty sheet gets its new scale after the views exist.
+            bool sheetScaleAfter = perView && existing.Count == 0;
+            if (sheetScaleAfter) perView = false;
             foreach (var slot in layout.Slots)
             {
                 double x = Units.M(slot.Cx), y = Units.M(slot.Cy);
@@ -486,6 +484,14 @@ public sealed class DrawingService(SwSession session)
                     created.Add((slot.View, v));
                 }
                 if (perView) SetViewScale(v, sc, x, y);
+            }
+            if (sheetScaleAfter)
+            {
+                SetSheetScale(drw, sheet, sc);
+                d.EditRebuild3();
+                foreach (var (_, v) in created)
+                    if (!SameScale(v.ScaleDecimal, sc)) v.UseSheetScale = 1; // follow the sheet's new scale
+                checks.Add($"sheet scale set to {DrawingLayout.FormatScale(sc)}" + (fixedScale is null ? " to fit the views" : ""));
             }
             d.GraphicsRedraw2();
 
@@ -1207,31 +1213,44 @@ public sealed class DrawingService(SwSession session)
     private static void SelectInView(SwContext ctx, IModelDoc2 d, ViewHit hit, Resolved r, OnSheet g, Xform t, bool part, bool append,
         string arg, List<string> checks)
     {
+        // The exact entity first (IView.SelectEntity, then IEntity.Select4 with the view in the SelectData), the sheet pick
+        // last. Live: the pick by coordinates found no edge in a view, and a failed pick with append also dropped the
+        // selection made before it, so the second of two edges was refused.
         var sm = d.Sel();
         int before = sm.GetSelectedObjectCount2(-1);
-        string type = g.Kind == "point" ? "VERTEX" : "EDGE";
-        var at = g.Pick;
-        string other = "";
-        if (d.Extension.SelectByID2("", type, at.X, at.Y, 0, append, 0, null, 0) && sm.GetSelectedObjectCount2(-1) == before + 1)
-        {
-            var sel = sm.DrwSelected(before + 1);
-            if (!part || DrawnAlike(sel, g, t)) return;
-            other = sel switch
-            {
-                IEdge e => $" (SelectByID2 found another {Topology.Describe(e).Curve} edge there)",
-                IVertex => " (SelectByID2 found another vertex there)",
-                _ => $" (SelectByID2 found a {sel?.GetType().Name ?? "nothing"})",
-            };
-            sm.DeSelect2(before + 1, -1);
-        }
-        else if (sm.GetSelectedObjectCount2(-1) > before)
-        {
-            sm.DeSelect2(sm.GetSelectedObjectCount2(-1), -1);
-        }
         if (hit.View.SelectEntity(r.Obj, append) && sm.GetSelectedObjectCount2(-1) == before + 1)
         {
             checks.Add($"'{arg}' selected through the view (IView.SelectEntity)");
             return;
+        }
+        while (sm.GetSelectedObjectCount2(-1) > before) sm.DeSelect2(sm.GetSelectedObjectCount2(-1), -1);
+        var data = sm.CreateSelectData();
+        data.View = (View)(object)hit.View;
+        if (r.Obj is IEntity ent && ent.Select4(append, data) && sm.GetSelectedObjectCount2(-1) == before + 1)
+        {
+            checks.Add($"'{arg}' selected in the view (IEntity.Select4)");
+            return;
+        }
+        while (sm.GetSelectedObjectCount2(-1) > before) sm.DeSelect2(sm.GetSelectedObjectCount2(-1), -1);
+        string type = g.Kind == "point" ? "VERTEX" : "EDGE";
+        var at = g.Pick;
+        string other = "";
+        if (sm.GetSelectedObjectCount2(-1) == before &&
+            d.Extension.SelectByID2("", type, at.X, at.Y, 0, append, 0, null, 0) && sm.GetSelectedObjectCount2(-1) == before + 1)
+        {
+            var sel = sm.DrwSelected(before + 1);
+            if (!part || DrawnAlike(sel, g, t))
+            {
+                checks.Add($"'{arg}' picked at its sheet position");
+                return;
+            }
+            other = sel switch
+            {
+                IEdge e => $" (the pick found another {Topology.Describe(e).Curve} edge there)",
+                IVertex => " (the pick found another vertex there)",
+                _ => $" (the pick found a {sel?.GetType().Name ?? "nothing"})",
+            };
+            sm.DeSelect2(before + 1, -1);
         }
         throw new SwException(ErrorCodes.EntityNotFound,
             $"'{arg}' ({r.Label}) could not be selected in '{hit.Name}' at sheet [{Fmt([at.X * 1000, at.Y * 1000])}] mm{other}.",
@@ -1415,8 +1434,12 @@ public sealed class DrawingService(SwSession session)
             var (x, y) = at ?? (sp.Length >= 7 ? (sp[5] * 1000 - 10, sp[6] * 1000 - 10) : (400, 280));
             string config = hit.View.ReferencedConfiguration is { Length: > 0 } c ? c : DocDefault;
             d.ClearSelection2(true);
+            // VERIFIED live: a part's view gets no BOM with the top-level type (InsertBomTable4 returns nothing); parts-only
+            // makes it. Assemblies keep top-level.
+            int bomType = model.GetType() == (int)swDocumentTypes_e.swDocPART
+                ? (int)swBomType_e.swBomType_PartsOnly : (int)swBomType_e.swBomType_TopLevelOnly;
             var bom = hit.View.InsertBomTable4(false, Units.M(x), Units.M(y), (int)swBOMConfigurationAnchorType_e.swBOMConfigurationAnchor_TopRight,
-                (int)swBomType_e.swBomType_TopLevelOnly, config, path, false, 0, false);
+                bomType, config, path, false, 0, false);
             d.ClearSelection2(true);
             if (bom is null)
                 throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS created no BOM for '{hit.Name}'.",
