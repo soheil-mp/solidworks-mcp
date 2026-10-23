@@ -84,7 +84,9 @@ public abstract class LiveTest(LiveFixture fx) : IAsyncLifetime
             catch (SwException) { /* already closed by the test */ }
         }
         var prefs = await Fx.PreferencesAsync();
-        Assert.Equal(_prefs, prefs);
+        var changed = _prefs!.Where(p => !prefs.TryGetValue(p.Key, out var v) || v != p.Value)
+            .Select(p => $"{p.Key}: {p.Value} -> {(prefs.TryGetValue(p.Key, out var v) ? v : "(missing)")}").ToList();
+        Assert.True(changed.Count == 0, "System preferences changed by this test: " + string.Join("; ", changed));
         Assert.Empty(S.ListDialogs());
         Assert.Empty(S.Journal.Entries);
     }
