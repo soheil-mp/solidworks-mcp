@@ -244,6 +244,11 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
   configurations (`ISldWorks.GetConfigurationNames(path)`).
 
 ## 8. Assembly
+- **Interference** (VERIFIED). `IInterferenceDetectionMgr.GetInterferences` answers with the options the manager had when
+  it was obtained: after setting `TreatCoincidenceAsInterference = true`, call `GetInterferenceCount()` first (it
+  recomputes), then `GetInterferences`. Touching cubes: 0 listed before the count, 1 (volume 0) after it.
+- **Mate entities** (VERIFIED). `IMateEntity2.ReferenceType` is the geometric kind (`swMateEntity2ReferenceType_e`:
+  3 plane, 4 cylinder); `ReferenceType2` is a `swSelectType_e` (4 = datum plane).
 - **Insert** (VERIFIED). `IAssemblyDoc.AddComponent5(path, 0, "", false, "", x, y, z)` returns `Component2`.
   - **x, y, z place the component's bounding-box center, not its origin.** A plate whose box center was at y = 17.5 had its
     origin placed at y = −17.5. Correct it with `Component2.Transform2` (a `MathTransform` built from a 16-element array:

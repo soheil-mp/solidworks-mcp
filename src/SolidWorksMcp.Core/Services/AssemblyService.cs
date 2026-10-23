@@ -847,8 +847,14 @@ public sealed class AssemblyService(SwSession session)
             // VERIFIED recipe: TreatCoincidenceAsInterference, TreatSubAssembliesAsComponents, GetInterferences, Done.
             idm.TreatCoincidenceAsInterference = includeCoincident;
             idm.TreatSubAssembliesAsComponents = true;
+            // VERIFIED live: GetInterferences still answers with the options the manager had when it was obtained;
+            // GetInterferenceCount recomputes with the new ones (touching cubes: 0 interferences, then count 1).
+            int expected = idm.GetInterferenceCount();
+            var found = idm.AsmInterferences();
+            if (found.Count != expected)
+                ctx.Warn($"SOLIDWORKS counted {expected} interference(s) but listed {found.Count}.");
             int bodiesChecked = 0;
-            foreach (var i in idm.AsmInterferences())
+            foreach (var i in found)
             {
                 var names = i.AsmInterferingComponents().Select(c => c.Name2).ToList();
                 if (among is not null && !AsmMath.Involves(names, among)) continue;
@@ -1482,7 +1488,9 @@ public sealed class AssemblyService(SwSession session)
         var entities = MateEntities(m).Select(e => new AsmMateEntity
         {
             Component = EntityComponent(e)?.Name2,
-            Kind = AsmParse.RefTypeName(Safe(() => e.ReferenceType2, -1)),
+            // ReferenceType is the geometric kind (swMateEntity2ReferenceType_e); ReferenceType2 is a swSelectType_e
+            // (live: 4 = swSelDATUMPLANES for a plane mate, which read as "cylinder" when taken for the other enum).
+            Kind = Safe(() => e.ReferenceType, -1) is int rt and >= 0 ? AsmParse.RefTypeName(rt) : AsmParse.SelTypeName(Safe(() => e.ReferenceType2, -1)),
         }).ToList();
         var dims = Safe(() => FeatureVerifier.Dimensions(mf.Feature), new List<DimensionInfo>());
         var dim = dims.FirstOrDefault(x => x.Unit is "mm" or "deg");
@@ -1835,6 +1843,18 @@ internal static class AsmParse
         (int)swConstrainedStatus_e.swNoSolution => "no_solution",
         (int)swConstrainedStatus_e.swInvalidSolution => "invalid",
         (int)swConstrainedStatus_e.swAutosolveOff => "autosolve_off",
+        _ => "unknown",
+    };
+
+    /// <summary>swSelectType_e of a mate entity (fallback when the geometric kind can't be read).</summary>
+    public static string SelTypeName(int t) => t switch
+    {
+        (int)swSelectType_e.swSelFACES => "face",
+        (int)swSelectType_e.swSelEDGES => "edge",
+        (int)swSelectType_e.swSelVERTICES => "point",
+        (int)swSelectType_e.swSelDATUMPLANES => "plane",
+        (int)swSelectType_e.swSelDATUMAXES => "line",
+        (int)swSelectType_e.swSelDATUMPOINTS => "point",
         _ => "unknown",
     };
 
