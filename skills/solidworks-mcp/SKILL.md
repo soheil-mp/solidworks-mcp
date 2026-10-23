@@ -85,6 +85,13 @@ view_screenshot
 Documents\solidworks-mcp. Export with `model_export {path:"bracket.step"}` (STEP AP214 by default; also IGES, STL, 3MF,
 Parasolid and more). Existing files need `overwrite:true`. `doc_open` imports STEP/IGES/Parasolid/STL as a new part.
 
+**Editing an imported (or any) body directly.** An imported STEP has no features to edit, so change its faces:
+- `face_edit {op:"delete", faces:[{where:{surface:"cylinder", radiusMm:3}, expect:4}]}` removes holes, fillets or bosses
+  (heal `patch` by default: the neighbouring faces grow over the gap).
+- `face_edit {op:"offset", faces:[{id:"F5"}], distanceMm:2}` moves faces along their normals; positive adds material,
+  so a hole gets smaller.
+- `face_edit {op:"move", faces:[…], translateMm:[10,0,0]}` moves faces, e.g. relocates a hole.
+
 **Springs and swept shapes.**
 1. Sketch a circle (the coil radius), then `feature_helix {definedBy:"pitch_revolutions", pitchMm:5, revolutions:4}`.
 2. The result gives `startMm` and `profilePlaneNormal`: the profile must sit there, so either sketch the profile circle

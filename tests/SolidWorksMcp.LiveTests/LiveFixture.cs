@@ -108,4 +108,7 @@ public abstract class LiveTest(LiveFixture fx) : IAsyncLifetime
         _docs.Add((session, r.Document.Handle));
         return r.Document.Handle;
     }
+
+    /// <summary>Closes <paramref name="doc"/> (with discard) after the test, like the parts from <see cref="NewPartAsync"/>.</summary>
+    protected void Track(string doc, SwSession? session = null) => _docs.Add((session ?? S, doc));
 }

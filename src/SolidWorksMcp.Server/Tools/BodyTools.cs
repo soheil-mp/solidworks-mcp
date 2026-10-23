@@ -8,7 +8,7 @@ using SolidWorksMcp.Server.Hosting;
 
 namespace SolidWorksMcp.Server.Tools;
 
-/// <summary>Multibody operations (move/copy, delete/keep, combine, split) and surfaces (extrude, revolve, planar, offset, knit, thicken).</summary>
+/// <summary>Multibody operations (move/copy, delete/keep, combine, split), direct face edits, and surfaces (extrude, revolve, planar, offset, knit, thicken).</summary>
 [McpServerToolType, Toolset("bodies")]
 public sealed class BodyTools(SwSession session)
 {
@@ -18,6 +18,7 @@ public sealed class BodyTools(SwSession session)
 
     private readonly BodyService _bodies = new(session);
     private readonly SurfaceService _surfaces = new(session);
+    private readonly FaceEditService _faces = new(session);
 
     // ------------------------------------------------------------------ bodies
 
@@ -161,4 +162,27 @@ public sealed class BodyTools(SwSession session)
         [Description(DocDesc)] string? doc = null,
         CancellationToken cancellationToken = default) =>
         Output.Json(_surfaces.ThickenAsync(doc, surface, thicknessMm, side, keepOnFailure, cancellationToken), progress, "surface_thicken");
+
+    // ------------------------------------------------------------------ direct face editing
+
+    [McpServerTool(Name = "face_edit", Title = "Edit faces directly", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Direct face editing, no feature history needed (e.g. an imported STEP): delete faces and heal the gap (patch: the " +
+                 "neighbours grow over it, removing a hole, fillet or boss), offset faces along their normals, or move them. Verified: " +
+                 "the faces are gone from their spot, or lie at the new distance or position (planes, cylinders), the body stays solid; else rolled back.")]
+    public Task<string> FaceEdit(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("delete | offset | move")] string op,
+        [Description("Faces, e.g. [{id:'F3'}] or a hole: [{where:{surface:'cylinder', radiusMm:3}, expect:1}].")] EntityRef[] faces,
+        [Description("delete: patch (default) | fill | tangent_fill | none (leaves the body open).")] string? heal = null,
+        [Description("offset: mm along each face's outward normal; positive adds material (a hole gets smaller).")] double? distanceMm = null,
+        [Description("move: [dx,dy,dz] mm.")] double[]? translateMm = null,
+        [Description("Name for the new feature.")] string? name = null,
+        [Description(KeepDesc)] bool keepOnFailure = false,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_faces.EditAsync(new FaceEditRequest
+        {
+            Doc = doc, Op = op, Faces = faces, Heal = heal, DistanceMm = distanceMm, TranslateMm = translateMm, Name = name,
+            KeepOnFailure = keepOnFailure,
+        }, cancellationToken), progress, "face_edit");
 }

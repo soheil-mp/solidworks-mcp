@@ -247,6 +247,17 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
 - **Knit** (VERIFIED). `InsertSewRefSurface(false, true, true, 1e-5, 1e-4)` needs the surface bodies on **mark 1** (mark 0, faces,
   a larger tolerance or gap filters create nothing). `TryToFormSolid` did not make a solid of a closed tube + caps;
   `FeatureBossThicken(t, 0, 0, true /*FillVolume*/, true, true, true)` with the closed surface on mark 1 does.
+- **Delete face** (VERIFIED 2026-10-23, also on an imported STEP body). Faces on mark 1, then
+  `IModelDocExtension.InsertDeleteFace(swFaceDeleteOption_e)`: 1 patch (the neighbours grow over the gap: a Ø10 through
+  hole in a 100 × 20 × 60 block comes back as the full 120 000 mm³ block), 2 fill, 3 fill with tangency, 0 delete only
+  (the block becomes an open surface body with 5 faces). The feature type is **`DelFace`**.
+- **Move face** (VERIFIED). Faces on mark 1, then `FeatureManager.InsertMoveFace3(type, reverse, angle, distance,
+  translation[3] m, rotation, swEndCondBlind, 0)`: type 0 offset (`distance` along each face's normal **out of the
+  material**: a hole's face moves towards its axis, r 5 → 3 for +2 mm; `reverse` goes into it), 1 translate (the triad
+  vector; a hole moves with its axis). The feature type is `MoveFace`. Moving a hole off the block fails (rolled back).
+- **Face normals** (VERIFIED). `IFace2.FaceInSurfaceSense()` is **true when the face normal and the surface normal point
+  in opposite directions** (the API help says so, despite the name). The outward normal of a face at a point is the
+  surface normal from `ISurface.EvaluateAtPoint` (first three values), reversed when it returns true.
 
 ## 7. Sheet metal
 - **Base flange** (VERIFIED, exact volume).
