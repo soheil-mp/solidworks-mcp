@@ -1519,11 +1519,23 @@ public sealed class DrawingService(SwSession session)
 
     private static List<ViewHit> AllViews(IDrawingDoc drw)
     {
+        // The current sheet's views through GetFirstView / GetNextView: methods on the IView objects ISheet.GetViews returns
+        // (GetAnnotations, AutoInsertCenterMarks2, InsertBomTable4) did nothing live, while the same calls on traversal
+        // views work. Other sheets fall back to ISheet.GetViews.
         var list = new List<ViewHit>();
+        string? cur = drw.DrwCurrentSheet()?.GetName();
         foreach (var sn in drw.DrwSheetNames())
+        {
+            if (string.Equals(sn, cur, StringComparison.OrdinalIgnoreCase))
+            {
+                for (var v = drw.DrwSheetView(); v is not null; v = (object?)v.GetNextView() as IView)
+                    list.Add(new ViewHit(v, v.GetName2() ?? "", sn));
+                continue;
+            }
             if (drw.DrwSheet(sn) is ISheet sh)
                 foreach (var v in sh.DrwViews())
                     list.Add(new ViewHit(v, v.GetName2() ?? "", sn));
+        }
         return list;
     }
 
