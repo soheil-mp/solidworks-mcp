@@ -313,9 +313,22 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
   - `.obj` needs the ScanTo3D add-in (error 256).
 - **STEP AP** is system integer **75** (203/214/242). The user had 203.
   - VERIFIED: setting 214 makes `SaveAs` write `FILE_SCHEMA (('AUTOMOTIVE_DESIGN'))`.
+  - VERIFIED on 2025 SP1.2 Premium: 75 = 242 sticks (it reads back 242), yet `SaveAs` still writes an AP203 file
+    (`CONFIG_CONTROL_DESIGN`). AP242 output depends on the installation/license, so check the schema of the file.
 - **STL:**
   - Binary/ASCII is system toggle **69**. Quality is integer **78** (1 coarse, 2 fine, 3 custom).
-  - Setting 78 back to 3 only sticks after setting the double preferences 2 (deviation) and 3 (angle) and then 78 = 3.
+  - **The quality is derived from deviation (double 2, m) and angle (double 3, rad)** (VERIFIED by probe):
+    - setting 78 to coarse or fine overwrites 2 and 3 with that preset (coarse: 0.000595238 m and 30°);
+    - writing non-preset values to 2/3 turns 78 into 3 on its own;
+    - writing 78 = 3 while 2/3 hold a preset does nothing.
+  - So save and restore 2, 3 and 78 as one group: write 2 and 3 back first, then 78, and verify all three. Treat
+    the 2/3 changes that follow a 78 write as your own (compare-and-swap would otherwise call them external and keep
+    them; that left a user's options at coarse once). `PreferenceScope` does this for `SystemPrefIds.Coupled`.
+  - SOLIDWORKS stores angles with its own rounding: writing 0.174532925199433 may read back 0.17453292519943336.
+    Compare doubles with a relative tolerance (1e-12), not as strings.
+- **STL import** (`LoadFile4`): integer **208** `swImportStlVrmlModelType` (0 graphics, 1 surface, 2 solid) decides
+  what the part gets. With 0 (the default) the part has **no bodies**. Integer **210** is the unit the mesh is read
+  in. VERIFIED: 208 = 2 and 210 = 0 (mm) give a solid body.
 - **Never write unrelated preferences.** The old server's STL export overwrote preference 75.
 
 ## 11. Materials, properties, equations, configurations, appearance

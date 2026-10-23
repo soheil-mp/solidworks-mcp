@@ -129,7 +129,16 @@ public class ExportLiveTests(LiveFixture fx) : LiveTest(fx)
     public async Task Step_schema_matches_the_requested_ap(int ap, string schemaPrefix)
     {
         string doc = await BlockAsync($"step{ap}");
-        var r = await Export(doc, $"block{ap}.stp", stepAp: ap);
+        ExportResult r;
+        try { r = await Export(doc, $"block{ap}.stp", stepAp: ap); }
+        catch (SwException ex) when (ap == 242 && ex.Code == ErrorCodes.NotSupported)
+        {
+            // Some installations write AP203 when AP242 is selected (license-dependent): the tool must then refuse
+            // honestly and leave no file, never pass an AP203 file off as AP242.
+            Assert.Contains("AP242", ex.Message);
+            Assert.False(File.Exists(Path.Combine(_dir, $"block{ap}.stp")));
+            return;
+        }
         FreshFile(r);
         Assert.StartsWith(schemaPrefix, r.Details.Schema);
         Assert.Equal(ap, r.Details.StepAp);

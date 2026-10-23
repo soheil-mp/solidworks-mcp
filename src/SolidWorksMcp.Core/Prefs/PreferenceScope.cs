@@ -5,9 +5,11 @@ namespace SolidWorksMcp.Core.Prefs;
 
 /// <summary>
 /// Temporarily changes SOLIDWORKS <em>system</em> preferences and restores them on dispose: reverse order, verified by
-/// read-back, one retry for values that only stick after others (STL quality after its deviation/angle), and
-/// compare-and-swap (a value someone else changed meanwhile is left alone and reported). Every change is journaled
-/// first, so a crash can't leave the user's settings modified. Only ids in <see cref="SystemPrefIds"/> are accepted.
+/// read-back, and compare-and-swap (a value someone else changed meanwhile is left alone and reported). Preferences
+/// SOLIDWORKS keeps consistent with each other (<see cref="SystemPrefIds.Coupled"/>, e.g. STL quality with its
+/// deviation and angle) are snapshotted before any of them is written, re-read after every write (their side-effect
+/// changes are the server's) and restored together in the group's order. Every change is journaled first, so a crash
+/// can't leave the user's settings modified. Only ids in <see cref="SystemPrefIds"/> are accepted.
 /// </summary>
 /// <example><code>
 /// using var prefs = ctx.SystemPrefs();
@@ -23,7 +25,16 @@ internal sealed class PreferenceScope : IDisposable
     private readonly List<Change> _changes = [];
     private bool _disposed;
 
-    private sealed record Change(PrefKind Kind, int Pref, string Old, string New, bool Journaled);
+    /// <summary>A preference this scope holds: the value before the scope, and the last value it left.</summary>
+    private sealed class Change(PrefKind kind, int pref, string old, bool journaled)
+    {
+        public PrefKind Kind { get; } = kind;
+        public int Pref { get; } = pref;
+        public string Old { get; } = old;
+        public string New { get; set; } = old;
+        /// <summary>False when an outer scope of this process already journals it (that entry keeps the user's value).</summary>
+        public bool Journaled { get; } = journaled;
+    }
 
     public PreferenceScope(ISldWorks app, PreferenceJournal journal, string operation, string? revision, Action<string>? warn = null)
     {
@@ -45,77 +56,129 @@ internal sealed class PreferenceScope : IDisposable
         if (!SystemPrefIds.IsAllowed(kind, pref))
             throw new SwException(ErrorCodes.Internal,
                 $"System preference {kind} {pref} is not on the allow-list (Prefs/SystemPrefIds.cs); refusing to write it.");
-        string old = Read(_app, kind, pref);
-        if (Same(kind, old, value)) return this;
-        bool journaled = _journal.Add(new JournalEntry(kind, pref, old, value, DateTime.UtcNow, Environment.ProcessId, _operation, _revision));
+        if (Same(kind, Read(_app, kind, pref), value)) return this;
+        // A write can change the other members of a coupled group: hold (and journal) all of them first.
+        var unit = SystemPrefIds.GroupOf(kind, pref) ?? [(kind, pref)];
+        foreach (var (k, p) in unit) Track(k, p, k == kind && p == pref ? value : null);
         Write(_app, kind, pref, value);
+        foreach (var (k, p) in unit) Observe(k, p);
         string now = Read(_app, kind, pref);
-        _changes.Add(new Change(kind, pref, old, now, journaled));
         if (!Same(kind, now, value))
             _warn?.Invoke($"System preference {kind} {pref} was set to '{value}' but reads '{now}'.");
         return this;
     }
 
+    private void Track(PrefKind kind, int pref, string? intended)
+    {
+        if (Find(kind, pref) is not null) return;
+        string old = Read(_app, kind, pref);
+        bool journaled = _journal.Add(new JournalEntry(kind, pref, old, intended ?? old, DateTime.UtcNow, Environment.ProcessId, _operation, _revision));
+        _changes.Add(new Change(kind, pref, old, journaled));
+    }
+
+    /// <summary>Records the value a write left (also for an outer scope's journal entry: crash recovery must see it as ours).</summary>
+    private void Observe(PrefKind kind, int pref)
+    {
+        var c = Find(kind, pref)!;
+        c.New = Read(_app, kind, pref);
+        _journal.SetNewValue(kind, pref, c.New);
+    }
+
+    private Change? Find(PrefKind kind, int pref) => _changes.FirstOrDefault(c => c.Kind == kind && c.Pref == pref);
+
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-        var pending = new List<Change>();
+        // Units in reverse order of their first change; a coupled group is restored as one, in its own order.
+        var handled = new HashSet<(PrefKind, int)>();
         for (int i = _changes.Count - 1; i >= 0; i--)
-            if (!TryRestore(_changes[i], out _)) pending.Add(_changes[i]);
-        // Second pass, original order, for values whose restore depends on others.
-        for (int i = pending.Count - 1; i >= 0; i--)
         {
-            var c = pending[i];
-            if (!TryRestore(c, out string? why))
-                _warn?.Invoke($"System preference {c.Kind} {c.Pref} could not be restored to '{c.Old}': {why} " +
-                              "It stays in the journal and is retried when the server next attaches.");
+            var c = _changes[i];
+            if (handled.Contains((c.Kind, c.Pref))) continue;
+            var group = SystemPrefIds.GroupOf(c.Kind, c.Pref);
+            var unit = group is null ? [c] : group.Select(g => Find(g.Kind, g.Pref)).OfType<Change>().ToList();
+            foreach (var u in unit) handled.Add((u.Kind, u.Pref));
+            RestoreUnit(unit);
         }
     }
 
-    private bool TryRestore(Change c, out string? why)
+    private void RestoreUnit(List<Change> unit)
     {
-        why = null;
+        string names = string.Join(", ", unit.Select(u => $"{u.Kind} {u.Pref}"));
+        PrefGroupRestore.Outcome outcome;
         try
         {
-            string cur = Read(_app, c.Kind, c.Pref);
-            if (Same(c.Kind, cur, c.Old)) { Done(c); return true; }
-            if (!Same(c.Kind, cur, c.New))
-            {
-                // Someone else (the user, another tool) changed it while we held it: leave their value.
-                _warn?.Invoke($"System preference {c.Kind} {c.Pref} changed externally to '{cur}' while in use; left as is.");
-                Done(c);
-                return true;
-            }
-            Write(_app, c.Kind, c.Pref, c.Old);
-            cur = Read(_app, c.Kind, c.Pref);
-            if (!Same(c.Kind, cur, c.Old)) { why = $"it reads '{cur}'."; return false; }
-            Done(c);
-            return true;
+            outcome = PrefGroupRestore.Restore(unit.Select(u => new PrefValue(u.Kind, u.Pref, u.Old, u.New)).ToList(),
+                (k, p) => Read(_app, k, p), (k, p, v) => Write(_app, k, p, v));
         }
         catch (Exception ex)
         {
-            why = ex.Message;
-            return false;
+            _warn?.Invoke($"System preference(s) {names} could not be restored: {ex.Message} " +
+                          "They stay in the journal and are retried when the server next attaches.");
+            return;
         }
+        if (outcome == PrefGroupRestore.Outcome.Failed)
+        {
+            string now = string.Join(", ", unit.Select(u => $"{u.Pref}={SafeRead(u.Kind, u.Pref)} (was {u.Old})"));
+            _warn?.Invoke($"System preference(s) {names} could not be restored ({now}). " +
+                          "They stay in the journal and are retried when the server next attaches.");
+            return;
+        }
+        if (outcome == PrefGroupRestore.Outcome.ChangedExternally)
+            _warn?.Invoke($"System preference(s) {names} changed externally while in use; left as is.");
+        foreach (var u in unit) Done(u);
     }
 
     private void Done(Change c)
     {
         if (c.Journaled) _journal.Remove(c.Kind, c.Pref);
+        else _journal.SetNewValue(c.Kind, c.Pref, SafeRead(c.Kind, c.Pref)); // the outer scope's entry holds this value again
+    }
+
+    private string SafeRead(PrefKind kind, int pref)
+    {
+        try { return Read(_app, kind, pref); }
+        catch (Exception) { return "?"; }
     }
 
     /// <summary>Outcome of replaying one orphaned journal entry.</summary>
     public enum RestoreOutcome { Restored, AlreadyOriginal, ChangedExternally, Failed }
 
-    /// <summary>Crash recovery for one entry, compare-and-swap: restore only if the value is still what was set.</summary>
-    public static RestoreOutcome Restore(ISldWorks app, JournalEntry e)
+    /// <summary>
+    /// Crash recovery for the entries of a dead server process: compare-and-swap per unit, with the members of a coupled
+    /// group restored together in the group's order.
+    /// </summary>
+    public static List<(JournalEntry Entry, RestoreOutcome Outcome)> RestoreAll(ISldWorks app, IReadOnlyList<JournalEntry> entries)
     {
-        string cur = Read(app, e.Kind, e.Pref);
-        if (Same(e.Kind, cur, e.OldValue)) return RestoreOutcome.AlreadyOriginal;
-        if (!Same(e.Kind, cur, e.NewValue)) return RestoreOutcome.ChangedExternally;
-        Write(app, e.Kind, e.Pref, e.OldValue);
-        return Same(e.Kind, Read(app, e.Kind, e.Pref), e.OldValue) ? RestoreOutcome.Restored : RestoreOutcome.Failed;
+        var result = new List<(JournalEntry, RestoreOutcome)>();
+        var handled = new HashSet<(PrefKind, int)>();
+        foreach (var e in entries)
+        {
+            if (handled.Contains((e.Kind, e.Pref))) continue;
+            var group = SystemPrefIds.GroupOf(e.Kind, e.Pref);
+            var unit = group is null ? [e]
+                : group.Select(g => entries.FirstOrDefault(x => x.Kind == g.Kind && x.Pref == g.Pref)).OfType<JournalEntry>().ToList();
+            foreach (var u in unit) handled.Add((u.Kind, u.Pref));
+            RestoreOutcome outcome;
+            try
+            {
+                outcome = PrefGroupRestore.Restore(unit.Select(u => new PrefValue(u.Kind, u.Pref, u.OldValue, u.NewValue)).ToList(),
+                    (k, p) => Read(app, k, p), (k, p, v) => Write(app, k, p, v)) switch
+                {
+                    PrefGroupRestore.Outcome.Restored => RestoreOutcome.Restored,
+                    PrefGroupRestore.Outcome.AlreadyOriginal => RestoreOutcome.AlreadyOriginal,
+                    PrefGroupRestore.Outcome.ChangedExternally => RestoreOutcome.ChangedExternally,
+                    _ => RestoreOutcome.Failed,
+                };
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or FormatException)
+            {
+                outcome = RestoreOutcome.Failed;
+            }
+            foreach (var u in unit) result.Add((u, outcome));
+        }
+        return result;
     }
 
     internal static string Read(ISldWorks app, PrefKind kind, int pref) => kind switch
@@ -138,12 +201,7 @@ internal sealed class PreferenceScope : IDisposable
         }
     }
 
-    internal static bool Same(PrefKind kind, string a, string b)
-    {
-        if (kind != PrefKind.Double) return string.Equals(a, b, StringComparison.Ordinal);
-        double x = double.Parse(a, CultureInfo.InvariantCulture), y = double.Parse(b, CultureInfo.InvariantCulture);
-        return Math.Abs(x - y) <= 1e-12 * Math.Max(1, Math.Abs(x));
-    }
+    internal static bool Same(PrefKind kind, string a, string b) => PrefGroupRestore.Same(kind, a, b);
 
     private static string Fmt(bool v) => v ? "True" : "False";
     private static string Fmt(int v) => v.ToString(CultureInfo.InvariantCulture);

@@ -69,6 +69,22 @@ public sealed class PreferenceJournal
         }
     }
 
+    /// <summary>
+    /// Records the value this process left a preference at (after each write, side effects of coupled preferences
+    /// included), so crash recovery's compare-and-swap recognises it as the server's.
+    /// </summary>
+    public void SetNewValue(PrefKind kind, int pref, string newValue)
+    {
+        lock (_gate)
+        {
+            var all = Load(_path);
+            int i = all.FindIndex(e => e.Kind == kind && e.Pref == pref);
+            if (i < 0 || all[i].NewValue == newValue) return;
+            all[i] = all[i] with { NewValue = newValue };
+            Save(_path, all);
+        }
+    }
+
     public void Remove(PrefKind kind, int pref)
     {
         lock (_gate)

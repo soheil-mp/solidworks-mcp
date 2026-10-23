@@ -273,6 +273,11 @@ public sealed class OpenService(SwSession session)
             prefs.Toggle(SystemPrefIds.ImportAutoRunDiagnostics, false)
                  .Toggle(SystemPrefIds.ImportNeutralRunDiagnostics, false)
                  .Toggle(SystemPrefIds.Enable3DInterconnect, false);
+            if (kind.Neutral == "stl")
+                // STL comes in as a graphics body (nothing to measure or build on) unless solid bodies are asked for;
+                // a mesh has no units, so read it as mm like everything else here.
+                prefs.Integer(SystemPrefIds.ImportStlModelType, (int)swImportStlVrmlModelType_e.swImportStlVrmlModelType_Solid)
+                     .Integer(SystemPrefIds.ImportStlUnits, (int)swLengthUnit_e.swMM);
             object? data = ctx.App.ImportDataFor(full);
             doc = (object?)ctx.App.LoadFile4(full, "r", data, ref errors) as IModelDoc2;
         }

@@ -811,10 +811,19 @@ public sealed class ExportService(SwSession session)
                 : ExportFileCheck.Inspect(f.Name, written, new ExportFileCheck.Expect(
                     f.Name == "step" ? q.StepAp : null, f.Name == "stl" ? q.StlBinary : null, modelMm), problems);
             if (problems.Count > 0)
+            {
+                string removed = $"It was removed{(aside is null ? "" : " and the previous file put back")}.";
+                // Live: with option 75 reading 242, SOLIDWORKS 2025 Premium still wrote AP203 (AP242 output can depend on
+                // the license, e.g. SOLIDWORKS MBD). That is a capability limit, not a broken file.
+                if (f.Name == "step" && q.StepAp == 242 && details.StepAp is int got && got != 242)
+                    throw new SwException(ErrorCodes.NotSupported,
+                        $"This SOLIDWORKS wrote STEP AP{got} although AP242 was selected (AP242 output can need an extra license, " +
+                        $"such as SOLIDWORKS MBD). {removed}",
+                        "Use stepAp 214 (AUTOMOTIVE_DESIGN, read by most CAD/CAM software) or 203.");
                 throw new SwException(ErrorCodes.VerifyFailed,
-                    $"The exported '{System.IO.Path.GetFileName(written)}' failed verification: {string.Join("; ", problems)}. " +
-                    $"It was removed{(aside is null ? "" : " and the previous file put back")}.",
+                    $"The exported '{System.IO.Path.GetFileName(written)}' failed verification: {string.Join("; ", problems)}. {removed}",
                     f.Name == "stl" ? "Retry with other stl* options, or check the model (model_info)." : "Check the model (model_info), or try another format.");
+            }
             if (warnings != 0) ctx.Warn($"Export warnings: {DocumentService.SaveWarnings(warnings)}.");
             details.Checks = [$"new file written by this call ({fi.Length} bytes)", .. details.Checks ?? []];
             ctx.Paths.RecordWritten(written);
@@ -915,16 +924,10 @@ public sealed class ExportService(SwSession session)
         {
             double dev = q.StlDeviationMm is double dm ? Units.M(dm) : ctx.App.GetUserPreferenceDoubleValue(SystemPrefIds.StlDeviation);
             double ang = q.StlAngleDeg is double ad ? Units.Rad(ad) : ctx.App.GetUserPreferenceDoubleValue(SystemPrefIds.StlAngleTolerance);
-            // Quality 3 (custom) only sticks after deviation and angle were written (solidworks-api-notes §10).
+            // The quality is derived from deviation and angle: non-preset values make it custom by themselves
+            // (solidworks-api-notes §10). The scope holds the three as one coupled group and restores them together.
             WriteDouble(ctx, prefs, SystemPrefIds.StlDeviation, dev, force: current != custom);
             WriteDouble(ctx, prefs, SystemPrefIds.StlAngleTolerance, ang, force: current != custom);
-        }
-        else if (current == custom)
-        {
-            // Leaving the user's custom quality: journal deviation and angle first, so the restore (reverse order,
-            // one retry) writes them back before setting quality 3 again — which otherwise may not stick.
-            Nudge(ctx, prefs, SystemPrefIds.StlDeviation);
-            Nudge(ctx, prefs, SystemPrefIds.StlAngleTolerance);
         }
         prefs.Integer(SystemPrefIds.StlQuality, want);
         int now = ctx.App.GetUserPreferenceIntegerValue(SystemPrefIds.StlQuality);
@@ -946,9 +949,6 @@ public sealed class ExportService(SwSession session)
         if (force && SameDouble(ctx.App.GetUserPreferenceDoubleValue(id), value)) prefs.Double(id, Nudged(value));
         prefs.Double(id, value);
     }
-
-    /// <summary>Puts an option into the scope (it is written, and restored on dispose) by changing it by 1%.</summary>
-    private static void Nudge(SwContext ctx, PreferenceScope prefs, int id) => prefs.Double(id, Nudged(ctx.App.GetUserPreferenceDoubleValue(id)));
 
     private static double Nudged(double v) => v > 0 ? v * 1.01 : 1e-5;
 

@@ -38,6 +38,7 @@
     <Compile Include="..\..\src\SolidWorksMcp.Core\Model\SketchEntity.cs" Link="Core\Model\SketchEntity.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Model\ToolResult.cs" Link="Core\Model\ToolResult.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Prefs\PreferenceJournal.cs" Link="Core\Prefs\PreferenceJournal.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Prefs\PrefGroupRestore.cs" Link="Core\Prefs\PrefGroupRestore.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Prefs\SystemPrefIds.cs" Link="Core\Prefs\SystemPrefIds.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Services\AssemblyMath.cs" Link="Core\Services\AssemblyMath.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Services\DrawingLayout.cs" Link="Core\Services\DrawingLayout.cs" />

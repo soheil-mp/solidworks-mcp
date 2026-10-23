@@ -314,17 +314,24 @@ public sealed class SwSession : IDisposable
         foreach (var (file, entries) in Journal.Orphans())
         {
             var remaining = new List<JournalEntry>();
+            var replay = new List<JournalEntry>();
             foreach (var e in entries)
             {
                 if (e.SwRevision is not null && major is not null && e.SwRevision.Split('.')[0] != major)
-                {
                     remaining.Add(e); // written for another SOLIDWORKS release: never replay into this one
-                    continue;
-                }
-                try
+                else
+                    replay.Add(e);
+            }
+            try
+            {
+                foreach (var (e, outcome) in PreferenceScope.RestoreAll(app, replay))
                 {
-                    var outcome = PreferenceScope.Restore(app, e);
-                    if (outcome == PreferenceScope.RestoreOutcome.Failed) remaining.Add(e);
+                    if (outcome == PreferenceScope.RestoreOutcome.Failed)
+                    {
+                        remaining.Add(e);
+                        _log.LogWarning("Could not restore journaled preference {Kind} {Pref} to {Old}", e.Kind, e.Pref, e.OldValue);
+                        continue;
+                    }
                     if (outcome is PreferenceScope.RestoreOutcome.Restored or PreferenceScope.RestoreOutcome.ChangedExternally)
                     {
                         string what = outcome == PreferenceScope.RestoreOutcome.Restored
@@ -334,11 +341,11 @@ public sealed class SwSession : IDisposable
                         _log.LogWarning("Preference recovery: {What}", what);
                     }
                 }
-                catch (Exception ex)
-                {
-                    remaining.Add(e);
-                    _log.LogWarning(ex, "Could not restore journaled preference {Kind} {Pref}", e.Kind, e.Pref);
-                }
+            }
+            catch (Exception ex)
+            {
+                remaining.AddRange(replay.Where(e => !remaining.Contains(e)));
+                _log.LogWarning(ex, "Could not replay the preference journal {File}", file);
             }
             Journal.ReplaceOrphan(file, remaining);
         }

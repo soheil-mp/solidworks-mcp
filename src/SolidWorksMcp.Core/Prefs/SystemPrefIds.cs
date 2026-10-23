@@ -32,6 +32,10 @@ public static class SystemPrefIds
     public const int StepAp = 75;
     /// <summary>78: STL quality (1 coarse, 2 fine, 3 custom).</summary>
     public const int StlQuality = 78;
+    /// <summary>208: what an STL/VRML import creates (0 graphics, 1 surface, 2 solid bodies); solid during doc_open.</summary>
+    public const int ImportStlModelType = 208;
+    /// <summary>210: the length unit an STL/VRML import assumes (swLengthUnit_e); mm during doc_open.</summary>
+    public const int ImportStlUnits = 210;
     /// <summary>211: STL export units.</summary>
     public const int StlUnits = 211;
     /// <summary>230: rebuild on activation (0 = ask the user: a prompt) — "don't rebuild" during activations/opens.</summary>
@@ -56,6 +60,8 @@ public static class SystemPrefIds
         (PrefKind.Toggle, Enable3DInterconnect),
         (PrefKind.Integer, StepAp),
         (PrefKind.Integer, StlQuality),
+        (PrefKind.Integer, ImportStlModelType),
+        (PrefKind.Integer, ImportStlUnits),
         (PrefKind.Integer, StlUnits),
         (PrefKind.Integer, RebuildOnActivation),
         (PrefKind.Double, StlDeviation),
@@ -63,6 +69,21 @@ public static class SystemPrefIds
     ];
 
     public static bool IsAllowed(PrefKind kind, int pref) => Allowed.Contains((kind, pref));
+
+    /// <summary>
+    /// Preferences SOLIDWORKS keeps consistent with each other, listed in restore order. The STL quality is derived
+    /// from the deviation and the angle: setting coarse or fine overwrites both with that preset, non-preset values
+    /// switch the quality to custom by themselves, and custom doesn't stick while both hold a preset (verified live).
+    /// A <see cref="PreferenceScope"/> snapshots, journals and restores a group as one unit.
+    /// </summary>
+    public static readonly IReadOnlyList<IReadOnlyList<(PrefKind Kind, int Pref)>> Coupled =
+    [
+        [(PrefKind.Double, StlDeviation), (PrefKind.Double, StlAngleTolerance), (PrefKind.Integer, StlQuality)],
+    ];
+
+    /// <summary>The coupled group a preference belongs to (in restore order), or null.</summary>
+    public static IReadOnlyList<(PrefKind Kind, int Pref)>? GroupOf(PrefKind kind, int pref) =>
+        Coupled.FirstOrDefault(g => g.Contains((kind, pref)));
 
     /// <summary>Every allow-listed id, for the preference audit in sw_status and tests.</summary>
     public static IReadOnlyCollection<(PrefKind Kind, int Pref)> All => Allowed;

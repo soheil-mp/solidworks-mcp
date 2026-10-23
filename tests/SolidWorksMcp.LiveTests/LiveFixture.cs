@@ -84,12 +84,21 @@ public abstract class LiveTest(LiveFixture fx) : IAsyncLifetime
             catch (SwException) { /* already closed by the test */ }
         }
         var prefs = await Fx.PreferencesAsync();
-        var changed = _prefs!.Where(p => !prefs.TryGetValue(p.Key, out var v) || v != p.Value)
+        // Doubles compare like the server compares them (1e-12 relative): SOLIDWORKS stores angles with its own rounding,
+        // so a restored 0.174532925199433 may read back as 0.17453292519943336.
+        var changed = _prefs!.Where(p => !prefs.TryGetValue(p.Key, out var v) || !SameValue(p.Key, p.Value, v))
             .Select(p => $"{p.Key}: {p.Value} -> {(prefs.TryGetValue(p.Key, out var v) ? v : "(missing)")}").ToList();
         Assert.True(changed.Count == 0, "System preferences changed by this test: " + string.Join("; ", changed));
         Assert.Empty(S.ListDialogs());
         Assert.Empty(S.Journal.Entries);
     }
+
+    private static bool SameValue(string key, string a, string b) =>
+        key.StartsWith("Double", StringComparison.Ordinal)
+        && double.TryParse(a, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double x)
+        && double.TryParse(b, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double y)
+            ? Math.Abs(x - y) <= 1e-12 * Math.Max(1, Math.Abs(x))
+            : a == b;
 
     /// <summary>A new owned part (closed with discard after the test).</summary>
     protected async Task<string> NewPartAsync(string name, SwSession? session = null)
