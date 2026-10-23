@@ -186,7 +186,10 @@ public sealed class PropertiesService(SwSession session)
             int skip = Math.Max(0, offset);
             var page = rows.Skip(skip).Take(Math.Clamp(limit, 1, 1000)).Select(m => m.ToRow()).ToList();
             if (rows.Count == 0 && f.Length > 0 && cat.Materials.Count > 0)
-                ctx.Warn($"No material matches '{f}'. Closest names: {string.Join(", ", MaterialCatalog.Suggest(cat.Materials.Select(m => m.Name), f))}.");
+            {
+                var close = MaterialCatalog.Suggest(cat.Materials.Select(m => m.Name), f);
+                ctx.Warn(close.Count > 0 ? $"No material matches '{f}'. Closest names: {string.Join(", ", close)}." : $"No material matches '{f}'.");
+            }
             return new MaterialListResult
             {
                 Materials = page,
@@ -205,9 +208,30 @@ public sealed class PropertiesService(SwSession session)
     private static MaterialCatalog.Catalog LoadCatalog(SwContext ctx)
     {
         string folders = ctx.App.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swFileLocationsMaterialDatabases) ?? "";
+        // The File Locations list usually names only the custom folders: SOLIDWORKS always loads its standard databases
+        // ("SOLIDWORKS Materials", DIN, …) from <install>\lang\<language>\sldmaterials as well (verified live).
+        if (StandardMaterialFolder(ctx.App) is { } std) folders = std + ";" + folders;
         var cat = MaterialCatalog.Load(folders, ctx.Paths.AllowNetwork);
         foreach (var w in cat.Warnings) ctx.Warn(w);
         return cat;
+    }
+
+    /// <summary>&lt;SOLIDWORKS folder&gt;\lang\&lt;UI language&gt;\sldmaterials (english as the fallback), when it exists.</summary>
+    private static string? StandardMaterialFolder(ISldWorks app)
+    {
+        try
+        {
+            string? exe = app.GetExecutablePath();
+            if (string.IsNullOrWhiteSpace(exe)) return null;
+            string dir = exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? Path.GetDirectoryName(exe) ?? exe : exe;
+            foreach (var lang in new[] { app.GetCurrentLanguage() ?? "", "english" }.Where(l => l.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                string folder = Path.Combine(dir, "lang", lang, "sldmaterials");
+                if (Directory.Exists(folder)) return folder;
+            }
+        }
+        catch (COMException ex) when (!ComArgs.IsDisconnect(ex)) { /* only the configured folders then */ }
+        return null;
     }
 
     // ------------------------------------------------------------------ material_set

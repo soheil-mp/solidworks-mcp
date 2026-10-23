@@ -323,6 +323,9 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
   check with `GetMaterialPropertyName2("", out db)`.
   - The material databases are UTF-16 XML (`lang\english\sldmaterials\*.sldmat`), with `<classification name>` and
     `<material name>` elements.
+  - The file-locations option `swFileLocationsMaterialDatabases` (string 28) can list **only the custom folders**
+    (here: `Custom Materials` and `Sustainability` under ProgramData). SOLIDWORKS still loads the standard databases
+    from `<GetExecutablePath()>\lang\<GetCurrentLanguage()>\sldmaterials`, so search that folder too. VERIFIED.
   - Valid names include "AISI 1020", "AISI 304", "Plain Carbon Steel", "6061 Alloy", "6061-T6 (SS)", "7075-T6, Plate
     (SS)", "Brass", "Copper", "ABS", "ABS PC", "Nylon 101", "PC High Viscosity", "PE High Density" and "PTFE (general)".
   - There is **no "PLA"** and **no "Aluminum 6061-T6"**.
