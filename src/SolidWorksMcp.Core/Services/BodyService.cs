@@ -82,7 +82,7 @@ public sealed class BodyService(SwSession session)
     private static readonly FeatureSpec MoveSpec = new("body_move", ["MoveCopyBody", "MoveCopyBody2", "BodyMoveCopy"], VolumeRule.Any, RequireFaces: false);
     private static readonly FeatureSpec DeleteSpec = new("body_delete", ["BodyDelete", "DeleteBody", "BodyDeleteKeep"], VolumeRule.Any, RequireFaces: false);
     private static readonly FeatureSpec CombineSpec = new("body_combine", ["Combine", "CombineBodies", "BodyCombine"], VolumeRule.Any, RequireFaces: false);
-    private static readonly FeatureSpec SplitSpec = new("body_split", ["Split", "SplitBody", "BodySplit"], VolumeRule.Any, RequireFaces: false);
+    private static readonly FeatureSpec SplitSpec = new("body_split", ["Intersect", "Split", "SplitBody", "BodySplit"], VolumeRule.Any, RequireFaces: false);
 
     private const string MoveHint = "Check the bodies (body_list) and the motion; a rotation needs a non-zero axis and angle.";
 
@@ -538,14 +538,15 @@ public sealed class BodyService(SwSession session)
             prefs.Toggle(SystemPrefIds.ShowErrorsEveryRebuild, false);
             var before = Snapshot.Take(d);
             var tried = new List<string>();
-            // PreSplitBody2 / PostSplitBody2 (unverified): the trim tool selected, then the bodies PreSplitBody2 returns are
-            // passed back to PostSplitBody2 (kept in the part, no files saved). Marks and the target-body selection are
-            // best guesses; the older PreSplitBody / PostSplitBody pair is the last resort.
-            var variants = new List<(string Label, int ToolMark, bool SelectBody, bool Legacy)>
-            {
-                ("tool on mark 0", 0, target is not null, false),
-                ("tool on mark 1", 1, target is not null, false),
-            };
+            // VERIFIED live: Intersect splits solids with a plane or planar face: the bodies and the tool selected,
+            // PreIntersect2(false, 0), then PostIntersect(nothing excluded, merge false, consume true) leaves the pieces as
+            // separate bodies (100 x 60 x 20 block by the right plane: two bodies of 60 000 mm3). PreSplitBody2 /
+            // PostSplitBody2 created nothing in every variant tried live (marks, selected bodies, origins, save paths,
+            // consume-cut, the older pair); they stay as fallbacks, e.g. for sketch tools.
+            var variants = new List<(string Label, int ToolMark, bool SelectBody, bool Legacy)>();
+            if (toolRef.Obj is not ISketch && toolRef.Kind != EntityKind.Sketch) variants.Add(("Intersect", -1, true, false));
+            variants.Add(("tool on mark 0", 0, target is not null, false));
+            variants.Add(("tool on mark 1", 1, target is not null, false));
             if (target is not null) variants.Add(("tool on mark 0, body not selected", 0, false, false));
             variants.Add(("PreSplitBody/PostSplitBody, tool on mark 0", 0, target is not null, true));
             foreach (var (label, toolMark, selectBody, legacy) in variants)
@@ -553,6 +554,33 @@ public sealed class BodyService(SwSession session)
                 IFeature? feat = null;
                 string? why = null;
                 string pre = legacy ? "PreSplitBody" : "PreSplitBody2", post = legacy ? "PostSplitBody" : "PostSplitBody2";
+                if (toolMark < 0)
+                {
+                    try
+                    {
+                        d.ClearSelection2(true);
+                        var sd = d.Sel().CreateSelectData();
+                        foreach (var t in targets.Where(t => BodyKit.PlaneOf(toolRef) is not { } pl || BodyKit.Crosses(t.Box, pl.Q, pl.N)))
+                            if (!t.Body.Select2(true, sd)) throw new SwException(ErrorCodes.FeatureFailed, $"Could not select body '{t.Name}'.");
+                        BodyKit.SelectAll(d, [toolRef], 0);
+                        var regions = ComArgs.Objects<object>((object?)d.FeatureManager.PreIntersect2(false, 0));
+                        if (regions.Count == 0) why = "PreIntersect2 found no regions";
+                        else
+                        {
+                            feat = d.FeatureManager.PostIntersect(null, false, true);
+                            if (feat is null) why = $"PostIntersect created nothing ({regions.Count} region(s))";
+                        }
+                    }
+                    catch (Exception ex) when (!ComArgs.IsDisconnect(ex) && ex is COMException or InvalidCastException or ArgumentException or SwException)
+                    {
+                        why = BodyKit.Clip(ex.Message, 120);
+                    }
+                    finally
+                    {
+                        d.ClearSelection2(true);
+                    }
+                }
+                else
                 try
                 {
                     d.ClearSelection2(true);
@@ -598,7 +626,7 @@ public sealed class BodyService(SwSession session)
                     var o = BodyKit.Verify(ctx, d, before, SplitSpec,
                         (_, _, checks) => SplitIntent(ctx, part, d, solids, target is null ? null : targets[0], pieceGeoms, checks),
                         keepOnFailure, feat, "Split with a plane or planar face through the body, or a sketch whose lines cross it.", guessedType: true);
-                    return BodyKit.Result(ctx, d, o, pieceGeoms, resolved, method: legacy ? label : $"PreSplitBody2/PostSplitBody2 ({label})");
+                    return BodyKit.Result(ctx, d, o, pieceGeoms, resolved, method: toolMark < 0 ? "PreIntersect2/PostIntersect" : legacy ? label : $"PreSplitBody2/PostSplitBody2 ({label})");
                 }
                 catch (SwException ex) when (!keepOnFailure && ex.Code is ErrorCodes.FeatureFailed or ErrorCodes.RebuildError or ErrorCodes.VerifyFailed &&
                                              BodyKit.NothingNew(d, before))

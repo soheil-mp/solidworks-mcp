@@ -162,9 +162,11 @@ public sealed class SheetMetalService(SwSession session)
             prefs.Toggle(SystemPrefIds.ShowErrorsEveryRebuild, false);
             var before = Snapshot.Take(d);
             // VERIFIED: ThickenDir false thickens toward -normal, with no custom bend allowance (the part's defaults). ThickenDir
-            // true for 'reverse' is a guess: the plate's side is checked and the call redone once flipped. When the K-factor
-            // read back differs from the request, the call is redone once with a K-factor custom bend allowance (unverified).
-            bool thickenDir = q.Reverse, flipped = false, custom = false;
+            // true did NOT change the side (live: both values thickened toward -normal), nor does
+            // IBaseFlangeFeatureData.ReverseThickness; ReverseDirection does (VERIFIED: y -2..0 -> 0..2 mm), so 'reverse' flips
+            // it through ModifyDefinition after the call. The plate's side is checked and the call redone once flipped. When the K-factor read back differs from the request, the call is redone once with a
+            // K-factor custom bend allowance (unverified).
+            bool thickenDir = false, flipped = false, custom = false;
             while (true)
             {
                 var state = new FlangeState();
@@ -180,6 +182,7 @@ public sealed class SheetMetalService(SwSession session)
                 object? api = d.FeatureManager.InsertSheetMetalBaseFlange2(t, thickenDir, r, 0.02, 0.01, false, 0, 0, 1, cba, false, 0,
                     0.0001, 0.0001, 0.5, true, false, true, true);
                 d.ClearSelection2(true);
+                if (q.Reverse && api is not null) ReverseThickness(d, BodyKit.NewFeatures(d, before));
                 try
                 {
                     var o = BodyKit.Verify(ctx, d, before, BaseFlangeSpec, (main, after, checks) =>
@@ -212,6 +215,20 @@ public sealed class SheetMetalService(SwSession session)
                 }
             }
         }, RunOptions.Write(q.Doc), ct);
+
+    /// <summary>Flips the side the new base flange thickens to (IBaseFlangeFeatureData.ReverseDirection through ModifyDefinition).</summary>
+    private static void ReverseThickness(IModelDoc2 d, IEnumerable<IFeature> created)
+    {
+        foreach (var f in created)
+        {
+            if (f.Definition() is not IBaseFlangeFeatureData data) continue;
+            bool access = data.AccessSelections(d, null);
+            data.ReverseDirection = !data.ReverseDirection;
+            if (!f.ModifyDefinition(data, d, null) && access) data.ReleaseSelectionAccess();
+            return;
+        }
+        // No base-flange definition found: the side check reports the result.
+    }
 
     private sealed class FlangeState
     {

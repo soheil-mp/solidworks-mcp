@@ -595,9 +595,18 @@ public sealed class SurfaceService(SwSession session)
                     var o = BodyKit.Verify(ctx, d, before, KnitSpec, (_, _, checks) =>
                         KnitIntent(ctx, part, d, inputs, surfacesBefore, before.SolidBodies, trySolid, s => solid = s, checks),
                         keepOnFailure, api, "The surfaces must share edges (within 0.01 mm) to knit.", guessedType: true);
+                    string method = label;
+                    if (trySolid && !solid && FillEnclosed(ctx, part, d, before.SolidBodies) is { } fill)
+                    {
+                        // VERIFIED live: the knit's TryToFormSolid leaves a closed tube-and-caps surface a surface; Thicken with
+                        // "create solid from enclosed volume" turns it into the solid.
+                        solid = true;
+                        method += " + FeatureBossThicken (create solid from the enclosed volume)";
+                        o = o with { After = Snapshot.Take(d), Checks = [.. o.Checks, fill] };
+                    }
                     if (trySolid && !solid) ctx.Warn("No solid formed: the knitted surfaces don't enclose a volume (gaps or open edges); the result is a surface body.");
                     return BodyKit.Result(ctx, d, o, BodyKit.NewOrChanged(geomsBefore, BodyKit.AllGeoms(ctx, part, d)), refs.Select(r => r.Info("surfaces")).ToList(),
-                        method: label, removed: inputs.Select(i => i.Name).ToList(), solidFormed: solid);
+                        method: method, removed: inputs.Select(i => i.Name).ToList(), solidFormed: solid);
                 }
                 catch (SwException ex) when (!keepOnFailure && ex.Code is ErrorCodes.FeatureFailed or ErrorCodes.RebuildError or ErrorCodes.VerifyFailed &&
                                              BodyKit.NothingNew(d, before))
@@ -608,6 +617,41 @@ public sealed class SurfaceService(SwSession session)
             throw new SwException(ErrorCodes.FeatureFailed, $"surface_knit: the surfaces were not knitted. Tried: {BodyKit.Tried(tried)}.",
                 "Knit surfaces that share edges; body_list shows the surface bodies.");
         }, RunOptions.Write(doc), ct);
+
+    /// <summary>
+    /// Fills the largest surface body into a solid (FeatureBossThicken with FillVolume, the surface on mark 1). Returns
+    /// a check text when a new solid with volume appeared; otherwise removes what it made and returns null.
+    /// </summary>
+    private static string? FillEnclosed(SwContext ctx, IPartDoc part, IModelDoc2 d, int solidsBefore)
+    {
+        var sheet = part.Bodies(swBodyType_e.swSheetBody, visibleOnly: false)
+            .Select(b => BodyKit.Geom(ctx, d, b)).OrderByDescending(g => g.Area).FirstOrDefault();
+        if (sheet is null) return null;
+        var mark = Snapshot.Take(d);
+        try
+        {
+            d.ClearSelection2(true);
+            var sd = d.Sel().CreateSelectData();
+            sd.Mark = 1;
+            if (!sheet.Body.Select2(false, sd)) return null;
+            var feat = d.FeatureManager.FeatureBossThicken(0.001, 0, 0, true, true, true, true);
+            d.ClearSelection2(true);
+            var solids = BodyKit.AllGeoms(ctx, part, d).Where(g => g.Solid && g.Volume > 0).ToList();
+            if (feat is not null && solids.Count > solidsBefore)
+                return $"the closed knit surface was filled into a solid of {Units.Mm3(solids.Max(g => g.Volume))} mm³";
+            if (!BodyKit.NothingNew(d, mark)) FeatureVerifier.Rollback(ctx, d, mark);
+            return null;
+        }
+        catch (Exception ex) when (!ComArgs.IsDisconnect(ex) && ex is COMException or SwException)
+        {
+            if (!BodyKit.NothingNew(d, mark)) FeatureVerifier.Rollback(ctx, d, mark);
+            return null;
+        }
+        finally
+        {
+            d.ClearSelection2(true);
+        }
+    }
 
     /// <summary>
     /// Tier B: the input surface bodies became one knit surface (fewer surface bodies, area kept) or, with trySolid, a

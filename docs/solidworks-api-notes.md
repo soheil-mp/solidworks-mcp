@@ -239,6 +239,14 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
 - Untested: `IModelDoc2.InsertPlanarRefSurface()`, `InsertSewRefSurface(…)` (knit), `InsertOffsetSurface(t, rev)` and
   `InsertFillSurface2(…)`.
 
+- **Split a body** (VERIFIED). `PreSplitBody2` returns the pieces, but `PostSplitBody2` (and the older pair) created nothing in
+  every variant tried (marks, selected pieces, origins/paths arrays, real save paths, consume-cut). **Intersect does it**:
+  select the bodies and the plane, `PreIntersect2(false, 0)`, then `PostIntersect(null, false /*merge*/, true)`: a
+  100 × 60 × 20 block split by the Right plane gives two bodies of 60 000 mm³.
+- **Knit** (VERIFIED). `InsertSewRefSurface(false, true, true, 1e-5, 1e-4)` needs the surface bodies on **mark 1** (mark 0, faces,
+  a larger tolerance or gap filters create nothing). `TryToFormSolid` did not make a solid of a closed tube + caps;
+  `FeatureBossThicken(t, 0, 0, true /*FillVolume*/, true, true, true)` with the closed surface on mark 1 does.
+
 ## 7. Sheet metal
 - **Base flange** (VERIFIED, exact volume).
   - The sketch must be **closed and selected**; an open sketch returns null.
@@ -254,6 +262,10 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
 - **Weldments.** `InsertWeldmentFeature()` works. **Structural members (`InsertStructuralWeldment5`): UNRESOLVED.**
   Profiles live at `ProgramData\SOLIDWORKS\SOLIDWORKS 2025\weldment profiles\<std>\<type>.sldlfp`, with sizes as
   configurations (`ISldWorks.GetConfigurationNames(path)`).
+
+- **Base flange side** (VERIFIED). For a closed profile `InsertSheetMetalBaseFlange2`'s `ThickenDir` changes nothing (both values
+  thicken toward −normal), and neither does `IBaseFlangeFeatureData.ReverseThickness`; `ReverseDirection` (through
+  `ModifyDefinition`) moves the plate to the + side (y −2..0 → 0..2 mm).
 
 ## 8. Assembly
 - **Interference** (VERIFIED). `IInterferenceDetectionMgr.GetInterferences` answers with the options the manager had when
