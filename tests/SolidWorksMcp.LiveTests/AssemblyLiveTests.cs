@@ -904,6 +904,60 @@ public class AssemblyLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.Equal(2, (await Asm.MateListAsync(asm, 100, 0)).Total);
     }
 
+    // ------------------------------------------------------------------ asm_explode
+
+    [Fact]
+    public async Task Exploded_view_moves_each_component_by_the_sum_of_its_steps()
+    {
+        var plate = await PlateAsync("xplate");
+        var shaft = await ShaftAsync("xshaft");
+        var cube = await CubeAsync("xcube");
+        string asm = await NewAssemblyAsync("asm_explode");
+        await InsertAsync(asm, plate.Path, [0, 0, 0]);
+        string ns = (await InsertAsync(asm, shaft.Path, [0, 10, 0])).Component.Name;
+        string nc = (await InsertAsync(asm, cube.Path, [60, 10, 0])).Component.Name;
+        var r = await Asm.ExplodeAsync(new AsmExplodeRequest
+        {
+            Doc = asm,
+            Steps =
+            [
+                new AsmExplodeStep { Components = [ns], Direction = "+y", DistanceMm = 60 },
+                new AsmExplodeStep { Components = [ns, nc], Direction = "-x", DistanceMm = 40 },
+            ],
+        });
+        Assert.Equal(2, r.StepNames.Count);
+        Assert.True(r.Exploded);
+        AssertPoint([-40, 60, 0], r.Components.Single(x => x.Name == ns).OffsetMm);
+        AssertPoint([-40, 0, 0], r.Components.Single(x => x.Name == nc).OffsetMm);
+        AssertPoint([0, 10, 0], r.Components.Single(x => x.Name == ns).CollapsedOriginMm);
+        Assert.Contains(r.Verified, c => c.Contains("every component moved by the sum of its steps", StringComparison.Ordinal));
+
+        // A second view, shown collapsed at the end: the components are back at their places.
+        var r2 = await Asm.ExplodeAsync(new AsmExplodeRequest
+        {
+            Doc = asm, Steps = [new AsmExplodeStep { Components = [nc], Direction = "+z", DistanceMm = 25 }], Collapse = true,
+        });
+        Assert.NotEqual(r.View, r2.View);
+        Assert.False(r2.Exploded);
+        AssertPoint([0, 0, 25], r2.Components.Single().OffsetMm);
+        AssertPoint([60, 10, 0], (await ComponentAsync(asm, nc)).OriginMm);
+    }
+
+    [Fact]
+    public async Task Explode_steps_that_cant_work_are_refused()
+    {
+        var cube = await CubeAsync("xbad");
+        string asm = await NewAssemblyAsync("asm_explode_bad");
+        string nc = (await InsertAsync(asm, cube.Path, [0, 0, 0])).Component.Name;
+        async Task<string> Refused(AsmExplodeStep[] steps) =>
+            (await Assert.ThrowsAsync<SwException>(() => Asm.ExplodeAsync(new AsmExplodeRequest { Doc = asm, Steps = steps }))).Code;
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused([]));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused([new AsmExplodeStep { Components = [nc], Direction = "up", DistanceMm = 10 }]));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused([new AsmExplodeStep { Components = [nc], Direction = "1,1,0", DistanceMm = 10 }]));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused([new AsmExplodeStep { Components = [nc], Direction = "+x", DistanceMm = 0 }]));
+        Assert.Equal(ErrorCodes.EntityNotFound, await Refused([new AsmExplodeStep { Components = ["nope-1"], Direction = "+x", DistanceMm = 10 }]));
+    }
+
     [Fact]
     public async Task New_mate_types_without_their_entities_or_numbers_are_refused()
     {

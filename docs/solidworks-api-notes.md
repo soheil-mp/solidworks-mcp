@@ -356,6 +356,17 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
     (Right +x, Top +y, Front +z), so "−x" needs `D1ReverseDirection = true`. Along an edge the sense is its own.
   - Type names: `LocalLPattern`, `LocalCirPattern`; each instance is a component feature of type `ReferencePattern`.
     Deleting the pattern feature (`DeleteSelection2(0)`) deletes its instances.
+- **Exploded views** (VERIFIED 2026-10-23). `IAssemblyDoc.CreateExplodedView()` (the new name from
+  `GetExplodedViewNames`), `ShowExploded2(true, name)`, then per step: the components on mark 1 and
+  `IConfiguration.AddExplodeStep2(dist m, swExplodeDirectionIndex_e (0 x, 1 y, 2 z), reverse, 0, -1, false, true, false,
+  out err)` and `EditRebuild3`. The manipulator axes are the assembly's: "−x 40" moved a component by (−40, 0, 0).
+  - **A new view can come with steps SOLIDWORKS made itself**: with a shaft in the assembly, a cube moved 37 to 62 mm in
+    z on top of its own step, depending on the layout. Delete them (`GetExplodeStep(i).Name`, `DeleteExplodeStep`) before
+    adding yours.
+  - Read the collapsed positions before exploding: `IComponent2.GetSpecificTransform(true)` was 40.7 mm off in z for
+    that cube.
+  - Delete a view by selecting it: `SelectByID2(name, "EXPLODEDVIEWS", …)` (the type name of `swSelEXPLVIEWS`), then
+    `DeleteSelection2`.
 - **Mirror components** (VERIFIED). `IAssemblyDoc.MirrorComponents3(plane, ComponentsToInstance, orientations,
   orientAboutCenterOfMass:false, ComponentsToMirror:null, false, null, swMirrorComponentName_Suffix, "", "", 0, false,
   false, false)` with the components as a `DispatchWrapper[]` and `swMirrorComponentOrientation_RotatePlaneY` (0) per

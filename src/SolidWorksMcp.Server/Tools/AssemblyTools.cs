@@ -188,5 +188,17 @@ public sealed class AssemblyTools(SwSession session)
             TotalAngleDeg = totalAngleDeg, EqualSpacing = equalSpacing, Plane = plane, KeepOnFailure = keepOnFailure,
         }, cancellationToken), progress, "asm_pattern");
 
+    [McpServerTool(Name = "asm_explode", Title = "Exploded view", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Exploded view of the assembly (a new one in the active configuration): steps that move components along assembly " +
+                 "axes, applied in order; drawings can show it. Verified: every component moved by the sum of its steps; else the view " +
+                 "is deleted. collapse:true shows the assembly collapsed again afterwards.")]
+    public Task<string> AsmExplode(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("Steps in order, e.g. [{components:['lid-1'], direction:'+y', distanceMm:60}].")] AsmExplodeStep[] steps,
+        [Description("Show the assembly collapsed again at the end (the exploded view is kept).")] bool collapse = false,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_svc.ExplodeAsync(new AsmExplodeRequest { Doc = doc, Steps = steps, Collapse = collapse }, cancellationToken), progress, "asm_explode");
+
     private static async Task<string> Json<T>(Task<T> task) where T : ToolResult => ResultJson.Serialize(await task.ConfigureAwait(false));
 }

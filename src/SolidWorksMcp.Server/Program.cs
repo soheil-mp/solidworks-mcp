@@ -23,7 +23,7 @@ if (Array.IndexOf(args, "--tools-md") is int mdAt and >= 0)
 {
     // solidworks-mcp --tools-md docs/tools.md   (UTF-8 file; the console code page would mangle characters)
     string target = mdAt + 1 < args.Length ? args[mdAt + 1] : "tools.md";
-    File.WriteAllText(target, CatalogCheck.Markdown(), new System.Text.UTF8Encoding(false));
+    File.WriteAllText(target, CatalogCheck.Markdown().Replace("\r\n", "\n"), new System.Text.UTF8Encoding(false)); // LF, as the repository stores it
     Console.Error.WriteLine($"Wrote {Path.GetFullPath(target)}");
     return 0;
 }

@@ -124,6 +124,9 @@ with `segments:["Line5",…], corner:"none"`. The result lists each member's bod
    components:["bracket-1"], plane:{name:"right"}}`. Copies are instances of the same file, so a part that isn't
    symmetric comes out turned, not mirrored.
 5. Check with `asm_interference` and `asm_component_list` (origins and rotations), then `view_screenshot`.
+6. Exploded view (for assembly instructions or a drawing): `asm_explode {steps:[{components:["lid-1"], direction:"+y",
+   distanceMm:60}, {components:["bolt-1","bolt-2"], direction:"+y", distanceMm:120}]}`; `collapse:true` keeps the view
+   but shows the assembly assembled again.
 
 **Drawings.**
 1. Save the part or assembly.
