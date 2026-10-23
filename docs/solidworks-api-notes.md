@@ -397,6 +397,20 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   - balloon: `IModelDocExtension.InsertBOMBalloon2(CreateBalloonOptions())` → `INote`; `IsBomBalloon()`,
     `GetBomBalloonText(true)` ("1" with a BOM in the drawing).
   - Each is attached (`IAnnotation.GetAttachedEntityCount3()` = 1) and moved with `SetPosition2(x, y, 0)` (sheet m).
+- **Balloons for a whole view** (VERIFIED, an assembly of two parts gave balloons 1 and 2). Select the view, then
+  `IDrawingDoc.AutoBalloon5(CreateAutoBalloonOptions())` (`IgnoreMultiple = true`, item numbers) returns the notes.
+- **Hole table** (VERIFIED). Activate the view; the datum origin **vertex on mark 1** (picked at its sheet position) and
+  the **face on mark 2** (`IEntity.Select4` with `SelectData.View`), then `IView.InsertHoleTable3(false, x, y, TopLeft,
+  "A", "standard hole table--letters.sldholtbt", swHoleTableTagOrder_XY, swHoleTable_AlphaNumericTags, null)` →
+  `IHoleTableAnnotation`. X LOC / Y LOC are model mm from the origin along the sheet's x and y (the Ø20 hole of the
+  100 × 60 block read 50 / 30 from the lower-left corner, −50 / −30 from the upper-right one).
+- **Revision table** (VERIFIED). `ISheet.InsertRevisionTable2(false, x, y, TopRight, "standard revision block.sldrevtbt",
+  swRevisionTable_CircleSymbol, true)` (null when the sheet has one: `ISheet.RevisionTable`), then per row
+  `AddRevision("A")` → id, `GetRowNumberForId(id)`, and `ITableAnnotation.Text[row, descriptionColumn] = …`;
+  `CurrentRevision` reads the last letter. Templates come from the file locations (`swFileLocationsHoleTableTemplates`
+  33, `swFileLocationsRevisionTableTemplates` 35).
+- **Sheet scale of an empty sheet** (VERIFIED again): a 250 mm assembly put on a 1:1 sheet came out 1:2 after its first
+  view; set the planned scale after the views exist.
 - **Leaders attach where the edge was picked** (VERIFIED). `IView.SelectEntity(edge)` selects it without a point, and a
   leader then ends at the edge's start (a view corner). `SelectByID2("", "EDGE", sheetX, sheetY, z, …)` in the active view
   selects **two** objects, the view itself (type 12) and the edge: deselect the view, and the leader ends at the pick.

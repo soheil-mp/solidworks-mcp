@@ -10,7 +10,7 @@
   - verified feature creation with automatic rollback;
   - entity references by id, point, query and name;
   - compact input schemas (the EntityRef fields are explained once, in the server instructions).
-- Tools (121):
+- Tools (122):
   - session: `sw_status`, `sw_connect`, `sw_help`, `dialog_list`, `dialog_respond`;
   - documents: `doc_new` (part, assembly, drawing), `doc_open` (native files and STEP/IGES/Parasolid/SAT/STL imports),
     `doc_list`, `doc_activate`, `doc_save`, `doc_close`, `doc_rebuild`, `doc_undo`, `doc_units_set`;
@@ -33,7 +33,7 @@
     `asm_component_move`, `asm_interference`, `asm_replace`, `asm_pattern` (linear, circular, mirror);
   - drawing: `drw_sheet_setup`, `drw_views_standard`, `drw_view_projected`, `drw_view_section`, `drw_view_detail`,
     `drw_dimensions_auto`, `drw_dimension_add`, `drw_note_add`, `drw_annotation_add` (datum, surface finish, tolerance frame,
-    balloon), `drw_bom_add`, `drw_center_marks`, `drw_info`;
+    balloons), `drw_table_add` (hole and revision tables), `drw_bom_add`, `drw_center_marks`, `drw_info`;
   - export: `model_export`;
   - properties: `material_list`, `material_set`, `prop_list`, `prop_set`, `prop_delete`, `equation_list`,
     `equation_set`, `equation_delete`, `config_list`, `config_add`, `config_activate`, `config_delete`,
@@ -42,12 +42,13 @@
   - automation: `vba_run` (off by default).
 - Tests: unit tests, offline contract tests, live tests per area with exact oracles, and `tools/mcp_smoke.py` with the
   golden scenarios (plate, enclosure, edit, assembly, drawing).
-- Live-tested against SOLIDWORKS 2025 SP1.2: 328 live tests across all areas pass. Fixes found that way include:
+- Live-tested against SOLIDWORKS 2025 SP1.2: 332 live tests across all areas pass. Fixes found that way include:
   - coupled system options (STL quality with deviation and angle) are saved and restored as one group, also after a
     crash (an STL export had left a user's STL quality at coarse);
   - Hole Wizard holes are placed exactly (a model-space ray pick) and through-all holes work;
   - the standard material databases are found, so materials and simulation work;
   - body_split goes through Intersect; surface_knit can close a surface into a solid; sheet-metal reverse works;
-  - drawing views, sections, details, BOMs, model-edge dimensions and sheet scales work;
+  - drawing views, sections, details, BOMs, model-edge dimensions and sheet scales work (an empty sheet that SOLIDWORKS
+    rescales on its first view gets the planned scale back);
   - measurements with arcs report the minimum distance; assembly mates report their real entity kinds.
 

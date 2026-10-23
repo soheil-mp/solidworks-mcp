@@ -140,6 +140,30 @@ internal static class Topology
         return best.Value;
     }
 
+    /// <summary>
+    /// The face's unit normal at <paramref name="p"/> pointing out of the material: the plane's normal, else the surface
+    /// normal there (ISurface.EvaluateAtPoint) reversed when IFace2.FaceInSurfaceSense is true, which means the face and
+    /// the surface point in opposite directions despite its name (api help, VERIFIED: a hole's face points to its axis).
+    /// Zero when it can't be read.
+    /// </summary>
+    public static Vec3 OutwardNormal(IFace2 f, FaceGeom g, Vec3 p)
+    {
+        if (g.Surface == "plane" && g.Normal is Vec3 n) return n;
+        var ev = ComArgs.Doubles((object?)f.Surface()?.EvaluateAtPoint(p.X, p.Y, p.Z));
+        if (ev.Length < 3) return Vec3.Zero;
+        var sn = new Vec3(ev[0], ev[1], ev[2]).Normalized();
+        return f.FaceInSurfaceSense() ? -sn : sn;
+    }
+
+    /// <summary>True when a cylindrical face is a hole (material outside it), false for a boss or shaft.</summary>
+    public static bool IsHole(IFace2 cylinder, FaceGeom g)
+    {
+        if (g.Surface != "cylinder" || g.Axis is not Vec3 ax || g.AxisOrigin is not Vec3 o) return false;
+        var p = InteriorPoint(cylinder);
+        var toAxis = (o - p) - ax * (o - p).Dot(ax);
+        return OutwardNormal(cylinder, g, p).Dot(toAxis) > 0;
+    }
+
     public static double DistanceToEdge(IEdge e, Vec3 p)
     {
         var cp = e.ClosestPoint(p);

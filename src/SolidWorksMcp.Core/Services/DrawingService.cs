@@ -462,11 +462,11 @@ public sealed partial class DrawingService(SwSession session)
                     ctx.Warn($"The sheet already has {occupied.Count} view(s) and no free area of {Math.Round(layout.Bounds.W)} x {Math.Round(layout.Bounds.H)} mm " +
                              "is left for these; they may overlap (pass a smaller scale, or use another drawing).");
             }
-            bool perView = !SameScale(sc, sheetScale);
             // VERIFIED live: SOLIDWORKS rescales an empty sheet when its first view is inserted (a 1:2 set before that read
-            // 1:1 again after the next rebuild), so an empty sheet gets its new scale after the views exist.
-            bool sheetScaleAfter = perView && existing.Count == 0;
-            if (sheetScaleAfter) perView = false;
+            // 1:1 again after the next rebuild; a 250 mm assembly on a 1:1 sheet came out 1:2), so an empty sheet gets the
+            // planned scale after the views exist, whatever it read before. Views on a used sheet get their own scale.
+            bool sheetScaleAfter = existing.Count == 0;
+            bool perView = !sheetScaleAfter && !SameScale(sc, sheetScale);
             foreach (var slot in layout.Slots)
             {
                 double x = Units.M(slot.Cx), y = Units.M(slot.Cy);
@@ -487,11 +487,17 @@ public sealed partial class DrawingService(SwSession session)
             }
             if (sheetScaleAfter)
             {
-                SetSheetScale(drw, sheet, sc);
-                d.EditRebuild3();
-                foreach (var (_, v) in created)
-                    if (!SameScale(v.ScaleDecimal, sc)) v.UseSheetScale = 1; // follow the sheet's new scale
-                checks.Add($"sheet scale set to {DrawingLayout.FormatScale(sc)}" + (fixedScale is null ? " to fit the views" : ""));
+                var now = sheet.DrwProps();
+                double current = now.Length >= 4 && now[3] != 0 ? now[2] / now[3] : sheetScale;
+                if (!SameScale(current, sc) || !SameScale(sheetScale, sc) || created.Any(c => !SameScale(c.View.ScaleDecimal, sc)))
+                {
+                    SetSheetScale(drw, sheet, sc);
+                    d.EditRebuild3();
+                    foreach (var (_, v) in created)
+                        if (!SameScale(v.ScaleDecimal, sc)) v.UseSheetScale = 1; // follow the sheet's new scale
+                    checks.Add($"sheet scale set to {DrawingLayout.FormatScale(sc)}" + (fixedScale is null ? " to fit the views" : "") +
+                               (!SameScale(current, sheetScale) ? $" (SOLIDWORKS had made it {DrawingLayout.FormatScale(current)})" : ""));
+                }
             }
             d.GraphicsRedraw2();
 
@@ -1212,7 +1218,7 @@ public sealed partial class DrawingService(SwSession session)
     /// what got selected is drawn where the requested entity is; IView.SelectEntity is the fallback.
     /// </summary>
     private static void SelectInView(SwContext ctx, IModelDoc2 d, ViewHit hit, Resolved r, OnSheet g, Xform t, bool part, bool append,
-        string arg, List<string> checks, bool pickFirst = false)
+        string arg, List<string> checks, bool pickFirst = false, int mark = 0)
     {
         // The exact entity first (IView.SelectEntity, then IEntity.Select4 with the view in the SelectData), the sheet pick
         // last. Live: the pick by coordinates found no edge in a view, and a failed pick with append also dropped the
@@ -1225,7 +1231,7 @@ public sealed partial class DrawingService(SwSession session)
             // A pick in the active view selects the view itself (type 12) as well as the entity under the point (VERIFIED):
             // keep the entity, drop the rest. Its pick point is where a leader attaches.
             var p = g.Pick;
-            if (d.Extension.SelectByID2("", g.Kind == "point" ? "VERTEX" : "EDGE", p.X, p.Y, p.Z, false, 0, null, 0))
+            if (d.Extension.SelectByID2("", g.Kind == "point" ? "VERTEX" : "EDGE", p.X, p.Y, p.Z, false, mark, null, 0))
             {
                 int n = sm.GetSelectedObjectCount2(-1), keep = -1;
                 for (int i = 1; i <= n && keep < 0; i++)
@@ -1243,7 +1249,7 @@ public sealed partial class DrawingService(SwSession session)
             }
             d.ClearSelection2(true);
         }
-        if (hit.View.SelectEntity(r.Obj, append) && sm.GetSelectedObjectCount2(-1) == before + 1)
+        if (mark == 0 && hit.View.SelectEntity(r.Obj, append) && sm.GetSelectedObjectCount2(-1) == before + 1) // no mark there
         {
             checks.Add($"'{arg}' selected through the view (IView.SelectEntity)");
             return;
@@ -1251,6 +1257,7 @@ public sealed partial class DrawingService(SwSession session)
         while (sm.GetSelectedObjectCount2(-1) > before) sm.DeSelect2(sm.GetSelectedObjectCount2(-1), -1);
         var data = sm.CreateSelectData();
         data.View = (View)(object)hit.View;
+        data.Mark = mark;
         if (r.Obj is IEntity ent && ent.Select4(append, data) && sm.GetSelectedObjectCount2(-1) == before + 1)
         {
             checks.Add($"'{arg}' selected in the view (IEntity.Select4)");
@@ -1261,7 +1268,7 @@ public sealed partial class DrawingService(SwSession session)
         var at = g.Pick;
         string other = "";
         if (sm.GetSelectedObjectCount2(-1) == before &&
-            d.Extension.SelectByID2("", type, at.X, at.Y, 0, append, 0, null, 0) && sm.GetSelectedObjectCount2(-1) == before + 1)
+            d.Extension.SelectByID2("", type, at.X, at.Y, 0, append, mark, null, 0) && sm.GetSelectedObjectCount2(-1) == before + 1)
         {
             var sel = sm.DrwSelected(before + 1);
             if (!part || DrawnAlike(sel, g, t))

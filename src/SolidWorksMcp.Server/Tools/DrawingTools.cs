@@ -134,12 +134,12 @@ public sealed class DrawingTools(SwSession session)
 
     [McpServerTool(Name = "drw_annotation_add", Title = "Drawing annotation", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("GD&T and symbols in a view, on an edge of the view's model (model mm): datum feature (label), surface finish " +
-                 "(roughness Ra), geometric tolerance frame (characteristic, tolerance, Ø, MMC/LMC, datums) or a BOM balloon. " +
-                 "Verified: label, roughness, frame or balloon text and the attachment read back; otherwise removed.")]
+                 "(roughness Ra), geometric tolerance frame (characteristic, tolerance, Ø, MMC/LMC, datums) or a BOM balloon (without " +
+                 "'at': balloons for every component). Verified: label, roughness, frame or balloon text and the attachment read back; otherwise removed.")]
     public async Task<string> DrwAnnotationAdd(
         [Description("datum | surface_finish | gtol | balloon")] string kind,
         [Description("View name (drw_info lists views).")] string view,
-        [Description("Edge or vertex it points to (model mm), e.g. {type:'edge',at:[0,20,10]}; gtol: optional.")] EntityRef? at = null,
+        [Description("Edge or vertex it points to (model mm), e.g. {type:'edge',at:[0,20,10]}; gtol, balloon: optional.")] EntityRef? at = null,
         [Description("Symbol position [x,y] sheet mm; default: beside the edge, outside the view.")] double[]? atMm = null,
         [Description("datum: the letter, e.g. A (default).")] string? label = null,
         [Description("surface_finish: roughness Ra in µm, e.g. \"1.6\".")] string? roughness = null,
@@ -156,6 +156,26 @@ public sealed class DrawingTools(SwSession session)
             Doc = doc, Kind = kind, View = view, At = at, AtMm = atMm, Label = label, Roughness = roughness, Finish = finish,
             Characteristic = characteristic, Tolerance = tolerance, Diameter = diameter, Material = material, Datums = datums,
         }, cancellationToken));
+
+    [McpServerTool(Name = "drw_table_add", Title = "Hole or revision table", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Hole table for a view of a part (tag, X/Y from a datum origin vertex, size of each hole through a face), or a " +
+                 "revision table with new rows (A, B, … with their descriptions). Verified: every hole's row (position, size) or every " +
+                 "revision and description read back; otherwise removed.")]
+    public Task<string> DrwTableAdd(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("hole | revision")] string kind,
+        [Description("hole: the view (drw_info lists views).")] string? view = null,
+        [Description("hole: datum origin vertex (model mm), e.g. {type:'vertex',at:[-50,-30,20]}; default: the face's lowest-left vertex.")] EntityRef? origin = null,
+        [Description("hole: planar face the holes go through; default: the face toward the viewer with the most holes.")] EntityRef? face = null,
+        [Description("revision: one description per new revision, e.g. [\"First release\"].")] string[]? revisions = null,
+        [Description("Table corner [x,y] sheet mm (hole: top-left, default below the view; revision: top-right, default the sheet's).")] double[]? atMm = null,
+        [Description("Template (.sldholtbt / .sldrevtbt); default: SOLIDWORKS' standard one.")] string? template = null,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_svc.TableAddAsync(new DrwTableRequest
+        {
+            Doc = doc, Kind = kind, View = view, Origin = origin, Face = face, Revisions = revisions, AtMm = atMm, Template = template,
+        }, cancellationToken), progress, "drw_table_add");
 
     [McpServerTool(Name = "drw_bom_add", Title = "Bill of materials", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("BOM / bill of materials table (top level) for the model shown in a view. Returns the rows and columns read back from the table.")]

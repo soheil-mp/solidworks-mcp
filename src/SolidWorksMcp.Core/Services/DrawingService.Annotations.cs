@@ -39,6 +39,8 @@ public sealed class DrwAnnotationResult : ToolResult
     public double[]? AtMm { get; init; }
     /// <summary>How many model entities it is attached to (0: free-standing).</summary>
     public int AttachedTo { get; init; }
+    /// <summary>How many annotations were added (several for the balloons of a whole view).</summary>
+    public int Count { get; init; } = 1;
     public IReadOnlyList<string>? Checks { get; init; }
     public IReadOnlyList<ResolvedInfo>? Resolved { get; init; }
 }
@@ -65,8 +67,10 @@ public sealed partial class DrawingService
         Only("diameter", q.Diameter, "gtol");
         Only("material", q.Material is not null, "gtol");
         Only("datums", q.Datums is { Count: > 0 }, "gtol");
-        if (kind is "datum" or "surface_finish" or "balloon" && q.At is null)
+        if (kind is "datum" or "surface_finish" && q.At is null)
             throw SwException.InvalidArgument($"kind '{kind}' needs 'at': the edge it points to, e.g. {{type:'edge', at:[x,y,z]}} (model mm).");
+        if (kind == "balloon" && q.At is null && q.AtMm is not null)
+            throw SwException.InvalidArgument("Balloons for the whole view (no 'at') are laid out by SOLIDWORKS; 'atMm' needs 'at'.");
         if (q.AtMm is not null) Sheet2(q.AtMm, "atMm");
 
         AnnotationPlan plan;
@@ -115,6 +119,7 @@ public sealed partial class DrawingService
             r = EntityResolver.Resolve(ctx, model, q.At, "at", EntityKind.Edge, EntityKind.Vertex);
             g = Seen(r, t, part, "at");
         }
+        if (plan.Kind == "balloon" && r is null) return AutoBalloons(ctx, d, drw, hit);
         var outline = Outline(hit);
         var taken = hit.View.DrwAnnotations().Select(a => a.DrwPosition()).Where(p => p.Length >= 2).Select(p => (p[0] * 1000, p[1] * 1000)).ToList();
         var spot = q.AtMm is not null ? Sheet2(q.AtMm, "atMm") : DrawingLayout.AnnotationSpot(outline, g is null ? null : (g.Pick.X * 1000, g.Pick.Y * 1000), taken);
@@ -240,6 +245,49 @@ public sealed partial class DrawingService
             AttachedTo = attached,
             Checks = checks,
             Resolved = r is null ? null : [r.Info("at")],
+        };
+    }
+
+    /// <summary>
+    /// Balloons for every component in the view (IDrawingDoc.AutoBalloon5 on the selected view, one per part, square
+    /// layout). Verified: new BOM balloons with distinct item numbers.
+    /// </summary>
+    private static DrwAnnotationResult AutoBalloons(SwContext ctx, IModelDoc2 d, IDrawingDoc drw, ViewHit hit)
+    {
+        int before = hit.View.DrwNotes().Count(n => Safe(() => n.IsBomBalloon(), false));
+        var opt = drw.CreateAutoBalloonOptions();
+        opt.Layout = (int)swBalloonLayoutType_e.swDetailingBalloonLayout_Square;
+        opt.IgnoreMultiple = true;
+        opt.InsertMagneticLine = false;
+        opt.Style = (int)swBalloonStyle_e.swBS_Circular;
+        opt.Size = (int)swBalloonFit_e.swBF_2Chars;
+        opt.UpperTextContent = (int)swBalloonTextContent_e.swBalloonTextItemNumber;
+        Activate(drw, hit);
+        d.ClearSelection2(true);
+        SelectView(d, hit.Name);
+        var notes = ComArgs.Objects<INote>((object?)drw.AutoBalloon5(opt));
+        d.ClearSelection2(true);
+        var balloons = hit.View.DrwNotes().Where(n => Safe(() => n.IsBomBalloon(), false)).ToList();
+        int added = balloons.Count - before;
+        if (notes.Count == 0 && added <= 0)
+            throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS added no balloons to '{hit.Name}'.",
+                "Balloons need a view of an assembly (or a part) with a BOM in the drawing (drw_bom_add).");
+        var made = notes.Count > 0 ? notes : balloons.Skip(before).ToList();
+        var texts = made.Select(n => (n.GetBomBalloonText(true) is { Length: > 0 } up ? up : n.GetText()) ?? "").ToList();
+        var checks = new List<string> { $"{made.Count} balloon(s) added, {balloons.Count} BOM balloon(s) in the view" };
+        var dup = texts.GroupBy(x => x).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+        if (dup.Count > 0) ctx.Warn($"Item number(s) {string.Join(", ", dup)} appear on more than one balloon.");
+        else checks.Add("item numbers distinct");
+        return new DrwAnnotationResult
+        {
+            Doc = ctx.Title(d),
+            View = hit.Name,
+            Kind = "balloon",
+            Annotation = string.Join(", ", made.Select(n => n.GetName() ?? "")),
+            Text = string.Join(", ", texts),
+            AttachedTo = made.Sum(n => Safe(() => n.DrwAnnotation()?.GetAttachedEntityCount3() ?? 0, 0)),
+            Count = made.Count,
+            Checks = checks,
         };
     }
 

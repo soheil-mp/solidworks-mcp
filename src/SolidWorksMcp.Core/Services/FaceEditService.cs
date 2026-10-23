@@ -151,21 +151,7 @@ public sealed class FaceEditService(SwSession session)
         var g = Topology.Describe(f);
         var p = Topology.InteriorPoint(f);
         double area = f.GetArea();
-        return new Before(label, g, p, OutwardNormal(f, g, p), area);
-    }
-
-    /// <summary>
-    /// The face's normal at <paramref name="p"/> pointing out of the material: the surface normal there
-    /// (ISurface.EvaluateAtPoint), reversed when IFace2.FaceInSurfaceSense is true, which means the face and the surface
-    /// point in opposite directions despite its name (api help, VERIFIED: a hole's face points to its axis).
-    /// </summary>
-    private static Vec3 OutwardNormal(IFace2 f, FaceGeom g, Vec3 p)
-    {
-        if (g.Surface == "plane" && g.Normal is Vec3 n) return n;
-        var ev = ComArgs.Doubles((object?)f.Surface()?.EvaluateAtPoint(p.X, p.Y, p.Z));
-        if (ev.Length < 3) return Vec3.Zero;
-        var sn = new Vec3(ev[0], ev[1], ev[2]).Normalized();
-        return f.FaceInSurfaceSense() ? -sn : sn;
+        return new Before(label, g, p, Topology.OutwardNormal(f, g, p), area);
     }
 
     // ------------------------------------------------------------------ Tier B

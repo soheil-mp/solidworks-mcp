@@ -588,6 +588,86 @@ public class DrawingLiveTests(LiveFixture fx) : LiveTest(fx)
     }
 
     [Fact]
+    public async Task Balloons_for_a_whole_assembly_view_number_each_part_once()
+    {
+        var (_, a) = await BlockAsync("drw_asm_a");
+        var (_, b) = await BlockAsync("drw_asm_b", hole: true);
+        var asmSvc = new AssemblyService(S);
+        var asm = await Docs.NewAsync("assembly", "mmgs", null, $"drw_asm_{Guid.NewGuid().ToString("N")[..6]}");
+        string asmDoc = asm.Document.Handle;
+        await asmSvc.InsertAsync(new AsmInsertRequest { Doc = asmDoc, Path = a });
+        await asmSvc.InsertAsync(new AsmInsertRequest { Doc = asmDoc, Path = b, OriginMm = [150, 0, 0] });
+        var saved = await Docs.SaveAsync(asmDoc, "as", Path.Combine(_dir, "drw_asm.sldasm"), false);
+        string drw = await DrawingAsync("drw_asm");
+        _drawings.Add(asmDoc); // closed after the drawing, before the parts
+        var views = await Drw.ViewsStandardAsync(saved.SavedTo!, ["front"], null, drw);
+        string front = views.Views[0].Name;
+        await Drw.BomAddAsync(front, null, null, drw);
+        var r = await Annotate(drw, front, "balloon", null);
+        Assert.Equal(2, r.Count);
+        Assert.Equal(["1", "2"], r.Text.Split(", ").Order().ToArray());
+        Assert.Contains(r.Checks!, c => c.Contains("item numbers distinct", StringComparison.Ordinal));
+    }
+
+    // ------------------------------------------------------------------ drw_table_add
+
+    [Fact]
+    public async Task Hole_table_lists_the_hole_from_the_lower_left_corner_and_from_a_given_origin()
+    {
+        var (drw, r) = await ViewsAsync("drw_holes", ["front"], hole: true);
+        string front = r.Views[0].Name;
+        // Default: the front face (toward the viewer) and its lowest-left vertex (-50, -30): the hole is 50 right, 30 up.
+        var t = await Drw.TableAddAsync(new DrwTableRequest { Doc = drw, Kind = "hole", View = front });
+        Assert.Equal(1, t.Rows);
+        var row = Assert.Single(t.Items);
+        int cx = t.Columns.ToList().FindIndex(c => c.Contains("X", StringComparison.OrdinalIgnoreCase));
+        int cy = t.Columns.ToList().FindIndex(c => c.Contains("Y", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(50, double.Parse(row[cx], CultureInfo.InvariantCulture), 0.01);
+        Assert.Equal(30, double.Parse(row[cy], CultureInfo.InvariantCulture), 0.01);
+        Assert.Contains(t.Checks!, c => c.Contains("X/Y from the origin and size read back", StringComparison.Ordinal));
+        Assert.EndsWith(".sldholtbt", t.Template, StringComparison.OrdinalIgnoreCase);
+        // From the top-right corner (50, 30) the hole is at (-50, -30).
+        var t2 = await Drw.TableAddAsync(new DrwTableRequest
+        {
+            Doc = drw, Kind = "hole", View = front, Origin = new EntityRef { Type = "vertex", At = [50, 30, 20] }, AtMm = [30, 120],
+        });
+        var row2 = Assert.Single(t2.Items);
+        Assert.Equal(-50, double.Parse(row2[cx], CultureInfo.InvariantCulture), 0.01);
+        Assert.Equal(-30, double.Parse(row2[cy], CultureInfo.InvariantCulture), 0.01);
+    }
+
+    [Fact]
+    public async Task Revision_table_gets_rows_A_B_and_then_C()
+    {
+        var (drw, _) = await ViewsAsync("drw_revs", ["front"]);
+        var t = await Drw.TableAddAsync(new DrwTableRequest { Doc = drw, Kind = "revision", Revisions = ["First release", "Hole added"] });
+        Assert.Equal(2, t.Rows);
+        Assert.Equal("B", t.CurrentRevision);
+        int desc = t.Columns.ToList().FindIndex(c => c.Contains("DESCRIPTION", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(t.Items, row => row[desc] == "First release");
+        Assert.Contains(t.Items, row => row[desc] == "Hole added");
+        var t2 = await Drw.TableAddAsync(new DrwTableRequest { Doc = drw, Kind = "revision", Revisions = ["Material changed"] });
+        Assert.Equal(3, t2.Rows);
+        Assert.Equal("C", t2.CurrentRevision);
+        Assert.Contains(t2.Checks!, c => c.Contains("added to the sheet's revision table", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Tables_that_cant_work_are_refused()
+    {
+        var (drw, r) = await ViewsAsync("drw_tables_bad", ["front"]);
+        string front = r.Views[0].Name;
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.TableAddAsync(new DrwTableRequest { Doc = drw, Kind = "weld" }));
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.TableAddAsync(new DrwTableRequest { Doc = drw, Kind = "hole" }));
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.TableAddAsync(new DrwTableRequest { Doc = drw, Kind = "revision" }));
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.TableAddAsync(new DrwTableRequest { Doc = drw, Kind = "revision", Revisions = [" "] }));
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.TableAddAsync(new DrwTableRequest { Doc = drw, Kind = "hole", View = front, Template = "x.sldbomtbt" }));
+        // The block without a hole: nothing to list.
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.TableAddAsync(new DrwTableRequest { Doc = drw, Kind = "hole", View = front }));
+        Assert.Equal(0, (await Drw.InfoAsync(drw)).Sheets[0].Views!.Sum(v => v.Annotations!.Tables));
+    }
+
+    [Fact]
     public async Task Annotations_that_cant_work_are_refused()
     {
         var (drw, r) = await ViewsAsync("drw_gdt_bad", ["front"]);

@@ -49,6 +49,26 @@ public class DrawingAnnotationSpecTests
     }
 
     [Fact]
+    public void Table_cells_columns_and_revision_letters()
+    {
+        Assert.Equal(50, DrwAnnotationSpec.Number("50"));
+        Assert.Equal(-12.5, DrwAnnotationSpec.Number(" -12.50 "));
+        Assert.Equal(20, DrwAnnotationSpec.Number("Ø20 THRU"));
+        Assert.Equal(6.6, DrwAnnotationSpec.Number("⌀6,6"));
+        Assert.Null(DrwAnnotationSpec.Number("THRU ALL"));
+        string[] titles = ["TAG", "X  LOC", "Y LOC", "SIZE"];
+        Assert.Equal(1, DrwAnnotationSpec.Column(titles, "X LOC"));
+        Assert.Equal(3, DrwAnnotationSpec.Column(titles, "DIA", "SIZE"));
+        Assert.Equal(-1, DrwAnnotationSpec.Column(titles, "DESCRIPTION"));
+        Assert.Equal("A", DrwAnnotationSpec.RevisionLetter(0));
+        Assert.Equal("H", DrwAnnotationSpec.RevisionLetter(7));
+        Assert.Equal("J", DrwAnnotationSpec.RevisionLetter(8)); // I is skipped
+        Assert.Equal("Z", DrwAnnotationSpec.RevisionLetter(22));
+        Assert.Equal("AA", DrwAnnotationSpec.RevisionLetter(23));
+        Assert.Equal("AB", DrwAnnotationSpec.RevisionLetter(24));
+    }
+
+    [Fact]
     public void Default_spot_lies_outside_the_view_away_from_its_centre_and_clear_of_others()
     {
         var view = new SheetRect(165, 165.7, 265, 225.7); // a 100 x 60 front view

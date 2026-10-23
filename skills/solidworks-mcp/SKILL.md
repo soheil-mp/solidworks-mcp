@@ -124,8 +124,9 @@ with `sheetmetal_edge_flange`, check the blank with `sheetmetal_flatten {flat:tr
 3. `drw_views_standard {model:"bracket.sldprt"}` (front, top, right, iso), then `drw_dimensions_auto`.
 4. GD&T and symbols on model edges: `drw_annotation_add {kind:"datum", view, at:{type:"edge", at:[x,y,z]}, label:"A"}`,
    `{kind:"gtol", characteristic:"position", tolerance:"0.1", diameter:true, material:"mmc", datums:["A"], at:…}`,
-   `{kind:"surface_finish", roughness:"1.6", at:…}` or a `balloon` (after `drw_bom_add`). Each is placed beside its edge
-   unless you pass `atMm`.
+   `{kind:"surface_finish", roughness:"1.6", at:…}` or a `balloon` (after `drw_bom_add`; without `at`, one per part of the
+   view). Each is placed beside its edge unless you pass `atMm`. Tables: `drw_table_add {kind:"hole", view}` (X/Y of every
+   hole from the face's lower-left corner, or from `origin`) and `{kind:"revision", revisions:["First release"]}`.
 5. Add `drw_view_section`, `drw_view_detail`, `drw_note_add`, and `drw_bom_add` for assemblies. `drw_info` lists the
    views with their positions.
 6. `model_export {path:"bracket.pdf"}` (or .dwg/.dxf).

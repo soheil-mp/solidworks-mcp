@@ -107,6 +107,31 @@ internal static class DrwAnnotationSpec
         _ => throw SwException.InvalidArgument($"Unknown finish '{s}'.", "Use basic (default), machining_required or no_machining."),
     };
 
+    /// <summary>The first number in a table cell ("50", "-12.50", "Ø20 THRU" → 20), or null.</summary>
+    public static double? Number(string? cell)
+    {
+        var m = Regex.Match(cell ?? "", @"[-+]?\d+(?:[.,]\d+)?");
+        return m.Success && double.TryParse(m.Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double v) ? v : null;
+    }
+
+    /// <summary>The index of the first column whose title contains one of <paramref name="names"/> (case-insensitive), or −1.</summary>
+    public static int Column(IReadOnlyList<string> titles, params string[] names)
+    {
+        for (int i = 0; i < titles.Count; i++)
+        {
+            string t = Regex.Replace(titles[i] ?? "", @"\s+", " ").Trim();
+            if (names.Any(n => t.Contains(n, StringComparison.OrdinalIgnoreCase))) return i;
+        }
+        return -1;
+    }
+
+    /// <summary>Revision letters A, B, … Z, AA, AB … (I, O, Q skipped as in ASME Y14.35), the <paramref name="index"/>-th from 0.</summary>
+    public static string RevisionLetter(int index)
+    {
+        const string letters = "ABCDEFGHJKLMNPRSTUVWXYZ";
+        return index < letters.Length ? letters[index].ToString() : RevisionLetter(index / letters.Length - 1) + letters[index % letters.Length];
+    }
+
     /// <summary>The frame as text, e.g. "position Ø0.05 (MMC) | A | B".</summary>
     public static string FrameText(Characteristic c, string tol, bool diameter, string material, IReadOnlyList<string> datums) =>
         $"{c.Name} {(diameter ? "Ø" : "")}{tol}{material switch { "<MOD-MMC>" => " (MMC)", "<MOD-LMC>" => " (LMC)", _ => "" }}" +
