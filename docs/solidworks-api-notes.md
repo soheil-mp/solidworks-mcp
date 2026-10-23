@@ -332,6 +332,7 @@ Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` gen
 - **Never write unrelated preferences.** The old server's STL export overwrote preference 75.
 
 ## 11. Materials, properties, equations, configurations, appearance
+- **Custom properties.** `ICustomPropertyManager.Add3(name, type, value, 2 /*replace*/)`: type `swCustomInfoNumber` (3) takes **whole numbers only** ("12.5" gives result 1); `swCustomInfoDouble` (5) takes "12.5" (a dot, whatever the Windows decimal separator; a comma fails), stores "12.500000" and reads back as type 3. VERIFIED.
 - **Material.** `IPartDoc.SetMaterialPropertyName2("", "SOLIDWORKS Materials", name)` **silently ignores unknown names**;
   check with `GetMaterialPropertyName2("", out db)`.
   - The material databases are UTF-16 XML (`lang\english\sldmaterials\*.sldmat`), with `<classification name>` and

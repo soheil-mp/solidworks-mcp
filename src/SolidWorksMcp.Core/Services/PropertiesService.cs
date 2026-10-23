@@ -483,7 +483,9 @@ public sealed class PropertiesService(SwSession session)
                 if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double x) || !double.IsFinite(x))
                     throw SwException.InvalidArgument($"type 'number' needs a numeric value (got '{v}').",
                         "Use a dot for decimals (12.5); links like \"D1@Boss-Extrude1\" need type 'text'.");
-                return ((int)swCustomInfoType_e.swCustomInfoNumber, s);
+                // VERIFIED live: Add3 with swCustomInfoNumber (3) only takes whole numbers ("12.5" fails, result 1);
+                // swCustomInfoDouble (5) takes both, with a dot whatever the Windows separator, and reads back as type 3.
+                return ((int)swCustomInfoType_e.swCustomInfoDouble, s);
             }
             case "yesno" or "yes_no" or "boolean" or "bool":
                 return ((int)swCustomInfoType_e.swCustomInfoYesOrNo, v.Trim().ToLowerInvariant() switch
@@ -512,7 +514,9 @@ public sealed class PropertiesService(SwSession session)
     };
 
     private static bool SameType(int code, string readBack) =>
-        readBack == TypeName(code) || (code == (int)swCustomInfoType_e.swCustomInfoNumber && readBack == "double");
+        readBack == TypeName(code) || (IsNumber(code) && readBack is "number" or "double");
+
+    private static bool IsNumber(int code) => code is (int)swCustomInfoType_e.swCustomInfoNumber or (int)swCustomInfoType_e.swCustomInfoDouble;
 
     /// <summary>
     /// The stored raw value matches the request: numbers compared numerically, Yes/No without case, and a link
@@ -521,7 +525,7 @@ public sealed class PropertiesService(SwSession session)
     internal static bool SameValue(int code, string stored, string requested)
     {
         string a = stored.Trim(), b = requested.Trim();
-        if (code == (int)swCustomInfoType_e.swCustomInfoNumber)
+        if (IsNumber(code))
         {
             bool pa = double.TryParse(a, NumberStyles.Float, CultureInfo.InvariantCulture, out double x) ||
                       double.TryParse(a, NumberStyles.Float, CultureInfo.CurrentCulture, out x);
