@@ -1,6 +1,6 @@
 ---
 name: solidworks-mcp
-description: Model, inspect, edit and export SOLIDWORKS parts through the solidworks-mcp server (tools named sw_*, doc_*, sketch_*, feature_*, face_list, edge_list, model_*, view_screenshot, ref_*, material_*, …). Use it whenever the user wants something built, measured, changed, exported or checked in SOLIDWORKS — "make a bracket", "add M5 clearance holes", "fillet the outer edges", "export a STEP", "how heavy is this part". Read it before the first call: it explains units, coordinates, how to reference geometry, document ownership and how to recover from errors.
+description: Model, inspect, edit, assemble, detail, export and simulate in SOLIDWORKS through the solidworks-mcp server (tools named sw_*, doc_*, sketch_*, feature_*, body_*, surface_*, sheetmetal_*, asm_*, drw_*, sim_*, face_list, edge_list, model_*, view_screenshot, ref_*, material_*, …). Use it whenever the user wants something built, measured, changed, exported or checked in SOLIDWORKS — "make a bracket", "add M5 clearance holes", "fillet the outer edges", "model a spring", "make a sheet-metal bracket", "assemble these parts", "make a drawing with dimensions", "export a STEP", "how heavy is this part", "will it hold 100 N". Read it before the first call: it explains units, coordinates, how to reference geometry, document ownership and how to recover from errors.
 ---
 
 # Driving SOLIDWORKS with solidworks-mcp
@@ -83,7 +83,41 @@ view_screenshot
 
 **Exporting.** Save native files with `doc_save {mode:"as", path:"bracket.sldprt"}`. Relative paths go under
 Documents\solidworks-mcp. Export with `model_export {path:"bracket.step"}` (STEP AP214 by default; also IGES, STL, 3MF,
-Parasolid and more). Existing files need `overwrite:true`.
+Parasolid and more). Existing files need `overwrite:true`. `doc_open` imports STEP/IGES/Parasolid/STL as a new part.
+
+**Springs and swept shapes.**
+1. Sketch a circle (the coil radius), then `feature_helix {definedBy:"pitch_revolutions", pitchMm:5, revolutions:4}`.
+2. The result gives `startMm` and `profilePlaneNormal`: the profile must sit there, so either sketch the profile circle
+   on a plane through `startMm`, or use `feature_sweep {path:{name:"Helix/Spiral1"}, circularProfileDiameterMm:2}`.
+3. Straight or curved tubes: `feature_sweep {profile:{name:"Sketch2"}, path:{name:"Sketch3"}}`.
+4. Transitions between sections: `feature_loft {profiles:[{name:"Sketch1"},{name:"Sketch2"}]}`, with each profile on
+   its own plane (`ref_plane {kind:"offset", base:{name:"top"}, offsetMm:30}`).
+
+**Sheet metal.** Sketch a closed outline, then `sheetmetal_base_flange {thicknessMm:2, bendRadiusMm:1}`. Add bends
+with `sheetmetal_edge_flange`, check the blank with `sheetmetal_flatten {flat:true}`, save the part, then
+`sheetmetal_export_flat {path:"bracket_flat.dxf"}` for the laser cutter.
+
+**Assemblies.**
+1. Save each part first (`doc_save {mode:"as", path:"cube.sldprt"}`): components must be files.
+2. `doc_new {type:"assembly"}`, then `asm_insert {path:"cube.sldprt", originMm:[0,0,0]}`. The first component is fixed;
+   insert the others with `fixed:false`.
+3. Mate with `asm_mate_add {type:"coincident"|"concentric"|"distance"|…, a:{component:"cube-2", name:"top"},
+   b:{component:"cube-1", name:"top"}}`. Faces of a component: `{component:"cube-2", at:[x,y,z]}`, with the point in
+   that part's own coordinates.
+4. Check with `asm_interference` and `asm_component_list` (origins and rotations), then `view_screenshot`.
+
+**Drawings.**
+1. Save the part or assembly.
+2. `doc_new {type:"drawing"}` (A3 landscape, ISO, first angle; change it with `drw_sheet_setup`).
+3. `drw_views_standard {model:"bracket.sldprt"}` (front, top, right, iso), then `drw_dimensions_auto`.
+4. Add `drw_view_section`, `drw_view_detail`, `drw_note_add`, and `drw_bom_add` for assemblies. `drw_info` lists the
+   views with their positions.
+5. `model_export {path:"bracket.pdf"}` (or .dwg/.dxf).
+
+**Stress check.** `sim_static {material:"AISI 1020", fixedFaces:[{at:[0,5,5]}],
+loads:[{kind:"pressure", faces:[{at:[50,10,5]}], valueMpa:0.1}]}` meshes, solves and returns the maximum von Mises
+stress (MPa), displacement (mm) and factor of safety. It can take minutes; the study is deleted afterwards unless
+`keepStudy:true`. Explain to the user that this is a linear static estimate.
 
 ## More help
 - `sw_help` explains the conventions and gives step-by-step recipes for common parts.
