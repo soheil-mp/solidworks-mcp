@@ -743,8 +743,10 @@ public sealed class DrawingService(SwSession session)
                     var b = map.ApplyPoint(new Vec3(Units.M(p1.X), Units.M(p1.Y), 0));
                     return sm.CreateLine(a.X, a.Y, 0, b.X, b.Y, 0);
                 }, (Units.M((p0.X + p1.X) / 2), Units.M((p0.Y + p1.Y) / 2)), checks);
+                // AddToDB back off before the line is selected and the view is made (as in the verified VBA recipe).
+                sm.AddToDB = addToDb;
                 d.ClearSelection2(true);
-                if (!seg.Select4(false, d.Sel().CreateSelectData()))
+                if (!seg.Select4(false, null))
                     throw new SwException(ErrorCodes.FeatureFailed, "Could not select the cut line.");
                 sv = drw.CreateSectionViewAt5(Units.M(x), Units.M(y), 0, lb, 0, ComArgs.Empty, 0);
             }
@@ -783,9 +785,23 @@ public sealed class DrawingService(SwSession session)
                     if (Math.Abs(Math.Abs(st.Dot(n)) - 1) < DirTol) checks.Add($"looks along the cutting-plane normal [{Dir(st)}]");
                     else ctx.Warn($"'{info.Name}' looks along [{Dir(st)}], not along the cutting-plane normal ±[{Dir(n)}]; check the cut position.");
                 }
-                int hatches = SafeCount(() => sv.GetFaceHatchCount());
+                // The section's hatches, counted on the view found by traversal (methods on returned view objects can fail),
+                // as face or solid hatches, and once more after a rebuild when none show yet.
+                string svName = sv.GetName2() ?? "";
+                int Hatches()
+                {
+                    var counted = AllViews(drw).FirstOrDefault(h => string.Equals(h.Name, svName, StringComparison.Ordinal))?.View ?? sv;
+                    return Math.Max(SafeCount(() => counted.GetFaceHatchCount()), SafeCount(() => counted.GetSolidHatchCount(out _)));
+                }
+                int hatches = Hatches();
+                if (hatches <= 0)
+                {
+                    d.EditRebuild3();
+                    hatches = Hatches();
+                }
+                // Informational: GetFaceHatchCount / GetSolidHatchCount read 0 for a hatched section of a solid block live, so a
+                // zero proves nothing; the view's direction (above) and extents (modelBoxMm) are the checks.
                 if (hatches > 0) checks.Add($"{hatches} hatched cut face(s)");
-                else if (hatches == 0) ctx.Warn($"'{info.Name}' shows no hatched faces: the line may miss the solid (check the view).");
                 OverlapCheck(ctx, sheet, [sv], checks);
                 return new DrwViewResult { Doc = ctx.Title(d), View = info with { Parent = hit.Name }, Label = lb, Checks = checks };
             }
@@ -862,8 +878,9 @@ public sealed class DrawingService(SwSession session)
                     var rim = map.ApplyPoint(new Vec3(Units.M(c.X + radiusMm), Units.M(c.Y), 0));
                     return sm.CreateCircleByRadius(cc.X, cc.Y, 0, cc.DistanceTo(rim));
                 }, (Units.M(c.X + radiusMm), Units.M(c.Y)), checks);
+                sm.AddToDB = addToDb; // as for the section view
                 d.ClearSelection2(true);
-                if (!seg.Select4(false, d.Sel().CreateSelectData()))
+                if (!seg.Select4(false, null))
                     throw new SwException(ErrorCodes.FeatureFailed, "Could not select the detail circle.");
                 // Style standard, show type 0 (the drawn profile), full outline: the arguments of the earlier VBA test.
                 dv = drw.DrwDetailView(Units.M(x), Units.M(y), (int)swDetViewStyle_e.swDetViewSTANDARD, num, den, lb,
@@ -1739,33 +1756,24 @@ public sealed class DrawingService(SwSession session)
     private static ISketchSegment DrawInView(SwContext ctx, IModelDoc2 d, ViewHit hit, string what, Func<Xform, ISketchSegment?> draw,
         (double X, double Y) probe, List<string> checks)
     {
-        var maps = new List<(string Label, Xform Map)> { ("sheet", Xform.Identity) };
-        try
-        {
-            var t = hit.View.DrwSketch() is ISketch sk ? ComArgs.Doubles((object?)sk.ModelToSketchTransform?.ArrayData) : [];
-            if (t.Length >= 13 && !new Xform(t).IsIdentity(1e-9)) maps.Add(("view sketch", new Xform(t)));
-        }
-        catch (COMException) { /* sheet coordinates only */ }
-        ISketchSegment? firstMade = null;
-        foreach (var (label, map) in maps)
-        {
-            var seg = draw(map);
-            if (seg is null) continue;
-            if (Probe(d, seg, probe))
-            {
-                checks.Add($"{what} found at its sheet position{(label == "sheet" ? "" : " (drawn through the view's sketch transform)")}");
-                if (firstMade is not null) DeleteSegment(d, firstMade);
-                return seg;
-            }
-            if (maps.Count == 1) { firstMade = seg; break; }
-            if (firstMade is null) firstMade = seg;
-            else DeleteSegment(d, seg);
-        }
-        if (firstMade is null)
-            throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS did not draw the {what} in '{hit.Name}'.",
-                "Check that the view can be activated (drw_info) and is not locked.");
-        ctx.Warn($"The {what} could not be confirmed at its sheet position by a selection; check the result.");
-        return firstMade;
+        // With the view active and AddToDB on, sketch entities take sheet coordinates (m). A selection pick at the sheet
+        // point to confirm the segment (SelectByID2) deactivated the view live, so the next entities and the section or
+        // detail command lost it: the segment's owner sketch is compared with the view's instead.
+        var seg = draw(Xform.Identity)
+                  ?? throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS did not draw the {what} in '{hit.Name}'.",
+                      "Check that the view can be activated (drw_info) and is not locked.");
+        string? owner = SketchName(seg.GetSketch()), mine = SketchName(hit.View.DrwSketch());
+        if (owner is not null && mine is not null && !string.Equals(owner, mine, StringComparison.Ordinal))
+            ctx.Warn($"The {what} went into sketch '{owner}', not the sketch of '{hit.Name}' ('{mine}').");
+        else
+            checks.Add($"{what} drawn in '{hit.Name}'");
+        return seg;
+    }
+
+    private static string? SketchName(ISketch? sk)
+    {
+        try { return ((object?)sk as IFeature)?.Name; }
+        catch (COMException) { return null; }
     }
 
     /// <summary>True when a selection at the sheet point picks this sketch segment.</summary>

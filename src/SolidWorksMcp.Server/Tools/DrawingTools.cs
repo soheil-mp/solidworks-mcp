@@ -68,7 +68,7 @@ public sealed class DrawingTools(SwSession session)
 
     [McpServerTool(Name = "drw_view_section", Title = "Section view", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Section view (A-A) along a straight cut line across the parent view, in sheet mm; the line must cross the whole part " +
-                 "(see modelBoxMm in drw_info). Verified: a section view looking along the cutting-plane normal, with hatched cut faces; " +
+                 "(see modelBoxMm in drw_info). Verified: a section view looking along the cutting-plane normal, showing the cut extents; " +
                  "otherwise removed.")]
     public Task<string> DrwViewSection(
         IProgress<ProgressNotificationValue> progress,
