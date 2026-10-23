@@ -102,7 +102,9 @@ Parasolid and more). Existing files need `overwrite:true`. `doc_open` imports ST
 
 **Sheet metal.** Sketch a closed outline, then `sheetmetal_base_flange {thicknessMm:2, bendRadiusMm:1}`. Add bends
 with `sheetmetal_edge_flange`, fold edges back with `sheetmetal_hem {edges:[…], lengthMm:8}` (closed by default; open needs
-`gapMm`, teardrop and rolled `radiusMm`), check the blank with `sheetmetal_flatten {flat:true}`, save the part, then
+`gapMm`, teardrop and rolled `radiusMm`), bend the plate along a line with `sheetmetal_bend {fromMm:[x,y,z], toMm:[x,y,z],
+angleDeg:90}` (the larger side stays unless you give `fixedAtMm`), check the blank with `sheetmetal_flatten {flat:true}`,
+save the part, then
 `sheetmetal_export_flat {path:"bracket_flat.dxf"}` for the laser cutter.
 
 **Weldment frames.** Sketch the frame's centre lines (a 2D sketch, or `sketch_start {threeD:true}` with [x,y,z] points),

@@ -291,6 +291,13 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   sketch, `HemBend1` and its flatten feature; **the faces belong to `HemBend1`**, not to the Hem. On the 2 mm test sheet a
   closed 10 mm and an open 8 mm (gap 1.5) hem, a rolled hem (r 2, 180°) and a teardrop with r 1 mm at 200° outside worked;
   **teardrops at 270°** (r 1 or 2, inside or outside) **returned nothing**.
+- **Sketched bend** (VERIFIED). A sketch with one line on the sheet's face, then the sketch selected (`Select2`) and the
+  fixed side of the face picked (`SelectByRay` onto the face, append), then `FeatureManager.InsertSheetMetal3dBend(angle,
+  useDefaultRadius, radius, flip, bendPos /*0 centerline, 1 material inside, 2 material outside, 3 bend outside*/, null)`:
+  a `SM3dBend` feature ("Sketched Bend1"). Bending the 15 mm side of the 50 x 30 x 2 plate up by 90° kept the volume, and
+  nothing reached past the line any more.
+- **Jog: UNRESOLVED.** `IModelDoc2.InsertSheetMetalJog(angle, radius, offset, flip, fixProjLen, 1, 1)` with the same
+  selections made nothing.
 
 - **Base flange side** (VERIFIED). For a closed profile `InsertSheetMetalBaseFlange2`'s `ThickenDir` changes nothing (both values
   thicken toward −normal), and neither does `IBaseFlangeFeatureData.ReverseThickness`; `ReverseDirection` (through

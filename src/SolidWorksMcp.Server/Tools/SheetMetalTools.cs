@@ -80,6 +80,28 @@ public sealed class SheetMetalTools(SwSession session)
             Position = position, Reverse = reverse, KeepOnFailure = keepOnFailure,
         }, cancellationToken), progress, "sheetmetal_hem");
 
+    [McpServerTool(Name = "sheetmetal_bend", Title = "Sheet-metal sketched bend", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Sketched bend: bends the sheet along a line across its face (model mm; the tool sketches it), the fixedAt side " +
+                 "staying put (default: the larger side). Verified: the volume kept and the bent side reaching about length x " +
+                 "sin(angle) off the face; else rolled back.")]
+    public Task<string> SheetMetalBend(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("Bend line start on the sheet's face, [x,y,z] mm.")] double[] fromMm,
+        [Description("Bend line end, [x,y,z] mm.")] double[] toMm,
+        [Description("A point on the face on the side that stays put; default: the larger side.")] double[]? fixedAtMm = null,
+        [Description("Bend angle in degrees (0 to 180).")] double angleDeg = 90,
+        [Description("Bend radius in mm (default: the sheet's).")] double? radiusMm = null,
+        [Description("centerline | material_inside (default) | material_outside | bend_outside")] string? position = null,
+        [Description("Bend to the other side of the sheet.")] bool flip = false,
+        [Description(KeepDesc)] bool keepOnFailure = false,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_svc.BendAsync(new SketchedBendRequest
+        {
+            Doc = doc, FromMm = fromMm, ToMm = toMm, FixedAtMm = fixedAtMm, AngleDeg = angleDeg, RadiusMm = radiusMm, Position = position,
+            Flip = flip, KeepOnFailure = keepOnFailure,
+        }, cancellationToken), progress, "sheetmetal_bend");
+
     [McpServerTool(Name = "sheetmetal_flatten", Title = "Flatten / fold sheet metal", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Flatten (flat:true) or fold back (flat:false) a sheet-metal part through its Flat-Pattern feature. Verified: the " +
                  "state read back; when flat, reports the blank's size (two largest box extents, mm) and thickness.")]

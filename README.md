@@ -1,7 +1,7 @@
 # solidworks-mcp
 
 An MCP server that lets AI agents (Claude Code, Claude Desktop and other MCP clients) drive a running SOLIDWORKS.
-With its 125 tools, agents can sketch and model parts (extrudes, revolves, sweeps, lofts, holes, patterns, shells,
+With its 126 tools, agents can sketch and model parts (extrudes, revolves, sweeps, lofts, holes, patterns, shells,
 surfaces, sheet metal, weldment frames), edit imported bodies directly (delete, offset and move faces), build assemblies with mates (also limit, symmetric, width, hinge, gear and rack mates) and component patterns, make drawings with views, dimensions, GD&T, balloons and tables, import and export
 (STEP, IGES, STL, Parasolid, PDF, DXF …), run static stress studies, and inspect, measure and screenshot the result. It
 is written in C# against SolidWorks' official COM API.
@@ -92,7 +92,7 @@ one each time. If the exe itself is blocked, you can also register the DLL throu
 `claude mcp add --scope user solidworks -- dotnet "<folder>\solidworks-mcp.dll"`. Signed releases will avoid this.
 
 ## Tools
-125 tools in 15 toolsets. The full, current list with parameters is in [`docs/tools.md`](docs/tools.md), generated from
+126 tools in 15 toolsets. The full, current list with parameters is in [`docs/tools.md`](docs/tools.md), generated from
 the server.
 
 | Toolset | Tools |
@@ -104,7 +104,7 @@ the server.
 | features (22) | extrude, revolve, sweep, loft, fillet, chamfer, shell, Hole Wizard holes, draft, rib, helix, cosmetic thread, linear/circular patterns, mirror; feature info, delete, suppress, rename, rollback; dimension list/set |
 | reference (4) | `ref_plane`, `ref_axis`, `ref_point`, `ref_coordsys` |
 | bodies (11) | move/copy, delete, combine, split; direct face edits (`face_edit`: delete and heal, offset, move); surfaces: extrude, revolve, planar, offset, knit, thicken |
-| sheetmetal (5) | base flange, edge flange, hem (closed, open, teardrop, rolled), flatten, flat-pattern DXF/DWG |
+| sheetmetal (6) | base flange, edge flange, hem (closed, open, teardrop, rolled), sketched bend, flatten, flat-pattern DXF/DWG |
 | weldments (1) | `weldment_member`: structural members (tube, pipe, channel, angle, beam profiles) along 2D or 3D sketch lines, mitered or butt corners |
 | assembly (10) | insert, mates (standard, limit, symmetric, width, hinge, gear, rack and pinion), mate list, component list/set/move, interference, replace, linear/circular patterns and mirror of components, exploded views |
 | drawing (13) | sheet setup, standard/projected/section/detail views, model dimensions, dimensions, notes, BOM, center marks, datums, surface finish, tolerance frames, balloons, hole and revision tables, info |
@@ -115,7 +115,7 @@ the server.
 
 ### Live test status
 Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check the result against an exact answer
-(volumes, positions, angles, file headers, restored system options). All 344 pass:
+(volumes, positions, angles, file headers, restored system options). All 346 pass:
 
 | Area | Live tests |
 |---|---|
@@ -127,7 +127,7 @@ Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check th
 | Materials, properties, equations, configurations, appearance | 14 |
 | Export and import | 20 |
 | Sweep, loft, helix, draft, rib, cosmetic thread | 25 |
-| Bodies, surfaces, sheet metal (including hems) | 44 |
+| Bodies, surfaces, sheet metal (including hems and sketched bends) | 46 |
 | Direct face editing (also on an imported STEP) | 6 |
 | Weldments | 4 |
 | Assembly (including component patterns, mirror, mechanical mates and exploded views) | 24 |

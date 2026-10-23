@@ -687,6 +687,40 @@ public class BodySheetMetalLiveTests(LiveFixture fx) : LiveTest(fx)
     }
 
     [Fact]
+    public async Task Sketched_bend_across_the_plate_lifts_the_moving_side()
+    {
+        // The line x = 10 across the 50 x 30 plate's top face: the larger side (x < 10, 35 mm) stays, the 15 mm side bends up.
+        string doc = await SheetAsync("bend90");
+        var r = await Sm.BendAsync(new SketchedBendRequest { Doc = doc, FromMm = [10, 0, -15], ToMm = [10, 0, 15] });
+        Assert.Equal(3000, r.Model.VolumeMm3, 3000 * 0.05);
+        Assert.InRange(r.Model.Box!.Max[0], 10, 14); // nothing reaches past the bend any more
+        Assert.Contains(r.Verified.Checks!, c => c.StartsWith("the bent side reaches", StringComparison.Ordinal));
+        Assert.Equal(1, r.Model.Bodies);
+
+        // 45° with the other side fixed.
+        string doc2 = await SheetAsync("bend45");
+        var r2 = await Sm.BendAsync(new SketchedBendRequest { Doc = doc2, FromMm = [0, 0, -15], ToMm = [0, 0, 15], FixedAtMm = [15, 0, 0], AngleDeg = 45 });
+        Assert.InRange(r2.Model.Box!.Min[0], -25, -15); // the x < 0 side folded in towards the line
+        Assert.Contains(r2.Verified.Checks!, c => c.StartsWith("volume kept", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Sketched_bends_off_the_sheet_or_at_its_edge_are_refused()
+    {
+        string doc = await SheetAsync("bend_bad");
+        int features = await FeatureCountAsync(doc);
+        Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() =>
+            Sm.BendAsync(new SketchedBendRequest { Doc = doc, FromMm = [0, 0, -15], ToMm = [0, 0, -15] }))).Code);
+        Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() =>
+            Sm.BendAsync(new SketchedBendRequest { Doc = doc, FromMm = [0, 0, -15], ToMm = [0, 0, 15], AngleDeg = 180 }))).Code);
+        Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() =>
+            Sm.BendAsync(new SketchedBendRequest { Doc = doc, FromMm = [0, 0, -15], ToMm = [0, 0, 15], FixedAtMm = [0, 0, 5] }))).Code); // on the line
+        Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() =>
+            Sm.BendAsync(new SketchedBendRequest { Doc = doc, FromMm = [0, 0, -15], ToMm = [0, 0, 15], Position = "sideways" }))).Code);
+        Assert.Equal(features, await FeatureCountAsync(doc));
+    }
+
+    [Fact]
     public async Task Hems_without_their_sizes_on_bad_edges_or_plain_parts_are_refused()
     {
         string doc = await SheetAsync("hem_bad");
