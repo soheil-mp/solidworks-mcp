@@ -9,8 +9,9 @@ The recipes were proven in SolidWorks' own BASIC macro engine (late bound). The 
 the interop types give the signatures. Argument lists are given in the API's parameter order. All API lengths are in
 **meters** and all angles in **radians**.
 
-Signatures can be looked up in a local typelib dump (`tools/dump_typelib.py` generates `sldworks_api.txt`). The format is
-`Interface.Member | kind | dispid | nparams | (Name:TYPE, ...) -> RET`.
+Signatures can be looked up in a local typelib dump: `python tools/dump_typelib.py` (needs pywin32) reads the installed
+type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.txt` and `simulation_api.txt` to
+`artifacts/typelib/`, which git ignores. The format is `Interface.Member | kind | dispid | nparams | (Name:TYPE, ...) -> RET`.
 
 ---
 
