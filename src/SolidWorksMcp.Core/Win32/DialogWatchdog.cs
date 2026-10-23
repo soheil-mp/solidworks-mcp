@@ -48,7 +48,7 @@ public sealed class DialogWatchdog : IDisposable
             {
                 // Provenance: a dialog that was already open when the operation started belongs to the user.
                 var rule = ctx.IsPreExisting(dialog.Handle) ? null : ctx.Rules.FirstOrDefault(r => r.Matches(dialog));
-                if (rule is null)
+                if (rule is null || rule.Button.Length == 0) // an empty Button only tolerates the dialog: never pressed
                 {
                     ctx.RecordSeen(dialog);
                     continue;
