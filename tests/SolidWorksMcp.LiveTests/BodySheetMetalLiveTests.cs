@@ -663,6 +663,49 @@ public class BodySheetMetalLiveTests(LiveFixture fx) : LiveTest(fx)
     }
 
     [Fact]
+    public async Task Hems_fold_the_30mm_edge_back_closed_open_teardrop_and_rolled()
+    {
+        var edge = new EntityRef { Type = "edge", At = [25, 0, 0] };
+        string doc = await SheetAsync("hem_closed");
+        var c = await Sm.HemAsync(new HemRequest { Doc = doc, Edges = [edge], LengthMm = 10 });
+        Assert.InRange(c.Verified.VolumeDeltaMm3, 30 * 2 * 10 * 0.5, 30 * 2 * (10 + Math.PI + 4)); // edge x t x (length + bend)
+        Assert.Contains(c.Verified.Checks!, x => x.Contains("hem type closed read back", StringComparison.Ordinal));
+        Assert.Equal(1, c.Model.Bodies);
+
+        string doc2 = await SheetAsync("hem_open");
+        var o = await Sm.HemAsync(new HemRequest { Doc = doc2, Edges = [edge], Type = "open", LengthMm = 8, GapMm = 1.5 });
+        Assert.Contains(o.Verified.Checks!, x => x.Contains("hem type open read back", StringComparison.Ordinal));
+        Assert.True(o.Verified.VolumeDeltaMm3 > 0);
+
+        string doc3 = await SheetAsync("hem_tear");
+        var t = await Sm.HemAsync(new HemRequest { Doc = doc3, Edges = [edge], Type = "teardrop", RadiusMm = 1, Position = "outside" });
+        Assert.Contains(t.Verified.Checks!, x => x.Contains("hem type teardrop read back", StringComparison.Ordinal));
+
+        string doc4 = await SheetAsync("hem_rolled");
+        var r = await Sm.HemAsync(new HemRequest { Doc = doc4, Edges = [edge], Type = "rolled", RadiusMm = 2 });
+        Assert.Contains(r.Verified.Checks!, x => x.Contains("hem type rolled read back", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Hems_without_their_sizes_on_bad_edges_or_plain_parts_are_refused()
+    {
+        string doc = await SheetAsync("hem_bad");
+        var edge = new EntityRef { Type = "edge", At = [25, 0, 0] };
+        int features = await FeatureCountAsync(doc);
+        Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() => Sm.HemAsync(new HemRequest { Doc = doc, Edges = [edge] }))).Code);
+        Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() => Sm.HemAsync(new HemRequest { Doc = doc, Edges = [edge], Type = "open", LengthMm = 5 }))).Code);
+        Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() => Sm.HemAsync(new HemRequest { Doc = doc, Edges = [edge], Type = "wavy", LengthMm = 5 }))).Code);
+        Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() => Sm.HemAsync(new HemRequest { Doc = doc, Edges = [edge], LengthMm = 5, RadiusMm = 1 }))).Code);
+        // The edge across the thickness (along y at a corner) is not a sheet-face edge.
+        Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() =>
+            Sm.HemAsync(new HemRequest { Doc = doc, Edges = [new EntityRef { Type = "edge", At = [25, -1, 15] }], LengthMm = 5 }))).Code);
+        Assert.Equal(features, await FeatureCountAsync(doc));
+        string plain = await BlockAsync("hem_plain");
+        Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() =>
+            Sm.HemAsync(new HemRequest { Doc = plain, Edges = [new EntityRef { Type = "edge", At = [0, 20, 30] }], LengthMm = 5 }))).Code);
+    }
+
+    [Fact]
     public async Task Edge_flange_rejects_a_thickness_edge_a_plain_part_and_a_zero_length()
     {
         string doc = await SheetAsync("edge_flange_bad");

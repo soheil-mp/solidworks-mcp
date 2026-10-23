@@ -57,6 +57,29 @@ public sealed class SheetMetalTools(SwSession session)
             KeepOnFailure = keepOnFailure,
         }, cancellationToken), progress, "sheetmetal_edge_flange");
 
+    [McpServerTool(Name = "sheetmetal_hem", Title = "Sheet-metal hem", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Sheet-metal hem: folds the sheet back on itself along straight edges of its face, closed (flat on the sheet), open " +
+                 "(with a gap), teardrop or rolled. Verified: the hem type read back and the added volume about edge x thickness x " +
+                 "(length + bend); else rolled back.")]
+    public Task<string> SheetMetalHem(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("Straight edges of the sheet's face, e.g. [{type:'edge',at:[25,0,0]}].")] EntityRef[] edges,
+        [Description("closed (default) | open | teardrop | rolled")] string? type = null,
+        [Description("closed/open: hem length in mm.")] double? lengthMm = null,
+        [Description("open: gap to the sheet in mm.")] double? gapMm = null,
+        [Description("teardrop/rolled: bend radius in mm.")] double? radiusMm = null,
+        [Description("teardrop/rolled: angle in degrees (default 200 / 180).")] double? angleDeg = null,
+        [Description("inside (default) | outside: the hem's material inside or outside the sheet's edge.")] string? position = null,
+        [Description("Fold to the other side of the sheet.")] bool reverse = false,
+        [Description(KeepDesc)] bool keepOnFailure = false,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_svc.HemAsync(new HemRequest
+        {
+            Doc = doc, Edges = edges, Type = type, LengthMm = lengthMm, GapMm = gapMm, RadiusMm = radiusMm, AngleDeg = angleDeg,
+            Position = position, Reverse = reverse, KeepOnFailure = keepOnFailure,
+        }, cancellationToken), progress, "sheetmetal_hem");
+
     [McpServerTool(Name = "sheetmetal_flatten", Title = "Flatten / fold sheet metal", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Flatten (flat:true) or fold back (flat:false) a sheet-metal part through its Flat-Pattern feature. Verified: the " +
                  "state read back; when flat, reports the blank's size (two largest box extents, mm) and thickness.")]

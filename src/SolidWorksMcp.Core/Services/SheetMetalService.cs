@@ -128,7 +128,7 @@ public sealed record EdgeFlangeRequest
 /// edge flange is unresolved: it tries profile sketches from IModelDoc2.InsertSketchForEdgeFlange first, then other
 /// variants, and is verified by volume.
 /// </summary>
-public sealed class SheetMetalService(SwSession session)
+public sealed partial class SheetMetalService(SwSession session)
 {
     private static readonly FeatureSpec BaseFlangeSpec = new("sheetmetal_base_flange", ["SMBaseFlange"], VolumeRule.Increase);
     private static readonly FeatureSpec EdgeFlangeSpec = new("sheetmetal_edge_flange", ["EdgeFlange", "SMEdgeFlange"], VolumeRule.Increase);

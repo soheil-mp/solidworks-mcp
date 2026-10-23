@@ -285,6 +285,12 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   returned null. Profile sketches are needed: the server makes them with `IModelDoc2.InsertSketchForEdgeFlange` and passes
   them to `InsertSheetMetalEdgeFlange2` (the live tests pass; the result's `method` names the variant that worked).
 - **Weldments**: structural members are VERIFIED, see §6 (*Weldment structural members*).
+- **Hem** (VERIFIED 2026-10-23). The edge picked or selected (mark 0), then `FeatureManager.InsertSheetMetalHem2(type,
+  position, reverse, length, gap, angle, radius, miterGap, null /*the sheet's bend allowance*/, true, 0, 0, false, 0.5, 0, 0)`
+  (types `swHemTypes_e`: 0 open, 1 closed, 2 teardrop, 3 rolled; positions 0 inside, 1 outside). It makes `Hem1` with a
+  sketch, `HemBend1` and its flatten feature; **the faces belong to `HemBend1`**, not to the Hem. On the 2 mm test sheet a
+  closed 10 mm and an open 8 mm (gap 1.5) hem, a rolled hem (r 2, 180°) and a teardrop with r 1 mm at 200° outside worked;
+  **teardrops at 270°** (r 1 or 2, inside or outside) **returned nothing**.
 
 - **Base flange side** (VERIFIED). For a closed profile `InsertSheetMetalBaseFlange2`'s `ThickenDir` changes nothing (both values
   thicken toward −normal), and neither does `IBaseFlangeFeatureData.ReverseThickness`; `ReverseDirection` (through
