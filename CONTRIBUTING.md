@@ -16,7 +16,7 @@ Thanks for helping. This file states the rules every tool follows. The plan of r
 ```powershell
 dotnet build                                   # everything (needs SOLIDWORKS installed)
 dotnet test --project tests/SolidWorksMcp.UnitTests
-dotnet test --project tests/SolidWorksMcp.LiveTests            # contract tests; live tests are skipped
+dotnet test --project tests/SolidWorksMcp.LiveTests            # contract and offline tests; live tests are skipped
 $env:SWMCP_LIVE_TESTS=1; dotnet test --project tests/SolidWorksMcp.LiveTests   # live, with SOLIDWORKS running
 src/SolidWorksMcp.Server/bin/Debug/net10.0-windows/solidworks-mcp.exe --check-catalog
 python tools/mcp_smoke.py src/SolidWorksMcp.Server/bin/Debug/net10.0-windows/solidworks-mcp.exe [--scenario plate]

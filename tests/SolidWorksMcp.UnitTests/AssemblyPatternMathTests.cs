@@ -77,9 +77,9 @@ public class AssemblyPatternMathTests
     {
         // About x = 0: a copy turned 180° about y has x → -x (mirrored), y → y (mirrored), z → -z (flipped).
         var turned = AsmMath.Rotation(Vec3.UnitY, Math.PI);
-        Assert.Equal([1, 1, -1], MirrorSigns(AsmMath.Identity, turned, Vec3.UnitX, 1e-9));
+        Assert.Equal([1, 1, -1], MirrorSigns(AsmMath.Identity, turned, Vec3.UnitX, 1e-9)!);
         // Turned 180° about z instead: x → -x (mirrored), y → -y (flipped), z → z (mirrored).
-        Assert.Equal([1, -1, 1], MirrorSigns(AsmMath.Identity, AsmMath.Rotation(Vec3.UnitZ, Math.PI), Vec3.UnitX, 1e-9));
+        Assert.Equal([1, -1, 1], MirrorSigns(AsmMath.Identity, AsmMath.Rotation(Vec3.UnitZ, Math.PI), Vec3.UnitX, 1e-9)!);
         // Not a mirror image at all.
         Assert.Null(MirrorSigns(AsmMath.Identity, AsmMath.Rotation(Vec3.UnitY, Math.PI / 2), Vec3.UnitX, 1e-9));
     }

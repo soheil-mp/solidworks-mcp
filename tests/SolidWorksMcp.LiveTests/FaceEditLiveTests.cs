@@ -57,7 +57,7 @@ public class FaceEditLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.Equal(Block, r.Model.VolumeMm3, V);
         Assert.Equal(Hole, r.Verified.VolumeDeltaMm3, V);
         Assert.Empty(await CylindersAsync(doc));
-        Assert.Contains(r.Verified.Checks, c => c.Contains("gone from where they were", StringComparison.Ordinal));
+        Assert.Contains(r.Verified.Checks!, c => c.Contains("gone from where they were", StringComparison.Ordinal));
         var info = await InfoAsync(doc);
         Assert.Equal(1, info.Bodies!.Count(b => b.Type == "solid"));
         Assert.Equal(6, info.Bodies!.Single().Faces);
@@ -92,7 +92,7 @@ public class FaceEditLiveTests(LiveFixture fx) : LiveTest(fx)
     {
         string doc = await BlockWithHoleAsync("fe_open", hole: false);
         var r = await Fe.EditAsync(new FaceEditRequest { Doc = doc, Op = "delete", Faces = [TopFace], Heal = "none" });
-        Assert.Contains(r.Verified.Checks, c => c.Contains("delete only leaves the body open", StringComparison.Ordinal));
+        Assert.Contains(r.Verified.Checks!, c => c.Contains("delete only leaves the body open", StringComparison.Ordinal));
         var info = await InfoAsync(doc);
         Assert.DoesNotContain(info.Bodies!, b => b.Type == "solid");
         Assert.Equal(5, info.Bodies!.Single().Faces);
@@ -113,7 +113,7 @@ public class FaceEditLiveTests(LiveFixture fx) : LiveTest(fx)
         // Negative: into the material, back to r 4.
         var back = await Fe.EditAsync(new FaceEditRequest { Doc = doc, Op = "offset", Faces = [HoleFace], DistanceMm = -1 });
         Assert.Equal(4, Assert.Single(await CylindersAsync(doc)).RadiusMm!.Value, 6);
-        Assert.Contains(back.Verified.Checks, c => c.Contains("inward", StringComparison.Ordinal));
+        Assert.Contains(back.Verified.Checks!, c => c.Contains("inward", StringComparison.Ordinal));
     }
 
     [Fact]

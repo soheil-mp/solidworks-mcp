@@ -399,7 +399,7 @@ public class PropertiesOfflineTests
     public void Property_values_are_validated_per_type()
     {
         Assert.Equal((30, "x"), PropertiesService.PropValue("text", "x"));
-        Assert.Equal((3, "12.5"), PropertiesService.PropValue("number", " 12.5 "));
+        Assert.Equal((5, "12.5"), PropertiesService.PropValue("number", " 12.5 ")); // swCustomInfoDouble: swCustomInfoNumber (3) takes whole numbers only
         Assert.Equal((11, "Yes"), PropertiesService.PropValue("yesno", "true"));
         Assert.Equal((64, "2026-10-22"), PropertiesService.PropValue("date", "2026-10-22"));
         Assert.Throws<SwException>(() => PropertiesService.PropValue("number", "12,5"));
