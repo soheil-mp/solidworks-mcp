@@ -42,3 +42,7 @@ release/
 
 ## Agent worktrees and local tool state
 .claude/
+
+# Python
+__pycache__/
+*.pyc
