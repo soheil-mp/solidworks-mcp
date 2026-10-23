@@ -304,6 +304,26 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   replacement.
 - **Components.** `GetComponents(topLevelOnly)`, `Name2`, `GetPathName()`, `GetSuppression2()` (2 resolved,
   0 suppressed), `Visible` (1 = visible), `IsFixed()`, `Transform2.ArrayData`.
+- **Component patterns** (VERIFIED 2026-10-23, linear 1 x 3, 2 x 2 and along a component edge; circular about a
+  component's cylindrical face). Select first, then make the definition, as SOLIDWORKS' own examples do: direction 1
+  (or the circular axis) on **mark 2**, direction 2 on **mark 4**, the seed components on **mark 1**; then
+  `FeatureManager.CreateDefinition(swFmLocalLPattern = 108 | swFmLocalCirPattern = 109)` → `ILocalLinearPatternFeatureData`
+  (`D1TotalInstances` with the seed, `D1Spacing` m, `D1ReverseDirection`, `D2…`, `D2PatternSeedOnly = false`) or
+  `ILocalCircularPatternFeatureData` (`TotalInstances`, `EqualSpacing`, `Spacing` = the total angle with equal
+  spacing, else the step, rad); then `CreateFeature(data)`.
+  - Filling an empty definition instead does not work: setting `SeedComponentArray` to an `object[]` makes SOLIDWORKS
+    fault (RPC_E_SERVERFAULT); with a `DispatchWrapper[]` the seeds read back but `D1Axis` never takes (`GetD1AxisType`
+    −1, `D1TotalInstances` back to 1) and `CreateFeature` returns null, for a plane, its `IRefPlane` and a selected edge.
+  - A **reference plane** works as a direction (its normal). Along a standard plane's normal SOLIDWORKS runs **+**
+    (Right +x, Top +y, Front +z), so "−x" needs `D1ReverseDirection = true`. Along an edge the sense is its own.
+  - Type names: `LocalLPattern`, `LocalCirPattern`; each instance is a component feature of type `ReferencePattern`.
+    Deleting the pattern feature (`DeleteSelection2(0)`) deletes its instances.
+- **Mirror components** (VERIFIED). `IAssemblyDoc.MirrorComponents3(plane, ComponentsToInstance, orientations,
+  orientAboutCenterOfMass:false, ComponentsToMirror:null, false, null, swMirrorComponentName_Suffix, "", "", 0, false,
+  false, false)` with the components as a `DispatchWrapper[]` and `swMirrorComponentOrientation_RotatePlaneY` (0) per
+  component copies them as instances (no new files): a `MirrorCompFeat` feature, its copies `ReferencePattern`. A copy's
+  part bounding-box centre lands on the reflection of the seed's; about the Front plane its axes came out x, y mirrored
+  and z flipped (a rigid copy can't mirror all three).
 
 ## 9. Drawing
 - **Default drawing template:** US Letter (279.4 × 215.9), 1:1, third angle, **no sheet format**, units **CGS**. Set MMGS

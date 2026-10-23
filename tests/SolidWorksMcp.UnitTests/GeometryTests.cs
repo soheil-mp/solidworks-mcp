@@ -17,6 +17,12 @@ public class UnitsTests
         Assert.Equal(90, Units.Deg(Math.PI / 2));
         Assert.Equal(Math.PI, Units.Rad(180), 12);
         Assert.Equal(1.0, Units.Mm(0.0010000000004)); // float noise rounded away
+        // Noise below the rounding comes out as +0, never -0 (which JSON and messages would print as "-0").
+        Assert.False(double.IsNegative(Units.Mm(-1e-15)));
+        Assert.False(double.IsNegative(Units.R(-1e-12)));
+        Assert.False(double.IsNegative(Units.Deg(-1e-12)));
+        Assert.False(double.IsNegative(Units.Mm3(-1e-16)));
+        Assert.True(double.IsNegative(Units.Mm(-0.001)));
     }
 
     [Fact]

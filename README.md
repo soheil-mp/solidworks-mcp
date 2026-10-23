@@ -1,8 +1,8 @@
 # solidworks-mcp
 
 An MCP server that lets AI agents (Claude Code, Claude Desktop and other MCP clients) drive a running SOLIDWORKS.
-With its 118 tools, agents can sketch and model parts (extrudes, revolves, sweeps, lofts, holes, patterns, shells,
-surfaces, sheet metal), build assemblies with mates, make drawings with views and dimensions, import and export
+With its 119 tools, agents can sketch and model parts (extrudes, revolves, sweeps, lofts, holes, patterns, shells,
+surfaces, sheet metal), build assemblies with mates and component patterns, make drawings with views and dimensions, import and export
 (STEP, IGES, STL, Parasolid, PDF, DXF …), run static stress studies, and inspect, measure and screenshot the result. It
 is written in C# against SolidWorks' official COM API.
 
@@ -92,7 +92,7 @@ one each time. If the exe itself is blocked, you can also register the DLL throu
 `claude mcp add --scope user solidworks -- dotnet "<folder>\solidworks-mcp.dll"`. Signed releases will avoid this.
 
 ## Tools
-118 tools in 14 toolsets. The full, current list with parameters is in [`docs/tools.md`](docs/tools.md), generated from
+119 tools in 14 toolsets. The full, current list with parameters is in [`docs/tools.md`](docs/tools.md), generated from
 the server.
 
 | Toolset | Tools |
@@ -105,7 +105,7 @@ the server.
 | reference (4) | `ref_plane`, `ref_axis`, `ref_point`, `ref_coordsys` |
 | bodies (10) | move/copy, delete, combine, split; surfaces: extrude, revolve, planar, offset, knit, thicken |
 | sheetmetal (4) | base flange, edge flange, flatten, flat-pattern DXF/DWG |
-| assembly (8) | insert, mates, mate list, component list/set/move, interference, replace |
+| assembly (9) | insert, mates, mate list, component list/set/move, interference, replace, linear/circular patterns and mirror of components |
 | drawing (11) | sheet setup, standard/projected/section/detail views, model dimensions, dimensions, notes, BOM, center marks, info |
 | export (1) | `model_export`: STEP (AP203/214/242), IGES, Parasolid, STL, 3MF, images, eDrawings; PDF/DWG/DXF from drawings |
 | properties (13) | materials, custom properties, equations, configurations, appearance |
@@ -114,7 +114,7 @@ the server.
 
 ### Live test status
 Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check the result against an exact answer
-(volumes, positions, angles, file headers, restored system options). All 315 pass:
+(volumes, positions, angles, file headers, restored system options). All 319 pass:
 
 | Area | Live tests |
 |---|---|
@@ -127,7 +127,7 @@ Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check th
 | Export and import | 20 |
 | Sweep, loft, helix, draft, rib, cosmetic thread | 25 |
 | Bodies, surfaces, sheet metal | 42 |
-| Assembly | 14 |
+| Assembly (including component patterns and mirror) | 18 |
 | Drawing | 22 |
 | Simulation (static) | 9 |
 

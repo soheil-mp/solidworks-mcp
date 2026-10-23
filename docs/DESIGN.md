@@ -39,8 +39,9 @@ completeness. It also adds the verified SDK behaviour in [`mcp-sdk-notes.md`](mc
 
 ### Non-goals (v1)
 - PDM, Electrical, Routing, Composer, CAM, Visualize, Motion, Plastics and Flow Simulation.
-- Weldment structural members, hem/miter/jog, component patterns and mirror, design tables, GD&T and exploded views.
-  These are stretch goals or future work; `vba_run` remains the escape hatch.
+- Design tables, mold tools and motion; `vba_run` remains the escape hatch. Weldment structural members, hem, miter
+  and jog, component patterns and mirror, GD&T and exploded views were out of scope for v0.1 too; milestone M7
+  (§7) adds them.
 - Platforms other than Windows. The transport is stdio only in v1.
 - An in-process add-in mode (future).
 
@@ -645,6 +646,7 @@ ergonomics. Each finding is verified before it is fixed.
 | **M4 Drawing** | All `drw_*` and drawing export. | Green; drawing scenario within budget. |
 | **M5 Simulation** | `sim_static`, `sim_delete`. | Green against the oracle. |
 | **M6 Release** | README (safety, quickstart, clients, configuration, compatibility, troubleshooting, migration), CONTRIBUTING, SECURITY, THIRD-PARTY-NOTICES, the skill (written fresh), `install.ps1`, CI, the GitHub repository, tag v0.1.0. | A clean clone builds; CI is green; smoke tests pass. |
+| **M7 Breadth** | Component patterns and mirror (`asm_pattern`), more mate types, exploded views, direct face editing of imported bodies, drawing annotations (balloons, GD&T, datums, surface finish, hole and revision tables), weldment structural members, hem / miter flange / jog / sketched bend. New tools stay few (several kinds per tool) to keep the catalog small. | Each tool meets §6.6; all live tests green. |
 
 ### 7.1 Parallel work breakdown
 M0 fixes the conventions. After that, each area owns its own files and needs no shared registration:
@@ -695,5 +697,5 @@ at merge. The catalog test catches duplicate names. Live testing is serialized: 
 | Non-English installs | Plane aliases resolved by geometry; view ids instead of names; file locations from preferences. |
 
 ## 10. Future work
-HTTP transport, add-in mode, design tables, weldments, mold tools, motion, rendering, PDM, GD&T, exploded views,
-component patterns, signed binary releases with a computed API floor.
+HTTP transport, add-in mode, design tables, mold tools, motion, rendering, PDM, signed binary releases with a computed
+API floor.

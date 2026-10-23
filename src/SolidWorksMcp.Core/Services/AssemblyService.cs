@@ -263,7 +263,7 @@ public sealed class AsmReplaceResult : ToolResult
 /// is read back; a mate is checked against its geometric intent and deleted (and the components moved back) when it
 /// doesn't match.
 /// </summary>
-public sealed class AssemblyService(SwSession session)
+public sealed partial class AssemblyService(SwSession session)
 {
     private const double PosTol = 1e-6;  // m: positions read back (component origins, mate geometry)
     private const double AxisTol = 1e-7; // unit-vector difference for axes read back (0.1 µrad)
@@ -1637,10 +1637,10 @@ public sealed class AssemblyService(SwSession session)
     }
 
     /// <summary>
-    /// Selects one mate entity on mark 1. Component planes, axes and points use the VERIFIED SelectByID2 form
+    /// Selects one mate entity (on mark 1 unless told otherwise). Component planes, axes and points use the VERIFIED SelectByID2 form
     /// ("Front Plane@part-1@Assem1"); everything else (and the fallback) the resolved entity's own Select (Select2/Select4).
     /// </summary>
-    private static void SelectForMate(SwContext ctx, IModelDoc2 d, MateRef m, bool append, string arg)
+    private static void SelectForMate(SwContext ctx, IModelDoc2 d, MateRef m, bool append, string arg, int mark = MateMark)
     {
         var sm = d.Sel();
         int before = sm.GetSelectedObjectCount2(-1);
@@ -1649,9 +1649,9 @@ public sealed class AssemblyService(SwSession session)
         {
             string type = m.R.Kind switch { EntityKind.Plane => "PLANE", EntityKind.Axis => "AXIS", _ => "DATUMPOINT" };
             foreach (var id in SelectIds(ctx, d, f.Name, m.Comp))
-                if (d.Extension.SelectByID2(id, type, 0, 0, 0, append, MateMark, null, 0) && Added()) return;
+                if (d.Extension.SelectByID2(id, type, 0, 0, 0, append, mark, null, 0) && Added()) return;
         }
-        if (m.R.Select(d, append, MateMark) && Added()) return;
+        if (m.R.Select(d, append, mark) && Added()) return;
         throw new SwException(ErrorCodes.FeatureFailed, $"Could not select '{arg}' ({m.Label}) for the mate.",
             "Use a plane ({component:'part-1', name:'top'}) or a face picked in that part's coordinates ({component:'part-1', at:[x,y,z]}).");
     }

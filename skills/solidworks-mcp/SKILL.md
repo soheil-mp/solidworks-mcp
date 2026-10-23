@@ -104,7 +104,12 @@ with `sheetmetal_edge_flange`, check the blank with `sheetmetal_flatten {flat:tr
 3. Mate with `asm_mate_add {type:"coincident"|"concentric"|"distance"|…, a:{component:"cube-2", name:"top"},
    b:{component:"cube-1", name:"top"}}`. Faces of a component: `{component:"cube-2", at:[x,y,z]}`, with the point in
    that part's own coordinates.
-4. Check with `asm_interference` and `asm_component_list` (origins and rotations), then `view_screenshot`.
+4. Repeat components with `asm_pattern` instead of inserting each copy: `{kind:"linear", components:["bolt-1"],
+   count:4, spacingMm:25, direction:"+x"}` (a second row: `direction2`, `count2`, `spacing2Mm`), `{kind:"circular",
+   components:["bolt-1"], count:6, axis:{component:"flange-1", at:[x,y,z]}}` (a bore face), or `{kind:"mirror",
+   components:["bracket-1"], plane:{name:"right"}}`. Copies are instances of the same file, so a part that isn't
+   symmetric comes out turned, not mirrored.
+5. Check with `asm_interference` and `asm_component_list` (origins and rotations), then `view_screenshot`.
 
 **Drawings.**
 1. Save the part or assembly.

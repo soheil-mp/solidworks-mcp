@@ -8,7 +8,7 @@ using SolidWorksMcp.Server.Hosting;
 
 namespace SolidWorksMcp.Server.Tools;
 
-/// <summary>Assemblies: insert, mate, list, set, move and replace components, and interference detection.</summary>
+/// <summary>Assemblies: insert, mate, list, set, move, replace and pattern components, and interference detection.</summary>
 [McpServerToolType, Toolset("assembly")]
 public sealed class AssemblyTools(SwSession session)
 {
@@ -147,6 +147,35 @@ public sealed class AssemblyTools(SwSession session)
             Doc = doc, Component = component, Path = path, AllInstances = allInstances, ReattachMates = reattachMates,
             Configuration = configuration,
         }, cancellationToken), progress, "asm_replace");
+
+    [McpServerTool(Name = "asm_pattern", Title = "Pattern / mirror components", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Pattern or mirror components as instances of the same files: linear along a direction (optional second one), circular " +
+                 "about an axis, or mirror about a plane (opposite-hand files are not made). Counts include the seed. Verified: every new " +
+                 "instance's placement (the seed moved by i·spacing, turned by k·angle, or reflected), else rolled back.")]
+    public Task<string> AsmPattern(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("linear | circular | mirror")] string kind,
+        [Description("Seed components (top level), e.g. [\"bolt-1\"].")] string[] components,
+        [Description("linear/circular: instances, the seed included.")] int? count = null,
+        [Description("linear: distance between instances in mm.")] double? spacingMm = null,
+        [Description("linear: +x | -x | +y | -y | +z | -z (assembly axes); with directionRef, the sign along it.")] string? direction = null,
+        [Description("linear: a straight edge, axis, plane or planar face giving the direction, e.g. {component:'rail-1', type:'edge', at:[x,y,z]}.")] EntityRef? directionRef = null,
+        [Description("linear: second direction, an assembly axis such as \"+z\".")] string? direction2 = null,
+        [Description("linear: instances in direction 2, the seed row included.")] int? count2 = null,
+        [Description("linear: spacing in direction 2 in mm.")] double? spacing2Mm = null,
+        [Description("circular: an axis, a cylindrical face or a circular/straight edge, e.g. {component:'hub-1', at:[x,y,z]} (part mm).")] EntityRef? axis = null,
+        [Description("circular: with equalSpacing the angle spanned (default 360 = full circle), else the angle between instances.")] double? totalAngleDeg = null,
+        [Description("circular: spread the instances evenly (default true).")] bool? equalSpacing = null,
+        [Description("mirror: the plane, e.g. {name:'right'} or {component:'base-1', name:'front'}.")] EntityRef? plane = null,
+        [Description(KeepDesc)] bool keepOnFailure = false,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_svc.PatternAsync(new AsmPatternRequest
+        {
+            Doc = doc, Kind = kind, Components = components, Count = count, SpacingMm = spacingMm, Direction = direction,
+            DirectionRef = directionRef, Direction2 = direction2, Count2 = count2, Spacing2Mm = spacing2Mm, Axis = axis,
+            TotalAngleDeg = totalAngleDeg, EqualSpacing = equalSpacing, Plane = plane, KeepOnFailure = keepOnFailure,
+        }, cancellationToken), progress, "asm_pattern");
 
     private static async Task<string> Json<T>(Task<T> task) where T : ToolResult => ResultJson.Serialize(await task.ConfigureAwait(false));
 }

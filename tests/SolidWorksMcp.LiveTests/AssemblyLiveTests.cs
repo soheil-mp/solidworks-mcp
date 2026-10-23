@@ -690,4 +690,125 @@ public class AssemblyLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.Equal(ErrorCodes.EntityNotFound, (await Assert.ThrowsAsync<SwException>(() =>
             Asm.ReplaceAsync(new AsmReplaceRequest { Doc = asm, Component = nb, Path = b.Path }))).Code); // nb is gone
     }
+
+    // ------------------------------------------------------------------ asm_pattern
+
+    private Task<AsmPatternResult> Pattern(AsmPatternRequest q) => Asm.PatternAsync(q);
+
+    private static double[] Center(BoxMm? b)
+    {
+        Assert.NotNull(b);
+        return [(b.Min[0] + b.Max[0]) / 2, (b.Min[1] + b.Max[1]) / 2, (b.Min[2] + b.Max[2]) / 2];
+    }
+
+    [Fact]
+    public async Task Linear_pattern_places_instances_at_the_spacing_along_one_and_two_directions()
+    {
+        var cube = await CubeAsync("lin");
+        string asm = await NewAssemblyAsync("asm_pattern_lin");
+        string seed = (await InsertAsync(asm, cube.Path, [0, 0, 0])).Component.Name;
+
+        // 3 along +x, 30 mm apart: the 20 mm cube (x -10..10) repeats at x 20..40 and 50..70.
+        var r = await Pattern(new() { Doc = asm, Kind = "linear", Components = [seed], Count = 3, SpacingMm = 30, Direction = "+x" });
+        Assert.Equal("linear", r.Kind);
+        Assert.Equal(2, r.InstanceCount);
+        Assert.Equal(3, r.ComponentCount);
+        var boxes = r.Instances.Select(i => i.Box).OrderBy(b => b!.Min[0]).ToList();
+        AssertBox(boxes[0], [20, -10, -10], [40, 10, 10]);
+        AssertBox(boxes[1], [50, -10, -10], [70, 10, 10]);
+        Assert.All(r.Instances, i => AssertRows(Identity, i.Rotation));
+        Assert.All(r.Instances, i => Assert.Equal(cube.Path, i.Path, ignoreCase: true));
+        Assert.Contains(r.Verified, c => c.StartsWith("every instance at the seed moved by", StringComparison.Ordinal));
+        Assert.Equal(3, (await Asm.ComponentListAsync(asm, false, 100, 0)).Total);
+
+        // A second pattern of the same seed: 2 along -x (sign given) by 2 along -z, 25 mm apart.
+        var r2 = await Pattern(new()
+        {
+            Doc = asm, Kind = "linear", Components = [seed], Count = 2, SpacingMm = 30, Direction = "-x", Direction2 = "-z", Count2 = 2, Spacing2Mm = 25,
+        });
+        Assert.Equal(3, r2.InstanceCount);
+        var centers = r2.Instances.Select(i => Center(i.Box)).OrderBy(c => c[0]).ThenBy(c => c[2]).ToList();
+        AssertPoint([-30, 0, -25], centers[0], 0.01);
+        AssertPoint([-30, 0, 0], centers[1], 0.01);
+        AssertPoint([0, 0, -25], centers[2], 0.01);
+        Assert.Equal(6, r2.ComponentCount);
+    }
+
+    [Fact]
+    public async Task Linear_pattern_along_an_edge_follows_the_given_sign()
+    {
+        var box = await BoxAsync("edge"); // x 0..40, y 0..10, z 0..20
+        var cube = await CubeAsync("edgecube");
+        string asm = await NewAssemblyAsync("asm_pattern_edge");
+        string nb = (await InsertAsync(asm, box.Path, [0, 0, 0])).Component.Name;
+        string nc = (await InsertAsync(asm, cube.Path, [0, 50, 0])).Component.Name;
+        // The box's edge along z at x = y = 0 (part mm); "-z" gives the sign along it.
+        var r = await Pattern(new()
+        {
+            Doc = asm, Kind = "linear", Components = [nc], Count = 3, SpacingMm = 40, Direction = "-z",
+            DirectionRef = new EntityRef { Component = nb, Type = "edge", At = [0, 0, 10] },
+        });
+        Assert.Equal(2, r.InstanceCount);
+        var centers = r.Instances.Select(i => Center(i.Box)).OrderBy(c => c[2]).ToList();
+        AssertPoint([0, 50, -80], centers[0], 0.01);
+        AssertPoint([0, 50, -40], centers[1], 0.01);
+        Assert.NotNull(r.Resolved);
+    }
+
+    [Fact]
+    public async Task Circular_pattern_turns_the_seed_about_a_bore_and_mirror_reflects_an_asymmetric_part()
+    {
+        var plate = await PlateAsync("hub");   // bore r 5 along y through the origin
+        var box = await BoxAsync("arm");       // x 0..40, y 0..10, z 0..20: not symmetric about its own planes
+        string asm = await NewAssemblyAsync("asm_pattern_circ");
+        string np = (await InsertAsync(asm, plate.Path, [0, 0, 0])).Component.Name;
+        string na = (await InsertAsync(asm, box.Path, [30, 20, 0])).Component.Name; // box x 30..70, centre (50, 25, 10)
+
+        // 4 instances about the bore (a cylindrical face, part mm): 90° apart.
+        var r = await Pattern(new() { Doc = asm, Kind = "circular", Components = [na], Count = 4, Axis = new EntityRef { Component = np, At = [5, 5, 0] } });
+        Assert.Equal(3, r.InstanceCount);
+        // Right-hand 90° about +y takes (x, z) to (z, -x): the centre (50, 25, 10) goes to (10, 25, -50); the rotation
+        // of each instance is fixed by where it sits (the same whichever way SOLIDWORKS runs the axis).
+        var byCenter = r.Instances.ToDictionary(i => Center(i.Box), i => i.Rotation);
+        double[][] ry90 = [[0, 0, 1], [0, 1, 0], [-1, 0, 0]];
+        double[][] ry180 = [[-1, 0, 0], [0, 1, 0], [0, 0, -1]];
+        double[][] ry270 = [[0, 0, -1], [0, 1, 0], [1, 0, 0]];
+        foreach (var (want, rot) in new[] { (new double[] { 10, 25, -50 }, ry90), ([-50, 25, -10], ry180), ([-10, 25, 50], ry270) })
+        {
+            var hit = byCenter.Single(kv => want.Zip(kv.Key).All(x => Math.Abs(x.First - x.Second) <= 0.01));
+            AssertRows(rot, hit.Value, 1e-6);
+        }
+
+        // Mirror the arm about the assembly's right plane (x = 0): its box x 30..70 lands at x -70..-30.
+        var m = await Pattern(new() { Doc = asm, Kind = "mirror", Components = [na], Plane = new EntityRef { Name = "right" } });
+        Assert.Equal("mirror", m.Kind);
+        var copy = Assert.Single(m.Instances);
+        AssertBox(copy.Box, [-70, 20, 0], [-30, 30, 20]);
+        Assert.Equal(box.Path, copy.Path, ignoreCase: true);
+        Assert.Contains(m.Verified, c => c.Contains("reflection", StringComparison.Ordinal));
+        Assert.Equal(6, m.ComponentCount);
+    }
+
+    [Fact]
+    public async Task Pattern_requests_that_cant_work_are_refused_before_anything_changes()
+    {
+        var cube = await CubeAsync("bad");
+        var shaft = await ShaftAsync("badshaft");
+        string asm = await NewAssemblyAsync("asm_pattern_bad");
+        string nc = (await InsertAsync(asm, cube.Path, [0, 0, 0])).Component.Name;
+        string ns = (await InsertAsync(asm, shaft.Path, [50, 0, 0])).Component.Name;
+
+        async Task<string> Refused(AsmPatternRequest q) => (await Assert.ThrowsAsync<SwException>(() => Pattern(q))).Code;
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Kind = "spiral", Components = [nc] }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Kind = "linear", Components = [nc], Count = 3, Direction = "+x" })); // no spacing
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Kind = "linear", Components = [nc], Count = 1, SpacingMm = 10, Direction = "+x" }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Kind = "linear", Components = [nc, nc], Count = 2, SpacingMm = 10, Direction = "+x" }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Kind = "linear", Components = [nc], Count = 2, SpacingMm = 10, Direction = "+x", Plane = new EntityRef { Name = "right" } }));
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Kind = "circular", Components = [nc], Count = 3 })); // no axis
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Kind = "circular", Components = [nc], Count = 5, TotalAngleDeg = 100, EqualSpacing = false, Axis = new EntityRef { Component = ns, At = [5, 10, 0] } }));
+        // The shaft's side is round: not a mirror plane.
+        Assert.Equal(ErrorCodes.InvalidArgument, await Refused(new() { Doc = asm, Kind = "mirror", Components = [nc], Plane = new EntityRef { Component = ns, At = [5, 10, 0] } }));
+        Assert.Equal(ErrorCodes.EntityNotFound, await Refused(new() { Doc = asm, Kind = "mirror", Components = ["nope-1"], Plane = new EntityRef { Name = "right" } }));
+        Assert.Equal(2, (await Asm.ComponentListAsync(asm, false, 100, 0)).Total);
+    }
 }

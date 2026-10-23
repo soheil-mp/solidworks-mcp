@@ -227,5 +227,5 @@ internal static class TopoQuery
 
     private static (Vec3 Axis, double Sign) ExtremeAxis(string spec) => AxisSpec.Extreme(spec);
 
-    public static string Fmt(double[] a) => string.Join(", ", a.Select(v => v.ToString("0.###", CultureInfo.InvariantCulture)));
+    public static string Fmt(double[] a) => string.Join(", ", a.Select(v => (Math.Round(v, 3) + 0.0).ToString("0.###", CultureInfo.InvariantCulture)));
 }

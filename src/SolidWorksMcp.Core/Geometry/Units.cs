@@ -2,7 +2,8 @@ namespace SolidWorksMcp.Core.Geometry;
 
 /// <summary>
 /// The single place where tool units (mm, degrees, kg) meet SolidWorks API units (meters, radians, kg).
-/// Outputs are rounded so results stay compact and free of float noise (1e-9 mm is far below modeling tolerance).
+/// Outputs are rounded so results stay compact and free of float noise (1e-9 mm is far below modeling tolerance), and
+/// a rounded -0 comes out as 0 (adding +0.0 turns -0.0 into +0.0), so results never show "-0".
 /// </summary>
 public static class Units
 {
@@ -12,25 +13,25 @@ public static class Units
     public static double M(double mm) => mm / MmPerM;
 
     /// <summary>m → mm, rounded to 6 decimals (1 nm).</summary>
-    public static double Mm(double m) => Math.Round(m * MmPerM, 6);
+    public static double Mm(double m) => Math.Round(m * MmPerM, 6) + 0.0;
 
     /// <summary>m² → mm², rounded.</summary>
-    public static double Mm2(double m2) => Math.Round(m2 * 1e6, 4);
+    public static double Mm2(double m2) => Math.Round(m2 * 1e6, 4) + 0.0;
 
     /// <summary>m³ → mm³, rounded.</summary>
-    public static double Mm3(double m3) => Math.Round(m3 * 1e9, 3);
+    public static double Mm3(double m3) => Math.Round(m3 * 1e9, 3) + 0.0;
 
     /// <summary>degrees → radians.</summary>
     public static double Rad(double deg) => deg * Math.PI / 180.0;
 
     /// <summary>radians → degrees, rounded to 6 decimals.</summary>
-    public static double Deg(double rad) => Math.Round(rad * 180.0 / Math.PI, 6);
+    public static double Deg(double rad) => Math.Round(rad * 180.0 / Math.PI, 6) + 0.0;
 
     /// <summary>kg·m² → kg·mm².</summary>
-    public static double KgMm2(double kgm2) => Math.Round(kgm2 * 1e6, 6);
+    public static double KgMm2(double kgm2) => Math.Round(kgm2 * 1e6, 6) + 0.0;
 
     /// <summary>Rounds a dimensionless or SI value to 9 significant decimals (for unit vectors, ratios, kg).</summary>
-    public static double R(double v) => Math.Round(v, 9);
+    public static double R(double v) => Math.Round(v, 9) + 0.0;
 
     /// <summary>[x,y,z] in m → mm.</summary>
     public static double[] Mm(double[] m) => m.Select(Mm).ToArray();

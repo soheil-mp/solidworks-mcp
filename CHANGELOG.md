@@ -10,7 +10,7 @@
   - verified feature creation with automatic rollback;
   - entity references by id, point, query and name;
   - compact input schemas (the EntityRef fields are explained once, in the server instructions).
-- Tools (118):
+- Tools (119):
   - session: `sw_status`, `sw_connect`, `sw_help`, `dialog_list`, `dialog_respond`;
   - documents: `doc_new` (part, assembly, drawing), `doc_open` (native files and STEP/IGES/Parasolid/SAT/STL imports),
     `doc_list`, `doc_activate`, `doc_save`, `doc_close`, `doc_rebuild`, `doc_undo`, `doc_units_set`;
@@ -29,7 +29,7 @@
     `surface_revolve`, `surface_planar`, `surface_offset`, `surface_knit`, `surface_thicken`;
   - sheet metal: `sheetmetal_base_flange`, `sheetmetal_edge_flange`, `sheetmetal_flatten`, `sheetmetal_export_flat`;
   - assembly: `asm_insert`, `asm_mate_add`, `asm_mate_list`, `asm_component_list`, `asm_component_set`,
-    `asm_component_move`, `asm_interference`, `asm_replace`;
+    `asm_component_move`, `asm_interference`, `asm_replace`, `asm_pattern` (linear, circular, mirror);
   - drawing: `drw_sheet_setup`, `drw_views_standard`, `drw_view_projected`, `drw_view_section`, `drw_view_detail`,
     `drw_dimensions_auto`, `drw_dimension_add`, `drw_note_add`, `drw_bom_add`, `drw_center_marks`, `drw_info`;
   - export: `model_export`;
@@ -40,7 +40,7 @@
   - automation: `vba_run` (off by default).
 - Tests: unit tests, offline contract tests, live tests per area with exact oracles, and `tools/mcp_smoke.py` with the
   golden scenarios (plate, enclosure, edit, assembly, drawing).
-- Live-tested against SOLIDWORKS 2025 SP1.2: 315 live tests across all areas pass. Fixes found that way include:
+- Live-tested against SOLIDWORKS 2025 SP1.2: 319 live tests across all areas pass. Fixes found that way include:
   - coupled system options (STL quality with deviation and angle) are saved and restored as one group, also after a
     crash (an STL export had left a user's STL quality at coarse);
   - Hole Wizard holes are placed exactly (a model-space ray pick) and through-all holes work;
