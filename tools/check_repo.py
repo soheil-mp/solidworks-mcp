@@ -12,6 +12,7 @@ import sys
 FORBIDDEN_NAMES = [
     r"SolidWorks\.Interop\..*\.dll$", r"\.tlb$", r"\.chm$", r"_api\.txt$", r"_dump\.txt$", r"swconst_enums\.txt$",
     r"swcommands\.txt$", r"\.binlog$", r"\.(sldprt|sldasm|slddrw|slddrt|sldlfp)$", r"\.nupkg$", r"\.mcpb$",
+    r"\.(dll|exe|pdb)$", r"\.pyc$", r"(^|/)__pycache__/",
 ]
 TEXT_EXT = (".cs", ".md", ".py", ".json", ".props", ".targets", ".csproj", ".slnx", ".ps1", ".txt", ".yml", ".yaml", ".xml")
 LEAKS = [
