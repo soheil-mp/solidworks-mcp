@@ -38,10 +38,12 @@ completeness. It also adds the verified SDK behaviour in [`mcp-sdk-notes.md`](mc
    ships with it.
 
 ### Non-goals (v1)
-- PDM, Electrical, Routing, Composer, CAM, Visualize, Motion, Plastics and Flow Simulation.
+- PDM, Electrical, Routing, Composer, CAM, Visualize, Plastics and Flow Simulation (separate products; M8 lists them
+  as its Tier 3, §7.2).
 - Design tables, mold tools and motion; `vba_run` remains the escape hatch. Weldment structural members, hem, miter
   and jog, component patterns and mirror, GD&T and exploded views were out of scope for v0.1 too; milestone M7
-  (§7) adds them.
+  (§7) adds them. Milestone M8 (§7.2) plans the gaps an engineering project hits next; motion, mold tools and design
+  tables are in its Tier 2.
 - Platforms other than Windows. The transport is stdio only in v1.
 - An in-process add-in mode (future).
 
@@ -384,7 +386,7 @@ Conventions:
 - **Common parameter:** document tools take an optional `doc` (handle, title or path).
 
 **Status:** ✅ verified live, 🧪 implemented and untested, ⏳ planned, ⚠ API path unresolved (behind
-`SWMCP_EXPERIMENTAL=1` until green).
+`SWMCP_EXPERIMENTAL=1` until green). The tools planned for M8 are in §7.2.
 
 ### 4.1 Session (toolset `session`) — M0
 | Tool | Purpose | Status |
@@ -648,6 +650,7 @@ ergonomics. Each finding is verified before it is fixed.
 | **M5 Simulation** | `sim_static`, `sim_delete`. | Green against the oracle. |
 | **M6 Release** | README (safety, quickstart, clients, configuration, compatibility, troubleshooting, migration), CONTRIBUTING, SECURITY, THIRD-PARTY-NOTICES, the skill (written fresh), `install.ps1`, CI, the GitHub repository, tag v0.1.0. | A clean clone builds; CI is green; smoke tests pass. |
 | **M7 Breadth** | Done: `asm_pattern` (linear, circular, mirror, opposite-hand parts), `asm_mate_add` limit/symmetric/width/hinge/gear/rack mates, `asm_explode`, `face_edit` (delete and heal, offset, move; imported bodies too), `drw_annotation_add` (datums, surface finish, tolerance frames, balloons), `drw_table_add` (hole and revision tables), `weldment_member`, `sheetmetal_hem`, `sheetmetal_bend`, `sheetmetal_miter_flange`. Open: screw mates and jogs (unresolved in the API), more simulation types. New tools stay few (several kinds per tool) to keep the catalog small. | Each tool meets §6.6; all live tests green. |
+| **M8 Engineering projects** | Planned (§7.2, from the audit of 2026-10-24): tolerances and fits; production drawings (more sheets, flat-pattern, broken, auxiliary and broken-out views, cut-list tables, weld symbols); BOM as data and a one-call release package; fabrication data (cut lists, weldment trims, end caps, gussets, beads); simulation breadth (assemblies, contacts and connectors, more fixtures and loads, frequency, buckling, thermal, plots); section properties, costing, custom materials, Pack and Go, revision compare, a health report; standard hardware; top-down design; everyday modelling gaps. | Each work package meets §6.6 with live tests; all live tests and golden scenarios green, plus new scenarios for a toleranced drawing and a release package. |
 
 ### 7.1 Parallel work breakdown
 M0 fixes the conventions. After that, each area owns its own files and needs no shared registration:
@@ -657,6 +660,174 @@ M0 fixes the conventions. After that, each area owns its own files and needs no 
 
 Shared helpers needed by more than one area go into `Core/Com`, `Core/Geometry` or `Core/Verify` and are coordinated
 at merge. The catalog test catches duplicate names. Live testing is serialized: one agent drives SolidWorks at a time.
+
+### 7.2 M8 plan: engineering projects (audit of 2026-10-24)
+**How the audit was done.** The 127 tools of M7 were set against the stages of an engineering project (design,
+validation, documentation, manufacturing, data management) and against the old Python server's 187-tool catalog. Each
+gap was then checked against the SOLIDWORKS 2025 API: the core help, and the help of the add-in APIs installed on the
+test machine (Simulation, Costing, Motion, Utilities, DimXpert, FeatureWorks, Design Checker, Inspection, Toolbox,
+Routing, Visualize, 3D printing). Every API name below exists in the 2025 interop; what it does in practice is still to
+be seen live. **Probe** marks a question to settle before building. What the add-in APIs offer is summarized in
+[`solidworks-api-notes.md`](solidworks-api-notes.md) §17.
+
+**Finding.** Modelling is broadly covered. A real project stops at the hand-off: drawings carry no tolerances, there
+is no bill of materials as data and no batch export, no standard hardware, and simulation covers single parts under
+forces and pressures only. All of it is reachable through the API except inserting Toolbox fasteners.
+
+**Work packages, in order.** Sizes: S ≈ an afternoon including live tests, M ≈ a day, L ≈ several days. Status uses
+the §4 legend. Prefer new kinds on existing tools; add a tool only where the job is new. Tool names are proposals: settle
+them with §4's conventions when a package starts.
+
+**WP1 · Tolerances and fits** (S, ⏳)
+- Scope: tolerances on model dimensions (they carry into drawings) and on drawing dimensions: bilateral, symmetric,
+  limit, MIN/MAX, basic, and fits by ISO hole and shaft classes (H7/g6); hole callouts for Hole Wizard holes.
+- Tools: `dimension_set` and `drw_dimension_add` gain `tolerance {type, plusMm, minusMm, hole, shaft}`;
+  `drw_dimension_add {kind:"hole_callout"}`.
+- API: `IDimension.Tolerance` → `IDimensionTolerance` (`Type`, `SetValues2`, `SetFitValues`, `GetMinValue2`,
+  `GetMaxValue2`, `GetHoleFitValue`, `GetShaftFitValue`); `IDrawingDoc.AddHoleCallout2`,
+  `IDisplayDimension.IsHoleCallout`.
+- Oracle: the type and values read back, and the dimension's displayed text carries them.
+
+**WP2 · Production drawings** (M, ⏳)
+- Scope: more sheets; flat-pattern views with bend lines and notes; broken views for long parts; auxiliary views and
+  broken-out sections; weldment cut-list tables; weld symbols.
+- Tools: `drw_sheet_add` (or a mode of `drw_sheet_setup`); new kinds for the view tools (`flat_pattern`, `broken`,
+  `auxiliary`, `broken_out`); `drw_table_add {kind:"cut_list"}`; `drw_annotation_add {kind:"weld"}`.
+- API: `IDrawingDoc.NewSheet4`, `IDrawingDoc.CreateFlatPatternViewFromModelView3`, `IDrawingDoc.InsertBreakHorizontal`,
+  `IDrawingDoc.CreateAuxiliaryViewAt2`, `IDrawingDoc.CreateBreakOutSection`, `IView.InsertWeldmentTable`,
+  `IModelDoc2.InsertWeldSymbol3`.
+- Oracle: sheet count and size; view type, scale and bounds (a broken view is shorter than the part at its scale); table
+  rows against the model's cut list.
+
+**WP3 · BOM as data and a release package** (M, ⏳)
+- Scope: the assembly's bill of materials without a drawing (quantity per file and configuration, part number,
+  description, material, mass; top level or indented), also as CSV or XLSX. One call writes a release package: a STEP of
+  each part, a PDF of each drawing, a flat DXF of each sheet-metal part, and the BOM.
+- Tools: `asm_bom {levels, columns, path}`; a batch tool (`model_export_all`, or a batch mode of `model_export`).
+- API: component traversal and custom properties (existing code); `IBomTableAnnotation.SaveAsExcel` and
+  `ITableAnnotation.SaveAsText2` for BOMs in drawings; the existing export recipes.
+- Oracle: quantities against `asm_component_list`; every file written by this call, its header checked as
+  `model_export` does; nothing overwritten.
+
+**WP4 · Fabrication data** (M, ⏳)
+- Scope: the weldment cut list (profile, length, end angles, quantity per member); trim/extend, end caps, gussets and
+  fillet beads; the sheet-metal cut list (thickness, blank size, bend count).
+- Tools: a `weldment_finish {kind: trim | end_cap | gusset | bead}`; a read-only `model_cut_list`.
+- API: `IConfiguration.GetCutListItems`, `IBodyFolder` (cut-list folders and their properties),
+  `IFeatureManager.InsertWeldmentTrimFeature2`, `InsertEndCapFeature3`, `InsertGussetFeature3`,
+  `InsertFilletBeadFeature3`.
+- Oracle: member lengths against the sketch segments plus the miters; the volumes caps, gussets and beads add.
+
+**WP5 · Simulation breadth** (M–L, ⏳)
+- Scope: assemblies and multibody parts (global and local contacts: bonded, no penetration; bolt and pin connectors);
+  fixtures roller, hinge and symmetry; loads gravity, torque, bearing, remote and centrifugal; frequency (natural
+  frequencies, mode shapes), buckling (load factors) and thermal studies; result plots as images (stress, displacement,
+  factor of safety) and probes at points.
+- Tools: `sim_static` grows into `sim_run {type: static | frequency | buckling | thermal}` (keep `sim_static` working);
+  `sim_plot` returns the image of a result plot.
+- API: `swsAnalysisStudyType_e` (static 0, frequency 1, buckling 2, thermal 3); `ICWLoadsAndRestraintsManager`:
+  `AddRestraint` with `swsRestraintType_e` (symmetric 2, roller 3, hinge 4), `AddGravity`, `AddBearingLoad`,
+  `AddRemoteLoad`, `AddCentrifugalForce`, `AddBoltConnector`, `AddPinConnector`; `ICWContactManager`
+  (`SetGlobalContact`, `CreateContactSet2`); `ICWMesh.ApplyMeshControl`; `ICWResults` (`GetResonantFrequencies`,
+  `GetBucklingLoadFactors`, `GetMinMaxFactorOfSafety2`, `GetMinMaxThermal`, `CreatePlot`); `ICWPlot` (`SetFOSPlot`,
+  `GetResultsProbeManager`).
+- Oracle: analytical cases: a cantilever's first natural frequency, Euler buckling of a column, a bar under its own
+  weight, and a bonded two-part stack that behaves as one part.
+- **Probe: licensing.** Frequency, buckling and thermal studies may need a Simulation Professional licence. Check the
+  error code of `CreateNewStudy3` for each type first, and refuse with NOT_SUPPORTED where a type isn't licensed. (The
+  probe of 2026-10-24 was cut short by a SolidWorks crash, see Infrastructure below.)
+
+**WP6 · Engineering numbers and design reuse** (S–M each, ⏳)
+- Scope:
+  - section properties of a face or a planar section (area, centroid, second moments, section moduli);
+  - cost estimates (machining, sheet metal, plastic, casting, 3D printing: material, manufacturing, setup and total, per
+    part and per lot);
+  - custom materials with given properties;
+  - Pack and Go (copy a part, assembly or drawing with all its references into a folder, with a prefix or suffix);
+  - comparing two revisions (geometry and features);
+  - a one-call health report (rebuild errors, under-defined sketches, mate errors, interference, suppressed features).
+- Tools: `model_section`, `model_cost {method, lotSize}`, `material_add` (a custom library), `doc_pack {folder, prefix,
+  suffix, includeDrawings}`, `model_compare {other}`, `model_review`.
+- API: `IModelDocExtension.GetSectionProperties2`; Costing (`IModelDocExtension.GetCostingManager` →
+  `ICostManager.CostingModel` → `ICostPart.CreateCostAnalysis`; `ICostAnalysis.GetTotalCostToManufacture`,
+  `GetMaterialCost`, `GetManufacturingCost`, `GetSetupCost`, `LotSize`); a `.sldmat` file in the Custom Materials folder;
+  `IModelDocExtension.GetPackAndGo` / `SavePackAndGo` (`IPackAndGo`: `GetDocumentNames`, `SetDocumentSaveToNames`,
+  `AddPrefix`, `AddSuffix`, `FlattenToSingleFolder`, `IncludeDrawings`); SOLIDWORKS Utilities (`ICompareGeometry`,
+  `ICompareFeature`, `ICompareDocument`).
+- Oracle: a rectangle's and a tube's section against b·h³/12 and π(D⁴ − d⁴)/64; costs positive, material ≈ mass ×
+  the template's price; Pack and Go copies open with references to the copies only; a compare finds a known change.
+
+**WP7 · Standard hardware** (S probe, then L; ⏳)
+- Scope: ISO screws, nuts, washers, pins and bearings in assemblies, fastened into holes (concentric and coincident
+  mates, many holes in one call).
+- **Probe first.** There is no Toolbox insertion API: the Toolbox Browser interop has only PDM events, `toolboxapi` is
+  the Toolbox configurator, and `IAssemblyDoc.UpdateToolboxComponent` only refreshes existing components. The 1,844
+  Toolbox master parts are on disk (`C:\SOLIDWORKS Data\browser\<standard>\…\*.sldprt`): try inserting a master with a
+  size configuration it already has, or adding one.
+- Fallback: generate the parts with this server's own tools from the standards' dimension tables (ISO 4762, 4014/4017,
+  4032, 7089, 8734, …) into a library folder, with custom properties for the BOM and cosmetic threads, and reuse them.
+- Tools: `asm_fastener {standard, size, lengthMm, holes:[…]}` inserts and mates them.
+- Oracle: dimensions against the table; each fastener concentric with its hole and seated on its face; BOM quantities.
+
+**WP8 · Top-down assembly design** (M–L, ⏳)
+- Scope: a new part designed in the assembly's context (a sketch on a component's face, references to other
+  components); editing a part in place; a multibody part saved as parts or as an assembly; derived (inserted) and
+  mirrored parts.
+- Tools: `asm_part_new {inContext}`, `asm_part_edit {component}` and its end, `body_save {bodies, asAssembly}`,
+  `part_derive {kind: insert | mirror}`.
+- API: `IAssemblyDoc.InsertNewVirtualPart`, `IAssemblyDoc.EditPart2`, `IFeatureManager.CreateSaveBodyFeature`
+  (`ISaveBodyFeatureData`), `IPartDoc.InsertPart3`, `IPartDoc.MirrorPart2`.
+- Oracle: the new geometry, in assembly space, meets the referenced faces; its external references are listed; the
+  saved bodies keep their volumes.
+
+**WP9 · Everyday modelling gaps** (S–M each, ⏳)
+- Scope: DXF/DWG into a sketch (legacy 2D data); sketch text (engraving, part marks); split lines (load regions,
+  partial faces); modelled threads; variable-radius, face and full-round fillets; fill and curve-driven patterns.
+- Tools: `sketch_import {path}`, `sketch_add {kind:"text"}`, `feature_split_line`, `feature_thread`, kinds for
+  `feature_fillet`, and fill and curve kinds for the pattern tools.
+- API: `IFeatureManager.InsertDwgOrDxfFile2`, `IModelDoc2.InsertSketchText`, `InsertSplitLineProject` /
+  `InsertSplitLineSil`, `IThreadFeatureData`, the fillet feature data (`swFmFillet`), `swFmFillPattern` (105),
+  `swFmCurvePattern` (103).
+- Oracle: imported segments and extents against the DXF (with the existing DXF reader); the text's bounds; the face
+  count after a split line; the thread's volume against its profile; pattern instance counts.
+
+**Tier 2 backlog** (after M8, as projects need it):
+- motion studies: range of motion, collisions while moving, motor torque, animation
+  (`IModelDocExtension.GetMotionStudyManager`);
+- manufacturability: wall thickness (Utilities `IThicknessAnalysis`), draft and undercut (DFMXpress is installed, but
+  no API was found);
+- mold tools: `InsertMoldPartingLine`, `InsertMoldShutOffSurface` (no tooling-split API found yet);
+- surfaces and curves: boundary and fill surfaces (`InsertFillSurface2`), trim and extend; projected, composite and
+  XYZ curves; wrap, dome, indent, flex;
+- FeatureWorks: features recognised on imported bodies (`IFeatureWorksApp`);
+- visuals: ray-traced renders (`ISldWorks.GetRayTraceRenderer`), 3D section views for screenshots
+  (`IModelViewManager.CreateSectionViewData`);
+- configurations: design tables (`InsertFamilyTableNew`, which needs Excel installed), display states, sensors;
+- assembly structure: `IAssemblyDoc.DissolveSubAssembly`, forming subassemblies, hole series
+  (`IHoleSeriesFeatureData`; no Smart Fasteners API found);
+- simulation extras: fatigue, nonlinear, reports, mesh convergence;
+- company templates and sheet formats chosen per call.
+
+**Tier 3** (separate products on the test machine; non-goals until a user asks): CAM toolpaths, Flow Simulation,
+Plastics, Routing (pipes, tubes, cables), Electrical 3D, Inspection (first-article reports), DimXpert/MBD and 3D PDF,
+TolAnalyst stack-ups, PDM vault operations, Visualize, Composer, Sustainability, Design Checker, glTF/XR export and
+DriveWorksXpress.
+
+**Infrastructure.**
+- Batch operations in one call (export, properties and checks over a whole assembly) are the biggest efficiency gain
+  for agents; WP3 starts them.
+- Versions other than 2025 SP1.2 are untested: collect results from users before a binary release (§10).
+- `vba_run` robustness: on 2026-10-24 the macro engine reported a suspended macro in a fresh session, and SolidWorks
+  then crashed on exit (fault module `vbe7`). Find the cause; at least detect the state and recommend a restart.
+- Signed builds (Smart App Control) and large-assembly defaults (lightweight, SpeedPak via
+  `IConfigurationManager.AddSpeedPak2`).
+
+**New golden scenarios.** A toleranced drawing (WP1, WP2) and a release package (WP3) join §6.4, each with a call budget
+and an exact oracle.
+
+**Resuming.** Start with WP1 and mark each package ✅ here as it lands. The verified recipes go into the API notes as
+usual. The add-in help can be extracted again with `hh.exe -decompile <folder> <file>.chm` after copying the `.chm` out
+of `Program Files` to a folder without spaces; the output never goes into the repository (§8).
 
 ---
 
@@ -698,5 +869,5 @@ at merge. The catalog test catches duplicate names. Live testing is serialized: 
 | Non-English installs | Plane aliases resolved by geometry; view ids instead of names; file locations from preferences. |
 
 ## 10. Future work
-HTTP transport, add-in mode, design tables, mold tools, motion, rendering, PDM, signed binary releases with a computed
-API floor.
+HTTP transport, add-in mode, PDM, signed binary releases with a computed API floor. Design tables, mold tools, motion
+and rendering are in M8's Tier 2 (§7.2).

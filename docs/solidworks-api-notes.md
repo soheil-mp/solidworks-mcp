@@ -585,6 +585,7 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
 - **Oracle.** A 100 × 10 × 10 AISI 1020 cantilever fixed at x = 0 with 0.1 MPa on top gives σvM max 32.04 MPa (beam theory
   30) and δmax 0.07530 mm (theory 0.075).
 - **Cleanup.** `ISldWorks.UnloadAddIn(path)`. Closing a document that has studies prompts "save Simulation data?".
+- **Beyond static** (other study types, fixtures, loads, connectors, contacts, plots): the API survey in §17.
 
 ## 15. VBA engine facts (for `vba_run`)
 - **Format and runner.** `RunMacro2(path, module, proc, 0, out err)` runs plain-text `.swb` files written in SolidWorks
@@ -606,6 +607,11 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
 
   Recovery: reset the VBA project or restart SOLIDWORKS. `vba_run` detects this with a canary macro and says so,
   instead of reporting a syntax error. Always use `Set` for object assignments.
+- **The engine can also be wedged before any macro ran** (seen 2026-10-24). In a session restarted before a live-test
+  run that uses no VBA, the first `vba_run` found the canary failing. Closing SOLIDWORKS then crashed it ("SOLIDWORKS
+  Error Report", `SLDEXITAPP.exe`, fault module `vbe7`). While that report window is open, starting SOLIDWORKS fails
+  with `CO_E_SERVER_EXEC_FAILURE` (0x80080005): the report has to be closed first (it offers to send the report, so a
+  person decides). Cause unknown; see M8's infrastructure items (DESIGN §7.2).
 - `Print #` output is ANSI. The `vba_run` wrapper's `Echo` escapes non-ASCII characters as `\uXXXX`, and string
   literals with non-ASCII characters are rewritten to `ChrW()`, so the macro file is pure ASCII.
 
@@ -617,3 +623,61 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   - `Microsoft Visual Basic` (run-time error: Continue/End/Debug/Help);
   - `Modify` (dimension);
   - `Simulation` ("Do you want to save Simulation data?", Yes/No).
+
+## 17. Add-in and extended APIs (survey of 2026-10-24, for M8)
+Names checked against the 2025 help and the interop assemblies; behaviour **UNVERIFIED** unless a line says otherwise.
+The plan that uses them is DESIGN §7.2.
+- **Where.** The help is `<SOLIDWORKS>\api\*.chm` (core, Simulation `cworksapi`, Costing, Motion, Utilities, DimXpert,
+  FeatureWorks, Design Checker, Inspection, Toolbox, Routing, Visualize, 3D printing, Document Manager, PDM, eDrawings,
+  Sustainability); the interop assemblies are in `api\redist`.
+- **On the test machine** (Premium 2025 SP1.2): CAM, Flow Simulation, Plastics, Inspection, Visualize, Electrical,
+  Composer, PDM, Manage and eDrawings are installed as products. The SOLIDWORKS folder also holds Toolbox, Utilities
+  (`sldutils`), DFMXpress, DriveWorksXpress, FloXpress, ScanTo3D, FeatureWorks (`fworks`), Design Checker (`dsgnchk`),
+  the Animator and the ray-trace renderer (`sldraytracerenderu.dll`).
+- **Add-in ids.** Simulation is `{081FC34C-496D-42E2-8A3D-E885172C6BCB}` (`Simulation\cosworks.dll`); SOLIDWORKS CAM
+  is `{CCAC6208-0E19-6455-2022-2025CEB541FA}` (`SOLIDWORKS CAM\cwaddinu.dll`). Start-up flags live in
+  `HKCU\SOFTWARE\SolidWorks\AddInsStartup`; this server never writes them (it uses `LoadAddIn`/`UnloadAddIn`).
+- **Toolbox: no insertion API.** `SolidWorks.Interop.swbrowser` exposes only `IApplication` and `IPDMDocManager`
+  (PDM document events); `toolboxapi.chm` documents the configurator (`IToolBoxConfiguratorApplication`);
+  `IAssemblyDoc.UpdateToolboxComponent(level)` refreshes existing Toolbox components from the Toolbox settings;
+  `IModelDocExtension.ToolboxPartType` reads or sets whether a part is a Toolbox part. The master parts are plain
+  files: 1,844 `.sldprt` under `C:\SOLIDWORKS Data\browser\<standard>\<category>\…` (ISO, DIN, ANSI, SKF, …).
+- **Costing** (`sldcostingapi`). `IModelDocExtension.GetCostingManager` → `ICostManager` (`CostingModel`,
+  `GetTemplatePathnames`) → `ICostPart` (`CreateCostAnalysis`, `GetCostAnalysis`, `SetCostingMethod`, the bodies) →
+  `ICostAnalysis` (`GetTotalCostToManufacture`, `GetTotalCostToCharge`, `GetMaterialCost`, `GetManufacturingCost`,
+  `GetSetupCost`, `LotSize`, `TotalQuantity`, `GetSpecificAnalysis`), with the specific analyses
+  `ICostAnalysisMachining`, `…SheetMetal`, `…Plastic`, `…Casting`, `…3dPrinting` and `…Structural`.
+- **Motion** (`swmotionstudy`). `IModelDocExtension.GetMotionStudyManager` → `IMotionStudyManager` → `IMotionStudy`,
+  with results and plots (`IMotionStudyResults`, `IMotionPlotFeatureOutput`) and AVI output (`IAVIParameter`).
+- **Utilities** (`gtswutilities`). `IUtilities` → `ICompareDocument`, `ICompareFeature`, `ICompareGeometry`
+  (`CompareGeometry3`, `SaveCompareVolumeResults`), `IGeometryAnalysis`, `IThicknessAnalysis`, `IPowerSelect`,
+  `IFeaturePaint`, `IFindReplaceAnnotations`.
+- **Others.** FeatureWorks `IFeatureWorksApp`; Design Checker `ISWDesignCheck`; Inspection (`IInspectionAddinMgr`,
+  `IInspectionProject`, characteristics and balloon settings); Visualize (`IVisualizeAddin`, render options); 3D printing
+  `ISw3DPrinter`; Sustainability `IModelDocExtension.GetSustainability`. No API was found for DFMXpress or Smart
+  Fasteners.
+- **Simulation beyond static** (`cosworks`).
+  - Study types (`swsAnalysisStudyType_e`): 0 static, 1 frequency, 2 buckling, 3 thermal, 4 optimization,
+    5 nonlinear, 6 drop test, 7 fatigue, 8 dynamic, 9 pressure vessel, 13 topology. Which ones the licence allows is
+    unverified: frequency, buckling and thermal may need Simulation Professional.
+  - Fixtures (`swsRestraintType_e`): 0 fixed, 1 immovable, 2 symmetric, 3 roller, 4 hinge, 5 reference geometry,
+    6 flat face, 7 cylindrical faces, 8 spherical surface, 9 cyclic symmetry.
+  - `ICWLoadsAndRestraintsManager`: `AddForce3`, `AddPressure`, `AddGravity`, `AddCentrifugalForce`, `AddBearingLoad`,
+    `AddRemoteLoad`, `AddTemperature`, `AddConvection`, `AddHeatFlux`, `AddHeatPower`, `AddRadiation`,
+    `AddPrescribedDisplacement`, and the connectors `AddBoltConnector`, `AddPinConnector`, `AddSpringConnector`,
+    `AddBearingConnector`, `AddRigidConnector`, `AddSpotWeldConnector`, `AddEdgeWeldConnector`.
+  - `ICWContactManager`: `SetGlobalContact`, `CreateContactSet2`, `FindTouchingFacePairs`. `ICWMesh.ApplyMeshControl`.
+  - `ICWResults`: `GetResonantFrequencies`, `GetBucklingLoadFactors`, `GetMinMaxFactorOfSafety2`, `GetMinMaxThermal`,
+    `GetConnectorForces2`, `GetContactForcesAndFriction`, `CreatePlot`, `CreateStressHotSpotPlot`; `ICWPlot`:
+    `SetFOSPlot`, `SetModeShape`, `GetResultsProbeManager`.
+- **Core API for M8** (present in 2025): `IDimensionTolerance` (`Type`, `SetValues2`, `SetFitValues`),
+  `IDrawingDoc.AddHoleCallout2`, `NewSheet4`, `CreateFlatPatternViewFromModelView3`, `InsertBreakHorizontal`,
+  `CreateAuxiliaryViewAt2`, `CreateBreakOutSection`, `IView.InsertWeldmentTable`, `IModelDoc2.InsertWeldSymbol3`,
+  `IBomTableAnnotation.SaveAsExcel`, `ITableAnnotation.SaveAsText2`, `IConfiguration.GetCutListItems`, `IBodyFolder`,
+  `InsertWeldmentTrimFeature2`, `InsertEndCapFeature3`, `InsertGussetFeature3`, `InsertFilletBeadFeature3`,
+  `GetSectionProperties2`, `GetPackAndGo` / `SavePackAndGo` (`IPackAndGo`), `InsertNewVirtualPart`, `EditPart2`,
+  `CreateSaveBodyFeature`, `IPartDoc.InsertPart3`, `IPartDoc.MirrorPart2`, `InsertDwgOrDxfFile2`, `InsertSketchText`,
+  `InsertSplitLineProject` / `InsertSplitLineSil`, `IThreadFeatureData`, `swFmFillPattern` (105), `swFmCurvePattern`
+  (103), `InsertMoldPartingLine`, `InsertMoldShutOffSurface`, `InsertFillSurface2`, `ISldWorks.GetRayTraceRenderer`,
+  `IModelViewManager.CreateSectionViewData`, `InsertFamilyTableNew`, `IAssemblyDoc.DissolveSubAssembly`,
+  `IHoleSeriesFeatureData`, `IConfigurationManager.AddSpeedPak2`.
