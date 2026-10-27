@@ -1,3 +1,6 @@
+
+[![M8ven Score](https://m8ven.ai/badge/mcp/soheil-mp-solidworks-mcp-1iko97)](https://m8ven.ai/mcp/soheil-mp-solidworks-mcp-1iko97?s=readme)
+
 # solidworks-mcp
 
 An MCP server that lets AI agents (Claude Code, Claude Desktop and other MCP clients) drive a running SOLIDWORKS.
