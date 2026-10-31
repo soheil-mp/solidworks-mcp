@@ -255,6 +255,76 @@ public class SimulationMathTests
         Assert.Contains("license", SimulationMath.RunHint(22));
         Assert.Equal("0,-1,0", SimulationMath.Vector(new Vec3(0, -1, 0)));
     }
+
+    [Fact]
+    public void Natural_frequencies_come_in_groups_of_mode_rad_per_s_hertz_and_period()
+    {
+        double f1 = 203.29, f2 = 1259.34;
+        Assert.Equal([f1, f2], SimulationMath.Frequencies([1, 2 * Math.PI * f1, f1, 1 / f1, 2, 2 * Math.PI * f2, f2, 1 / f2]));
+        Assert.Equal([0.0], SimulationMath.Frequencies([1, 0, 0, 0])); // a rigid-body mode
+        // A misread array: not groups of four, modes out of order, or rad/s that isn't 2π·Hz.
+        Assert.Equal(ErrorCodes.VerifyFailed, Assert.Throws<SwException>(() => SimulationMath.Frequencies([1, 2, 3])).Code);
+        Assert.Equal(ErrorCodes.VerifyFailed, Assert.Throws<SwException>(() => SimulationMath.Frequencies([2, 2 * Math.PI, 1, 1])).Code);
+        Assert.Equal(ErrorCodes.VerifyFailed, Assert.Throws<SwException>(() => SimulationMath.Frequencies([1, 100, 1, 1])).Code);
+        Assert.Equal(ErrorCodes.VerifyFailed, Assert.Throws<SwException>(() => SimulationMath.Frequencies(null)).Code);
+    }
+
+    [Fact]
+    public void Buckling_load_factors_come_plain_or_in_mode_pairs()
+    {
+        Assert.Equal([10.2848], SimulationMath.LoadFactors([10.2848], 1));
+        Assert.Equal([10.28, 92.5], SimulationMath.LoadFactors([1, 10.28, 2, 92.5], 2));
+        Assert.Equal([3.0, 4.0], SimulationMath.LoadFactors([3, 4], 2)); // two plain factors aren't a pair
+        Assert.Equal(ErrorCodes.VerifyFailed, Assert.Throws<SwException>(() => SimulationMath.LoadFactors([], 1)).Code);
+        Assert.Equal(ErrorCodes.VerifyFailed, Assert.Throws<SwException>(() => SimulationMath.LoadFactors([double.NaN], 1)).Code);
+    }
+
+    [Fact]
+    public void Gravity_takes_a_direction_and_g_and_no_faces()
+    {
+        var g = SimulationMath.ParseLoad(new SimLoad { Kind = "gravity", Direction = JsonDocument.Parse("\"-y\"").RootElement.Clone() }, 0);
+        Assert.Equal(SimLoadKind.Gravity, g.Kind);
+        Assert.Equal(9.80665, g.Value, 1e-12);
+        Assert.Equal(new Vec3(0, -1, 0), g.Direction);
+        var ten = SimulationMath.ParseLoad(new SimLoad { ValueG = 10, Direction = JsonDocument.Parse("[0,0,-1]").RootElement.Clone() }, 0);
+        Assert.Equal(SimLoadKind.Gravity, ten.Kind); // the kind follows from valueG
+        Assert.Equal(98.0665, ten.Value, 1e-9);
+        foreach (var bad in new[]
+                 {
+                     new SimLoad { Kind = "gravity" }, // no direction
+                     new SimLoad { Kind = "gravity", Direction = JsonDocument.Parse("\"-y\"").RootElement.Clone(), Faces = [new EntityRef { At = [0, 0, 0] }] },
+                     new SimLoad { Kind = "gravity", Direction = JsonDocument.Parse("\"-y\"").RootElement.Clone(), ValueN = 5 },
+                     new SimLoad { Kind = "force", ValueN = 5, ValueG = 1, Faces = [new EntityRef { At = [0, 0, 0] }] },
+                 })
+            Assert.Equal(ErrorCodes.InvalidArgument, Assert.Throws<SwException>(() => SimulationMath.ParseLoad(bad, 0)).Code);
+    }
+
+    [Fact]
+    public void Fixtures_map_to_restraint_types_and_the_faces_they_need()
+    {
+        EntityRef[] face = [new EntityRef { At = [100, 5, 5] }];
+        var f = SimulationMath.ParseFixtures(face, [
+            new SimFixture { Kind = "roller", Faces = face }, new SimFixture { Kind = "symmetry", Faces = face }, new SimFixture { Kind = "hinge", Faces = face },
+        ]);
+        Assert.Equal(["fixed", "roller", "symmetry", "hinge"], f.Select(x => x.Kind));
+        Assert.Equal([0, 3, 2, 4], f.Select(x => x.Code)); // swsRestraintType_e
+        Assert.Equal([null, "plane", "plane", "cylinder"], f.Select(x => x.Surface));
+        Assert.Equal("fixtures[1]", f[2].Arg);
+        Assert.Empty(SimulationMath.ParseFixtures(null, null));
+        Assert.Equal(ErrorCodes.InvalidArgument, Assert.Throws<SwException>(() => SimulationMath.ParseFixtures(null, [new SimFixture { Kind = "glue", Faces = face }])).Code);
+        Assert.Equal(ErrorCodes.InvalidArgument, Assert.Throws<SwException>(() => SimulationMath.ParseFixtures(null, [new SimFixture { Kind = "roller" }])).Code);
+    }
+
+    [Fact]
+    public void Modal_study_types_and_their_default_names()
+    {
+        Assert.Equal("frequency", SimulationMath.ModalType("Modal"));
+        Assert.Equal("buckling", SimulationMath.ModalType(" buckling "));
+        Assert.Equal(ErrorCodes.InvalidArgument, Assert.Throws<SwException>(() => SimulationMath.ModalType("static")).Code);
+        Assert.StartsWith("MCP Frequency ", SimulationMath.StudyName(null, "MCP Frequency"));
+        Assert.Empty(SimulationMath.ParseLoads(null, allowNone: true));
+        Assert.Equal(ErrorCodes.InvalidArgument, Assert.Throws<SwException>(() => SimulationMath.ParseLoads([])).Code);
+    }
 }
 
 /// <summary>The dialog rules of sim_static and sim_delete: progress windows are tolerated, prompts and errors are not.</summary>

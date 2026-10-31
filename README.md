@@ -4,7 +4,7 @@
 # solidworks-mcp
 
 An MCP server that lets AI agents (Claude Code, Claude Desktop and other MCP clients) drive a running SOLIDWORKS.
-With its 135 tools, agents can sketch and model parts (extrudes, revolves, sweeps, lofts, holes, patterns, shells,
+With its 136 tools, agents can sketch and model parts (extrudes, revolves, sweeps, lofts, holes, patterns, shells,
 surfaces, sheet metal, weldment frames), edit imported bodies directly (delete, offset and move faces), build assemblies with mates (also limit, symmetric, width, hinge, gear and rack mates) and component patterns, make drawings with views, dimensions, GD&T, balloons and tables, import and export
 (STEP, IGES, STL, Parasolid, PDF, DXF …), run static stress studies, and inspect, measure and screenshot the result. It
 is written in C# against SolidWorks' official COM API.
@@ -96,7 +96,7 @@ Integrity event 3077). When the exe is blocked, `tools\install.ps1` registers th
 again: it publishes a new binary, which gets a new verdict. Signed releases will avoid this.
 
 ## Tools
-135 tools in 15 toolsets. The full, current list with parameters is in [`docs/tools.md`](docs/tools.md), generated from
+136 tools in 15 toolsets. The full, current list with parameters is in [`docs/tools.md`](docs/tools.md), generated from
 the server.
 
 | Toolset | Tools |
@@ -114,12 +114,12 @@ the server.
 | drawing (16) | sheets (setup, more sheets), standard/projected/section/detail/auxiliary/flat-pattern views, broken views and broken-out sections, model dimensions, dimensions, hole callouts, notes, BOM, center marks, datums, surface finish, tolerance frames, weld symbols, balloons, hole, cut-list and revision tables, info |
 | export (2) | `model_export`: STEP (AP203/214/242), IGES, Parasolid, STL, 3MF, images, eDrawings; PDF/DWG/DXF from drawings. `model_export_all`: a release package (a STEP per model, a PDF per drawing, a flat DXF per sheet-metal part, the BOM) |
 | properties (13) | materials, custom properties, equations, configurations, appearance |
-| simulation (3) | `sim_static` (fixtures, pressure/force, mesh, von Mises, displacement, safety factor), `sim_list`, `sim_delete` |
+| simulation (4) | `sim_static` (fixed, roller, symmetry and hinge fixtures; pressure, force and gravity loads; mesh, von Mises, displacement, safety factor, reactions), `sim_run` (natural frequencies, buckling load factors), `sim_list`, `sim_delete` |
 | automation (1) | `vba_run` (off by default) |
 
 ### Live test status
 Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check the result against an exact answer
-(volumes, positions, angles, file headers, restored system options). All 369 pass:
+(volumes, positions, angles, file headers, restored system options). All 374 pass:
 
 | Area | Live tests |
 |---|---|
@@ -136,7 +136,7 @@ Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check th
 | Weldments (members, cut lists, trims, end caps, gussets, weld beads) | 10 |
 | Assembly (including component patterns, mirror, opposite hands, mechanical mates, exploded views, BOMs and release packages) | 27 |
 | Drawing (including GD&T, weld symbols, balloons, hole callouts, flat-pattern, auxiliary and broken views, hole, cut-list and revision tables) | 35 |
-| Simulation (static) | 9 |
+| Simulation (static, gravity, guided fixtures, frequency, buckling) | 14 |
 
 The golden scenarios in `tools/mcp_smoke.py` (drawing, plate, enclosure, edit, assembly, sheet metal) run through the
 real MCP protocol within their call budgets, each with an exact oracle (volumes, interference, inserted dimensions, a

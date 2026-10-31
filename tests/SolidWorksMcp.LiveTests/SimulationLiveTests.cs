@@ -74,6 +74,40 @@ public class SimulationLiveTests(LiveFixture fx) : LiveTest(fx)
         }
     }
 
+    /// <summary>sim_run frequency / buckling with the same safety net as <see cref="StaticAsync"/>.</summary>
+    private async Task<SimModesResult> ModesAsync(SimStaticRequest q, string type)
+    {
+        try
+        {
+            return await Sim.ModesAsync(q, type);
+        }
+        catch (SwException ex) when (ex.Code is ErrorCodes.DialogBlocking or ErrorCodes.Timeout)
+        {
+            string seen = await DismissDialogsAsync();
+            Assert.Fail($"sim_run {type} ended with {ex.ToAgentText()} Dialogs dismissed by the test: {seen}");
+            throw;
+        }
+    }
+
+    /// <summary>A 10 × 10 × 200 mm AISI 1020 bar standing on the top plane (y 0..200): the column of the modal tests.</summary>
+    private async Task<string> ColumnAsync(string name)
+    {
+        string doc = await NewPartAsync(name);
+        var sk = new SketchService(S);
+        await sk.StartAsync(doc, new EntityRef { Name = "top" }, false);
+        await sk.AddAsync(doc, [new SketchEntity { Kind = "rectangle", Center = [0, 0], WidthMm = 10, HeightMm = 10 }]);
+        var r = await new FeatureService(S).ExtrudeAsync(new ExtrudeRequest { Doc = doc, DepthMm = 200 });
+        Assert.Equal(20000, r.Verified.VolumeDeltaMm3, 1e-3);
+        Assert.Equal("AISI 1020", (await new PropertiesService(S).MaterialSetAsync(doc, "AISI 1020")).Material);
+        return doc;
+    }
+
+    // The column as a beam: E = 200 GPa, ρ = 7900 kg/m³, I = 10⁴/12 mm⁴, A = 100 mm², L = 200 mm.
+    private static readonly double ColumnRoot = Math.Sqrt(200e9 * (1e-8 / 12) / (7900 * 1e-4 * Math.Pow(0.2, 4)));
+
+    private static readonly EntityRef Foot = new() { At = [0, 0, 0] };
+    private static readonly EntityRef Head = new() { At = [0, 200, 0] };
+
     private async Task<string> DismissDialogsAsync()
     {
         var seen = new List<string>();
@@ -94,6 +128,121 @@ public class SimulationLiveTests(LiveFixture fx) : LiveTest(fx)
             await Task.Delay(1000);
         }
         return seen.Count == 0 ? "none" : string.Join("; ", seen.Distinct());
+    }
+
+    // ------------------------------------------------------------------ gravity and fixtures
+
+    [Fact]
+    public async Task Gravity_bends_the_cantilever_by_its_own_weight_and_the_fixture_carries_that_weight()
+    {
+        string doc = await CantileverAsync("sim_gravity");
+        bool addinBefore = await AddinLoadedAsync(doc);
+        // 10 g on 7900 kg/m³ × 10 cm³: w = ρ·10g·A = 77.47 N/m, δ = wL⁴/(8EI) = 0.00581 mm; the fixture holds 10 × 0.775 N.
+        double w = 7900 * 10 * 9.80665 * 1e-4, delta = w * Math.Pow(0.1, 4) / (8 * 200e9 * (1e-8 / 12)) * 1000;
+        var r = await StaticAsync(new SimStaticRequest
+        {
+            Doc = doc, FixedFaces = [FixedEnd], Loads = [new SimLoad { Kind = "gravity", ValueG = 10, Direction = Json("\"-y\"") }],
+        });
+        Assert.Equal(delta, r.MaxDisplacementMm, delta * 0.05);
+        Assert.Equal("gravity", Assert.Single(r.Loads).Kind);
+        Assert.Equal(98.0665, r.Loads[0].AccelerationMs2!.Value, 1e-6);
+        Assert.True(r.Reactions?.Balanced, "the fixture reactions must carry the weight");
+        Assert.Equal(-w * 0.1, r.Reactions!.LoadsN![1], 1e-3);
+        Assert.Contains(r.Checks, c => c.StartsWith("weight [0, -7.747, 0] N", StringComparison.Ordinal));
+        await AssertCleanAsync(doc, addinBefore);
+    }
+
+    [Fact]
+    public async Task Symmetry_or_a_roller_on_the_free_end_guides_it_so_it_bends_a_quarter_as_much()
+    {
+        // Fixed at x = 0, the end x = 100 kept from moving along x: a guided cantilever, δ = PL³/(12EI) = 0.25 mm for 500 N
+        // (+ about 3 % from shear), a quarter of the free cantilever's PL³/(3EI) = 1 mm.
+        string doc = await CantileverAsync("sim_guided");
+        bool addinBefore = await AddinLoadedAsync(doc);
+        var down = new SimLoad { Kind = "force", Faces = [FreeEnd], ValueN = 500, Direction = Json("[0,-1,0]") };
+        var sym = await StaticAsync(new SimStaticRequest
+        {
+            Doc = doc, FixedFaces = [FixedEnd], Fixtures = [new SimFixture { Kind = "symmetry", Faces = [FreeEnd] }], Loads = [down],
+        });
+        Assert.InRange(sym.MaxDisplacementMm, 0.25, 0.27);
+        Assert.Contains(sym.Checks, c => c.StartsWith("symmetry fixture on 1 face(s) accepted", StringComparison.Ordinal));
+        Assert.Equal(2, sym.FixedFaces);
+        var roller = await StaticAsync(new SimStaticRequest
+        {
+            Doc = doc, FixedFaces = [FixedEnd], Fixtures = [new SimFixture { Kind = "roller", Faces = [FreeEnd] }], Loads = [down],
+        });
+        Assert.Equal(sym.MaxDisplacementMm, roller.MaxDisplacementMm, sym.MaxDisplacementMm * 0.01); // on a solid's face both hold the normal
+        Assert.True(roller.Reactions?.Balanced);
+        // A hinge turns about a cylinder's axis: a flat face is refused before any study.
+        var hinge = await Assert.ThrowsAsync<SwException>(() => Sim.StaticAsync(new SimStaticRequest
+        {
+            Doc = doc, FixedFaces = [FixedEnd], Fixtures = [new SimFixture { Kind = "hinge", Faces = [FreeEnd] }], Loads = [down],
+        }));
+        Assert.Equal(ErrorCodes.InvalidArgument, hinge.Code);
+        await AssertCleanAsync(doc, addinBefore);
+    }
+
+    // ------------------------------------------------------------------ sim_run: frequency and buckling
+
+    [Fact]
+    public async Task Frequency_of_the_cantilever_column_matches_beam_theory_and_a_free_bar_has_six_rigid_body_modes()
+    {
+        string doc = await ColumnAsync("sim_freq");
+        bool addinBefore = await AddinLoadedAsync(doc);
+        // Cantilever: f = (βL)²/(2π) · √(EI/(ρAL⁴)), βL = 1.8751 for the first bending mode (twice: the section is square).
+        double f1 = 1.8751 * 1.8751 / (2 * Math.PI) * ColumnRoot; // 203.2 Hz
+        var r = await ModesAsync(new SimStaticRequest { Doc = doc, FixedFaces = [Foot], Modes = 4, MeshSizeMm = 2.5 }, "frequency");
+        Assert.Equal("frequency", r.Type);
+        Assert.Equal(4, r.FrequenciesHz!.Count);
+        Assert.Equal(f1, r.FrequenciesHz[0], f1 * 0.015);
+        Assert.Equal(f1, r.FrequenciesHz[1], f1 * 0.015);
+        // The second bending pair: Euler-Bernoulli gives 6.27 f1; shear and rotary inertia bring a 20:1 bar a little lower.
+        Assert.InRange(r.FrequenciesHz[2] / r.FrequenciesHz[0], 6.0, 6.3);
+        Assert.Contains(r.Checks, c => c.StartsWith("4 natural frequencies asked for (read back)", StringComparison.Ordinal));
+        await AssertCleanAsync(doc, addinBefore);
+
+        // Free-free: six rigid-body modes at 0 Hz, then the first free bending mode, βL = 4.7300.
+        var free = await ModesAsync(new SimStaticRequest { Doc = doc, Modes = 8 }, "frequency");
+        Assert.Equal(6, free.FrequenciesHz!.Count(f => f < 1));
+        Assert.Equal(4.73 * 4.73 / (2 * Math.PI) * ColumnRoot, free.FrequenciesHz[6], 1292.9 * 0.02);
+        Assert.Contains(free.Checks, c => c.StartsWith("six rigid-body modes below 1 Hz", StringComparison.Ordinal));
+        await AssertCleanAsync(doc, addinBefore);
+    }
+
+    [Fact]
+    public async Task Buckling_of_the_fixed_free_column_matches_euler()
+    {
+        string doc = await ColumnAsync("sim_buckle");
+        bool addinBefore = await AddinLoadedAsync(doc);
+        // Euler, fixed at the foot and free at the head: P = π²EI/(2L)² = 10.28 kN, so 1 kN gives a load factor of 10.28.
+        double factor = Math.PI * Math.PI * 200e9 * (1e-8 / 12) / Math.Pow(2 * 0.2, 2) / 1000;
+        var r = await ModesAsync(new SimStaticRequest
+        {
+            Doc = doc, FixedFaces = [Foot], MeshSizeMm = 2.5,
+            Loads = [new SimLoad { Kind = "force", Faces = [Head], ValueN = 1000, Direction = Json("[0,-1,0]") }],
+        }, "buckling");
+        Assert.Equal("buckling", r.Type);
+        Assert.Equal(factor, Assert.Single(r.LoadFactors!), factor * 0.02);
+        Assert.Contains(r.Checks, c => c.Contains("it buckles at", StringComparison.Ordinal));
+        await AssertCleanAsync(doc, addinBefore);
+    }
+
+    [Fact]
+    public async Task Sim_run_refuses_loads_on_a_frequency_study_and_a_buckling_study_without_loads_before_any_study()
+    {
+        string doc = await ColumnAsync("sim_run_bad");
+        bool addinBefore = await AddinLoadedAsync(doc);
+        var loads = new[] { new SimLoad { Kind = "force", Faces = [Head], ValueN = 1000, Direction = Json("[0,-1,0]") } };
+        foreach (var (q, type) in new[]
+                 {
+                     (new SimStaticRequest { Doc = doc, FixedFaces = [Foot], Loads = loads }, "frequency"),
+                     (new SimStaticRequest { Doc = doc, FixedFaces = [Foot] }, "buckling"),
+                     (new SimStaticRequest { Doc = doc, Loads = loads }, "buckling"),
+                     (new SimStaticRequest { Doc = doc, FixedFaces = [Foot], Modes = 0 }, "frequency"),
+                     (new SimStaticRequest { Doc = doc, FixedFaces = [Foot] }, "thermal"),
+                 })
+            Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() => Sim.ModesAsync(q, type))).Code);
+        await AssertCleanAsync(doc, addinBefore);
     }
 
     // ------------------------------------------------------------------ sim_static: oracles

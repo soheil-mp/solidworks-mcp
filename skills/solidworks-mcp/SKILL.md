@@ -171,7 +171,12 @@ legsMm:[50,50]}` and `{kind:"bead", faces:[…], faces2:[…], sizeMm:4}` (a wel
 **Stress check.** `sim_static {material:"AISI 1020", fixedFaces:[{at:[0,5,5]}],
 loads:[{kind:"pressure", faces:[{at:[50,10,5]}], valueMpa:0.1}]}` meshes, solves and returns the maximum von Mises
 stress (MPa), displacement (mm) and factor of safety. It can take minutes; the study is deleted afterwards unless
-`keepStudy:true`. Explain to the user that this is a linear static estimate.
+`keepStudy:true`. Explain to the user that this is a linear static estimate. Self-weight: `{kind:"gravity",
+direction:"-y"}` (valueG, default 1); supports that only stop motion normal to a flat face: `fixtures:[{kind:"roller",
+faces:[…]}]`, a cut model's symmetry plane `{kind:"symmetry"}`, a pin hole `{kind:"hinge"}` (cylindrical faces).
+Vibration: `sim_run {type:"frequency", fixedFaces:[…], modes:5}` gives the natural frequencies (Hz; without fixtures six
+rigid-body modes come first). Buckling: `sim_run {type:"buckling", fixedFaces:[…], loads:[…the compressive load…]}`
+gives the load factor: the load times it buckles the part (below 1, the load already does).
 
 ## More help
 - `sw_help` explains the conventions and gives step-by-step recipes for common parts.

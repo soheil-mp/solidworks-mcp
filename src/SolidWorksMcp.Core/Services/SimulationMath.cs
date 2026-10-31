@@ -10,13 +10,13 @@ namespace SolidWorksMcp.Core.Services;
 // validation, the mesh-size guard, the force bookkeeping (components, applied resultant, reaction balance) and the
 // interpretation of what the Simulation API returns.
 
-/// <summary>One load of sim_static: a pressure normal to faces, or a force (normal, or along a model direction).</summary>
+/// <summary>One load of sim_static: a pressure normal to faces, a force (normal, or along a model direction), or gravity.</summary>
 public sealed class SimLoad
 {
-    [Description("pressure | force (default: from valueMpa / valueN).")]
+    [Description("pressure | force | gravity (default: from valueMpa / valueN / valueG).")]
     public string? Kind { get; set; }
 
-    [Description("Faces the load acts on.")]
+    [Description("Faces the load acts on (not for gravity: it acts on the whole part).")]
     public EntityRef[]? Faces { get; set; }
 
     [Description("pressure: MPa (N/mm²), > 0.")]
@@ -25,8 +25,21 @@ public sealed class SimLoad
     [Description("force: N, > 0, the total over its faces.")]
     public double? ValueN { get; set; }
 
-    [Description("\"normal\" (default: pushes into each face) or, for a force, a model direction [x,y,z] or \"-y\".")]
+    [Description("gravity: in g (default 1 = 9.80665 m/s²).")]
+    public double? ValueG { get; set; }
+
+    [Description("\"normal\" (default: pushes into each face) or, for a force or gravity, a model direction [x,y,z] or \"-y\".")]
     public JsonElement? Direction { get; set; }
+}
+
+/// <summary>A fixture of sim_static / sim_run beyond fixedFaces.</summary>
+public sealed class SimFixture
+{
+    [Description("fixed | roller (no motion normal to flat faces) | symmetry (a flat symmetry plane) | hinge (cylindrical faces turn about their axis).")]
+    public string? Kind { get; set; }
+
+    [Description("The faces it holds.")]
+    public EntityRef[]? Faces { get; set; }
 }
 
 /// <summary>sim_static options (validated again by the service).</summary>
@@ -34,6 +47,8 @@ public sealed record SimStaticRequest
 {
     public string? Doc { get; init; }
     public IReadOnlyList<EntityRef>? FixedFaces { get; init; }
+    /// <summary>More fixtures: roller, symmetry, hinge (and fixed).</summary>
+    public IReadOnlyList<SimFixture>? Fixtures { get; init; }
     public IReadOnlyList<SimLoad>? Loads { get; init; }
     /// <summary>Material to assign before the study (null = keep the part's material).</summary>
     public string? Material { get; init; }
@@ -41,6 +56,8 @@ public sealed record SimStaticRequest
     public double? MeshSizeMm { get; init; }
     public bool KeepStudy { get; init; }
     public string? StudyName { get; init; }
+    /// <summary>sim_run frequency / buckling: how many modes (default 5 natural frequencies, 1 buckling mode).</summary>
+    public int? Modes { get; init; }
 
     /// <summary>
     /// Live tests only (not reachable from the tool): run a study without a fixture, so the solver's own refusal and the
@@ -49,14 +66,20 @@ public sealed record SimStaticRequest
     internal bool AllowNoFixtures { get; init; }
 }
 
-internal enum SimLoadKind { Pressure, Force }
+internal enum SimLoadKind { Pressure, Force, Gravity }
 
-/// <summary>A validated load: <see cref="Value"/> in SI (Pa for a pressure, N for a force); <see cref="Direction"/> null = normal.</summary>
+/// <summary>
+/// A validated load: <see cref="Value"/> in SI (Pa for a pressure, N for a force, m/s² for gravity); <see cref="Direction"/>
+/// null = normal.
+/// </summary>
 internal sealed record SimLoadSpec(int Index, SimLoadKind Kind, IReadOnlyList<EntityRef> Faces, double Value, Vec3? Direction)
 {
     public string Arg => $"loads[{Index}]";
-    public string KindName => Kind == SimLoadKind.Pressure ? "pressure" : "force";
+    public string KindName => Kind switch { SimLoadKind.Pressure => "pressure", SimLoadKind.Force => "force", _ => "gravity" };
 }
+
+/// <summary>A validated fixture: its kind name, the swsRestraintType_e code, the surface its faces must have, and the faces.</summary>
+internal sealed record SimFixtureSpec(string Arg, string Kind, int Code, string? Surface, IReadOnlyList<EntityRef> Faces);
 
 /// <summary>A [nodeMin, min, nodeMax, max] answer of GetMinMaxStress / GetMinMaxDisplacement.</summary>
 internal sealed record SimRange(int MinNode, double Min, int MaxNode, double Max);
@@ -93,8 +116,9 @@ internal static class SimulationMath
 
     // ------------------------------------------------------------------ inputs
 
-    public static IReadOnlyList<SimLoadSpec> ParseLoads(IReadOnlyList<SimLoad>? loads)
+    public static IReadOnlyList<SimLoadSpec> ParseLoads(IReadOnlyList<SimLoad>? loads, bool allowNone = false)
     {
+        if ((loads is null || loads.Count == 0) && allowNone) return [];
         if (loads is null || loads.Count == 0)
             throw SwException.InvalidArgument("'loads' is empty: a static study needs at least one load.",
                 "E.g. loads:[{kind:'pressure',faces:[{at:[50,10,5]}],valueMpa:0.1}].");
@@ -109,10 +133,25 @@ internal static class SimulationMath
         if (load is null) throw SwException.InvalidArgument($"'{arg}' is null.");
         string kind = (load.Kind ?? "").Trim().ToLowerInvariant();
         if (kind.Length == 0)
-            kind = load.ValueMpa is not null && load.ValueN is null ? "pressure"
-                 : load.ValueN is not null && load.ValueMpa is null ? "force"
-                 : throw SwException.InvalidArgument($"'{arg}' needs 'kind' (pressure or force).",
-                     "pressure takes valueMpa; force takes valueN.");
+            kind = load.ValueMpa is not null && load.ValueN is null && load.ValueG is null ? "pressure"
+                 : load.ValueN is not null && load.ValueMpa is null && load.ValueG is null ? "force"
+                 : load.ValueG is not null && load.ValueMpa is null && load.ValueN is null ? "gravity"
+                 : throw SwException.InvalidArgument($"'{arg}' needs 'kind' (pressure, force or gravity).",
+                     "pressure takes valueMpa; force takes valueN; gravity takes direction (and valueG).");
+        if (kind == "gravity")
+        {
+            if (load.Faces is { Length: > 0 })
+                throw SwException.InvalidArgument($"'{arg}': gravity acts on the whole part; leave out 'faces'.");
+            if (load.ValueMpa is not null || load.ValueN is not null)
+                throw SwException.InvalidArgument($"'{arg}' is gravity: give valueG (in g, default 1), not valueMpa or valueN.");
+            double g = load.ValueG is null ? 1 : Positive(load.ValueG, $"{arg}.valueG");
+            if (g > 1000) throw SwException.InvalidArgument($"'{arg}.valueG' must be at most 1000 g (got {g.ToString(CultureInfo.InvariantCulture)}).");
+            var down = ParseDirection(load.Direction, $"{arg}.direction")
+                       ?? throw SwException.InvalidArgument($"'{arg}': gravity needs a direction, e.g. direction:\"-y\".");
+            return new SimLoadSpec(index, SimLoadKind.Gravity, [], g * StandardGravity, down);
+        }
+        if (load.ValueG is not null)
+            throw SwException.InvalidArgument($"'{arg}': valueG is for gravity loads.");
         if (load.Faces is null || load.Faces.Length == 0)
             throw SwException.InvalidArgument($"'{arg}.faces' is empty.", "Pass the faces the load acts on, e.g. faces:[{at:[50,10,5]}].");
 
@@ -136,8 +175,38 @@ internal static class SimulationMath
                 return new SimLoadSpec(index, SimLoadKind.Force, load.Faces, n, ParseDirection(load.Direction, $"{arg}.direction"));
             }
             default:
-                throw SwException.InvalidArgument($"'{arg}.kind' '{load.Kind}' is not supported.", "Use pressure or force.");
+                throw SwException.InvalidArgument($"'{arg}.kind' '{load.Kind}' is not supported.", "Use pressure, force or gravity.");
         }
+    }
+
+    public const double StandardGravity = 9.80665; // m/s²
+
+    /// <summary>
+    /// The fixtures: fixedFaces (fixed) and the fixtures list (fixed, roller, symmetry, hinge with their
+    /// swsRestraintType_e codes and the surface their faces need). Empty when there are none.
+    /// </summary>
+    public static IReadOnlyList<SimFixtureSpec> ParseFixtures(IReadOnlyList<EntityRef>? fixedFaces, IReadOnlyList<SimFixture>? fixtures)
+    {
+        var list = new List<SimFixtureSpec>();
+        if (fixedFaces is { Count: > 0 }) list.Add(new SimFixtureSpec("fixedFaces", "fixed", 0, null, fixedFaces));
+        for (int i = 0; i < (fixtures?.Count ?? 0); i++)
+        {
+            var f = fixtures![i] ?? throw SwException.InvalidArgument($"'fixtures[{i}]' is null.");
+            string arg = $"fixtures[{i}]";
+            var (kind, code, surface) = (f.Kind ?? "").Trim().ToLowerInvariant() switch
+            {
+                "" or "fixed" => ("fixed", 0, (string?)null),
+                "roller" or "slider" or "roller_slider" => ("roller", 3, "plane"),
+                "symmetry" or "symmetric" => ("symmetry", 2, "plane"),
+                "hinge" or "fixed_hinge" => ("hinge", 4, "cylinder"),
+                _ => throw SwException.InvalidArgument($"'{arg}.kind' '{f.Kind}' is not supported.", "Use fixed, roller, symmetry or hinge."),
+            };
+            if (f.Faces is not { Length: > 0 })
+                throw SwException.InvalidArgument($"'{arg}.faces' is empty.", "Pass the faces it holds, e.g. faces:[{at:[100,5,5]}].");
+            list.Add(new SimFixtureSpec(arg, kind, code, surface, f.Faces));
+        }
+        if (list.Count > MaxLoads) throw SwException.InvalidArgument($"At most {MaxLoads} fixtures are supported in one study (got {list.Count}).");
+        return list;
     }
 
     private static double Positive(double? v, string arg)
@@ -166,14 +235,57 @@ internal static class SimulationMath
     }
 
     /// <summary>The requested study name (checked), or a fresh default "MCP Static 1a2b".</summary>
-    public static string StudyName(string? requested)
+    public static string StudyName(string? requested, string prefix = DefaultStudyPrefix)
     {
-        if (string.IsNullOrWhiteSpace(requested)) return $"{DefaultStudyPrefix} {Guid.NewGuid().ToString("N")[..4]}";
+        if (string.IsNullOrWhiteSpace(requested)) return $"{prefix} {Guid.NewGuid().ToString("N")[..4]}";
         string name = requested.Trim();
         if (name.Length > 64) throw SwException.InvalidArgument($"'studyName' is {name.Length} characters long; use at most 64.");
         if (name.IndexOfAny(['\\', '/', ':', '*', '?', '"', '<', '>', '|']) >= 0 || name.Any(char.IsControl))
             throw SwException.InvalidArgument($"'studyName' '{name}' contains a character SOLIDWORKS doesn't accept (\\ / : * ? \" < > |).");
         return name;
+    }
+
+    // ------------------------------------------------------------------ frequency and buckling
+
+    public const int MaxModes = 50;
+
+    /// <summary>sim_run's modal study types: frequency (natural frequencies) and buckling (load factors).</summary>
+    public static string ModalType(string? s) => s?.Trim().ToLowerInvariant() switch
+    {
+        "frequency" or "modal" or "natural_frequency" or "natural frequencies" => "frequency",
+        "buckling" => "buckling",
+        _ => throw SwException.InvalidArgument($"Unknown study type '{s}'.", "Use static (sim_static), frequency or buckling."),
+    };
+
+    /// <summary>
+    /// The natural frequencies (Hz) in GetResonantFrequencies' answer: groups of [mode, rad/s, Hz, period], lowest first.
+    /// Each group is checked (rad/s = 2π·Hz, the modes counting up), so a misread array can't pass for results.
+    /// </summary>
+    public static List<double> Frequencies(double[]? raw)
+    {
+        if (raw is not { Length: >= 4 } || raw.Length % 4 != 0)
+            throw new SwException(ErrorCodes.VerifyFailed, $"The natural frequencies came back as {raw?.Length ?? 0} numbers, not groups of four (mode, rad/s, Hz, period).");
+        var hz = new List<double>();
+        for (int i = 0; i < raw.Length; i += 4)
+        {
+            double mode = raw[i], rad = raw[i + 1], f = raw[i + 2];
+            if (Math.Abs(mode - (hz.Count + 1)) > 1e-9 || !(f >= 0) || Math.Abs(rad - 2 * Math.PI * f) > 1e-6 * Math.Max(1, rad))
+                throw new SwException(ErrorCodes.VerifyFailed,
+                    $"Natural frequency group {hz.Count + 1} doesn't add up: mode {F(mode)}, {F(rad)} rad/s, {F(f)} Hz.");
+            hz.Add(f);
+        }
+        return hz;
+    }
+
+    /// <summary>The buckling load factors in GetBucklingLoadFactors' answer: a plain list, or [mode, factor] pairs.</summary>
+    public static List<double> LoadFactors(double[]? raw, int modes)
+    {
+        if (raw is not { Length: > 0 }) throw new SwException(ErrorCodes.VerifyFailed, "No buckling load factors came back.");
+        bool pairs = raw.Length == 2 * modes && Enumerable.Range(0, modes).All(i => Math.Abs(raw[2 * i] - (i + 1)) < 1e-9);
+        var list = pairs ? Enumerable.Range(0, modes).Select(i => raw[2 * i + 1]).ToList() : raw.ToList();
+        if (list.Any(v => !double.IsFinite(v) || v == 0))
+            throw new SwException(ErrorCodes.VerifyFailed, $"The buckling load factors are not usable: {string.Join(", ", list.Select(F))}.");
+        return list;
     }
 
     // ------------------------------------------------------------------ mesh

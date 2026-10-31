@@ -50,9 +50,11 @@ public sealed class SimLoadInfo
     public double? ValueN { get; init; }
     /// <summary>"normal", or the model direction "x,y,z" of a force.</summary>
     public required string Direction { get; init; }
-    /// <summary>Pressure: the faces' total area (mm²) and pressure × area (N).</summary>
+    /// <summary>Pressure: the faces' total area (mm²) and pressure × area (N); gravity: the part's weight (N).</summary>
     public double? AreaMm2 { get; init; }
     public double? ForceN { get; init; }
+    /// <summary>Gravity: the acceleration (m/s²).</summary>
+    public double? AccelerationMs2 { get; init; }
 }
 
 /// <summary>[min, max] of the displacement components along the model axes (mm).</summary>
@@ -106,6 +108,29 @@ public sealed class SimStaticResult : ToolResult
     /// <summary>Yield strength / largest von Mises stress.</summary>
     public double? MinFactorOfSafety { get; init; }
     public SimReactions? Reactions { get; init; }
+    public required SimMeshInfo Mesh { get; init; }
+    public required SimTimes Time { get; init; }
+    public int FixedFaces { get; init; }
+    public required IReadOnlyList<SimLoadInfo> Loads { get; init; }
+    public required SimAddinInfo Addin { get; init; }
+    public required IReadOnlyList<string> Checks { get; init; }
+    public IReadOnlyList<ResolvedInfo>? Resolved { get; init; }
+}
+
+/// <summary>sim_run frequency / buckling: the natural frequencies or the buckling load factors.</summary>
+public sealed class SimModesResult : ToolResult
+{
+    /// <summary>frequency | buckling.</summary>
+    public required string Type { get; init; }
+    public required string Study { get; init; }
+    public bool StudyKept { get; init; }
+    public required string Material { get; init; }
+    public bool? MaterialAssigned { get; init; }
+    public string? PreviousMaterial { get; init; }
+    /// <summary>frequency: the natural frequencies, lowest first (Hz).</summary>
+    public IReadOnlyList<double>? FrequenciesHz { get; init; }
+    /// <summary>buckling: the load factors, lowest first: the loads times the first one make the part buckle.</summary>
+    public IReadOnlyList<double>? LoadFactors { get; init; }
     public required SimMeshInfo Mesh { get; init; }
     public required SimTimes Time { get; init; }
     public int FixedFaces { get; init; }
@@ -199,9 +224,9 @@ public sealed class SimulationService(SwSession session)
     public Task<SimStaticResult> StaticAsync(SimStaticRequest q, Action<string>? phase = null, CancellationToken ct = default)
     {
         // Everything that needs no COM is checked before the call is queued.
-        if (q.FixedFaces is not { Count: > 0 } && !q.AllowNoFixtures)
+        if (SimulationMath.ParseFixtures(q.FixedFaces, q.Fixtures).Count == 0 && !q.AllowNoFixtures)
             throw SwException.InvalidArgument("'fixedFaces' is empty: a static study needs at least one fixed face, or the part floats away.",
-                "Pass the faces that hold the part, e.g. fixedFaces:[{at:[0,5,5]}] (face_list shows ids and pick points).");
+                "Pass the faces that hold the part, e.g. fixedFaces:[{at:[0,5,5]}] (face_list shows ids and pick points), or fixtures.");
         var loads = SimulationMath.ParseLoads(q.Loads);
         if (q.MeshSizeMm is double ms && (!double.IsFinite(ms) || ms <= 0))
             throw SwException.InvalidArgument($"'meshSizeMm' must be a positive length in mm (got {ms}).", "Omit it for SOLIDWORKS' default size.");
@@ -215,6 +240,63 @@ public sealed class SimulationService(SwSession session)
 
     private SimStaticResult Static(SwContext ctx, SimStaticRequest q, IReadOnlyList<SimLoadSpec> loads, string study, string? material,
         Action<string>? phase)
+    {
+        var r = Execute(ctx, q, loads, study, material, phase, swsAnalysisStudyType_e.swsAnalysisStudyTypeStatic,
+            (s, inputs, checks, total) => Run(ctx, s, inputs, loads, q.MeshSizeMm, checks, phase, total));
+        var o = r.Outcome;
+        return new SimStaticResult
+        {
+            Doc = r.Title,
+            Study = study,
+            StudyKept = r.Clean.Kept,
+            Material = r.Material,
+            MaterialAssigned = r.Assigned ? true : null,
+            PreviousMaterial = r.PreviousMaterial,
+            MaxVonMisesMpa = SimulationMath.Sig(o.VonMises.Max),
+            MaxVonMisesAtMm = o.VonMisesAt,
+            MaxDisplacementMm = SimulationMath.Sig(o.Displacement.Max),
+            MaxDisplacementAtMm = o.DisplacementAt,
+            DisplacementMm = o.Components,
+            YieldStrengthMpa = o.YieldMpa is double y ? SimulationMath.Sig(y) : null,
+            MinFactorOfSafety = SimulationMath.FactorOfSafety(o.YieldMpa, o.VonMises.Max),
+            Reactions = o.Reactions,
+            Mesh = o.Mesh,
+            Time = r.Times(o.Solved),
+            FixedFaces = r.FixedFaces,
+            Loads = o.Solved.Loads,
+            Addin = r.AddinInfo,
+            Checks = r.Checks,
+            Resolved = r.Resolved,
+        };
+    }
+
+    /// <summary>The geometry a study runs on, resolved before anything changes.</summary>
+    private sealed record Inputs(List<(SimFixtureSpec Spec, List<Resolved> Faces)> Fixtures, List<List<Resolved>> LoadFaces, Vec3? LoadResultant,
+        double[]? Box)
+    {
+        public int FixtureFaces => Fixtures.Sum(f => f.Faces.Count);
+    }
+
+    /// <summary>What every study run shares: the material, the add-in, the study and its cleanup.</summary>
+    private sealed record Ran<T>(T Outcome, string Title, string Material, bool Assigned, string? PreviousMaterial, CleanupResult Clean,
+        Addin? Addin, int FixedFaces, IReadOnlyList<ResolvedInfo> Resolved, List<string> Checks, Stopwatch Total)
+    {
+        public SimAddinInfo AddinInfo => new() { LoadedByCall = Addin?.LoadedByCall ?? false, Unloaded = Clean.Unloaded, LeftLoaded = Clean.LeftLoaded };
+
+        public SimTimes Times(Solved s) => new()
+        {
+            SetupS = Math.Round(s.SetupS, 2), MeshS = Math.Round(s.MeshS, 2), SolveS = Math.Round(s.SolveS, 2),
+            TotalS = Math.Round(Total.Elapsed.TotalSeconds, 2),
+        };
+    }
+
+    /// <summary>
+    /// Runs a study of <paramref name="type"/> on the bound part: resolves the geometry, makes the material explicit, loads
+    /// the add-in, creates the study and hands it to <paramref name="run"/>; then cleans up (the study is deleted unless
+    /// kept, the add-in unloaded if this call loaded it), after a failure too, and says what was cleaned up.
+    /// </summary>
+    private Ran<T> Execute<T>(SwContext ctx, SimStaticRequest q, IReadOnlyList<SimLoadSpec> loads, string study, string? material,
+        Action<string>? phase, swsAnalysisStudyType_e type, Func<CWStudy, Inputs, List<string>, Stopwatch, T> run)
     {
         var total = Stopwatch.StartNew();
         var d = ctx.Doc;
@@ -231,11 +313,11 @@ public sealed class SimulationService(SwSession session)
         SimulationMath.CheckMeshSize(q.MeshSizeMm, volume);
 
         // Geometry first: a bad reference fails before anything changes.
-        var fixedFaces = q.FixedFaces is { Count: > 0 } ff ? EntityResolver.ResolveAll(ctx, d, ff, "fixedFaces", EntityKind.Face) : [];
-        var loadFaces = loads.Select(l => EntityResolver.ResolveAll(ctx, d, l.Faces, $"{l.Arg}.faces", EntityKind.Face)).ToList();
-        var resolved = fixedFaces.Select(r => r.Info("fixedFaces"))
+        var fixtures = SimulationMath.ParseFixtures(q.FixedFaces, q.Fixtures).Select(f => (f, Faces: FixtureFaces(ctx, d, f))).ToList();
+        var loadFaces = loads.Select(l => l.Kind == SimLoadKind.Gravity ? [] : EntityResolver.ResolveAll(ctx, d, l.Faces, $"{l.Arg}.faces", EntityKind.Face)).ToList();
+        var resolved = fixtures.SelectMany(f => f.Faces.Select(r => r.Info(f.f.Arg)))
             .Concat(loads.SelectMany((l, i) => loadFaces[i].Select(r => r.Info($"{l.Arg}.faces")))).ToList();
-        var loadResultant = LoadResultant(loads, loadFaces);
+        var inputs = new Inputs(fixtures, loadFaces, LoadResultant(loads, loadFaces), box);
         var checks = new List<string>();
 
         // The material must be explicit: the given one (through material_set's checked logic), else the part's own.
@@ -257,13 +339,31 @@ public sealed class SimulationService(SwSession session)
                 "Pass material (e.g. \"AISI 1020\", \"6061 Alloy\"; material_list shows the names), or call material_set first.");
         else checks.Add($"part material '{currentMaterial}'");
 
+        // Gravity pulls with the part's weight: known once the material (its density) is.
+        if (loads.Any(l => l.Kind == SimLoadKind.Gravity) && inputs.LoadResultant is Vec3 sum)
+        {
+            double mass = (object?)d.Extension.CreateMassProperty2() is IMassProperty2 mp ? mp.Mass : 0;
+            if (mass > 0)
+            {
+                var weight = loads.Where(l => l.Kind == SimLoadKind.Gravity).Aggregate(Vec3.Zero, (acc, l) => acc + l.Direction!.Value * (mass * l.Value));
+                inputs = inputs with { LoadResultant = sum + weight };
+                checks.Add($"weight {SimulationMath.Newtons(weight)} from the mass {SimulationMath.F(SimulationMath.Sig(mass, 6))} kg");
+            }
+            else
+            {
+                inputs = inputs with { LoadResultant = null };
+                ctx.Warn("The part's mass could not be read, so the reactions are not compared with its weight.");
+            }
+        }
+
         var st = State;
         Addin? addin = null;
         CWStudyManager? manager = null;
         string? created = null;
         int previousActive = -1;
-        Outcome? outcome = null;
+        T? outcome = default;
         Exception? failure = null;
+        string kind = SimulationMath.StudyType((int)type);
         try
         {
             phase?.Invoke("loading the Simulation add-in");
@@ -276,16 +376,18 @@ public sealed class SimulationService(SwSession session)
             if (names.Count > 0) previousActive = SafeActive(manager);
 
             phase?.Invoke("creating the study");
-            var s = manager.CreateNewStudy3(study, (int)swsAnalysisStudyType_e.swsAnalysisStudyTypeStatic,
-                (int)swsMeshType_e.swsMeshTypeSolid, out int err);
+            var s = manager.CreateNewStudy3(study, (int)type, (int)swsMeshType_e.swsMeshTypeSolid, out int err);
             // Whatever the status, a study of that name may exist now: the cleanup must know.
             if (s is not null || StudyNames(manager).Contains(study, StringComparer.OrdinalIgnoreCase)) created = study;
             if (s is null || err != 0)
-                throw new SwException(ErrorCodes.FeatureFailed, $"Simulation could not create the study '{study}' ({Name<swsStudyError_e>(err)}).",
-                    "Check that the part has a solid body and that the study name is unused (sim_list).");
+                throw new SwException(type == swsAnalysisStudyType_e.swsAnalysisStudyTypeStatic ? ErrorCodes.FeatureFailed : ErrorCodes.NotSupported,
+                    $"Simulation could not create the {kind} study '{study}' ({Name<swsStudyError_e>(err)}).",
+                    type == swsAnalysisStudyType_e.swsAnalysisStudyTypeStatic
+                        ? "Check that the part has a solid body and that the study name is unused (sim_list)."
+                        : $"{kind} studies may need a SOLIDWORKS Simulation licence beyond the one in SOLIDWORKS Premium; sim_static works with it.");
             created = study;
-            checks.Add($"static study '{study}' created (solid mesh)");
-            outcome = Run(ctx, s, fixedFaces, loads, loadFaces, loadResultant, q.MeshSizeMm, box, checks, phase, total);
+            checks.Add($"{kind} study '{study}' created (solid mesh)");
+            outcome = run(s, inputs, checks, total);
         }
         catch (Exception ex)
         {
@@ -303,76 +405,93 @@ public sealed class SimulationService(SwSession session)
             throw new SwException(ErrorCodes.Internal, $"{failure.GetType().Name}: {failure.Message}.{note}",
                 "Check the document (sim_list, feature_list) before retrying.", failure);
         }
-
-        var o = outcome!;
         if (clean.Kept && !q.KeepStudy) checks.Add($"the study '{study}' could not be deleted (see warnings)");
         else if (clean.Deleted) checks.Add($"study '{study}' deleted again");
-        return new SimStaticResult
-        {
-            Doc = title,
-            Study = study,
-            StudyKept = clean.Kept,
-            Material = currentMaterial,
-            MaterialAssigned = assigned ? true : null,
-            PreviousMaterial = previousMaterial,
-            MaxVonMisesMpa = SimulationMath.Sig(o.VonMises.Max),
-            MaxVonMisesAtMm = o.VonMisesAt,
-            MaxDisplacementMm = SimulationMath.Sig(o.Displacement.Max),
-            MaxDisplacementAtMm = o.DisplacementAt,
-            DisplacementMm = o.Components,
-            YieldStrengthMpa = o.YieldMpa is double y ? SimulationMath.Sig(y) : null,
-            MinFactorOfSafety = SimulationMath.FactorOfSafety(o.YieldMpa, o.VonMises.Max),
-            Reactions = o.Reactions,
-            Mesh = o.Mesh,
-            Time = new SimTimes
-            {
-                SetupS = Math.Round(o.SetupS, 2), MeshS = Math.Round(o.MeshS, 2), SolveS = Math.Round(o.SolveS, 2),
-                TotalS = Math.Round(total.Elapsed.TotalSeconds, 2),
-            },
-            FixedFaces = fixedFaces.Count,
-            Loads = o.Loads,
-            Addin = new SimAddinInfo { LoadedByCall = addin?.LoadedByCall ?? false, Unloaded = clean.Unloaded, LeftLoaded = clean.LeftLoaded },
-            Checks = checks,
-            Resolved = resolved,
-        };
+        return new Ran<T>(outcome!, title, currentMaterial, assigned, previousMaterial, clean, addin, inputs.FixtureFaces, resolved, checks, total);
     }
 
-    private sealed record Outcome(SimRange VonMises, double[]? VonMisesAt, SimRange Displacement, double[]? DisplacementAt,
-        SimDisplacementRanges? Components, double? YieldMpa, SimReactions? Reactions, SimMeshInfo Mesh, double SetupS, double MeshS,
-        double SolveS, IReadOnlyList<SimLoadInfo> Loads);
+    /// <summary>A solved study: its loads as applied, its mesh and how long each part took.</summary>
+    private sealed record Solved(CWLoadsAndRestraintsManager Lr, Flavor Flavor, IReadOnlyList<object> FixObjs, IReadOnlyList<SimLoadInfo> Loads,
+        SimMeshInfo Mesh, CWMesh MeshObj, double[]? Box, double SetupS, double MeshS, double SolveS);
 
-    /// <summary>Fixture, loads, mesh, solve and results for a freshly created study.</summary>
-    private static Outcome Run(SwContext ctx, CWStudy s, List<Resolved> fixedFaces, IReadOnlyList<SimLoadSpec> loads,
-        List<List<Resolved>> loadFaces, Vec3? loadResultant, double? meshSizeMm, double[]? box, List<string> checks, Action<string>? phase,
-        Stopwatch total)
+    private sealed record Outcome(SimRange VonMises, double[]? VonMisesAt, SimRange Displacement, double[]? DisplacementAt,
+        SimDisplacementRanges? Components, double? YieldMpa, SimReactions? Reactions, SimMeshInfo Mesh, Solved Solved);
+
+    /// <summary>Fixture, loads, mesh, solve and the static results for a freshly created static study.</summary>
+    private static Outcome Run(SwContext ctx, CWStudy s, Inputs inputs, IReadOnlyList<SimLoadSpec> loads, double? meshSizeMm,
+        List<string> checks, Action<string>? phase, Stopwatch total)
+    {
+        var solved = Solve(ctx, s, inputs, loads, meshSizeMm, checks, phase, total, null);
+        var res = s.Results ?? throw new SwException(ErrorCodes.VerifyFailed, "The solver reported success but the study has no results.");
+        var vm = SimulationMath.Range(res.StressRange((int)swsStressComponent_e.swsStressComponentVON, NPerMm2, out int vmErr));
+        if (vm is null || vmErr != 0)
+            throw new SwException(ErrorCodes.VerifyFailed, $"The von Mises stresses could not be read ({Name<swsResultsError_e>(vmErr)}).");
+        var ures = SimulationMath.Range(res.DisplacementRange((int)swsDisplacementComponent_e.swsDisplacementComponentURES, Mm, out int uErr));
+        if (ures is null || uErr != 0)
+            throw new SwException(ErrorCodes.VerifyFailed, $"The displacements could not be read ({Name<swsResultsError_e>(uErr)}).");
+        if (vm.Max < 0 || vm.Min < -1e-9 || vm.Max < vm.Min || ures.Max < 0 || ures.Max < ures.Min)
+            throw new SwException(ErrorCodes.VerifyFailed,
+                $"The results are inconsistent: von Mises {SimulationMath.F(vm.Min)}..{SimulationMath.F(vm.Max)} MPa, URES {SimulationMath.F(ures.Min)}..{SimulationMath.F(ures.Max)} mm.");
+        checks.Add("von Mises stress and resultant displacement read");
+
+        var comps = new SimDisplacementRanges
+        {
+            Ux = Component(res, swsDisplacementComponent_e.swsDisplacementComponentUX),
+            Uy = Component(res, swsDisplacementComponent_e.swsDisplacementComponentUY),
+            Uz = Component(res, swsDisplacementComponent_e.swsDisplacementComponentUZ),
+        };
+        CheckForceDirection(ctx, loads, comps, ures.Max, checks);
+        var reactions = Reactions(ctx, res, solved.Mesh.Nodes, solved.FixObjs, solved.Flavor, loads, inputs.LoadResultant, checks);
+
+        var vmAt = NodeAt(solved.MeshObj, vm.MaxNode, solved.Box);
+        var uAt = NodeAt(solved.MeshObj, ures.MaxNode, solved.Box);
+        if (vmAt is null || uAt is null) ctx.Warn("The location of the largest stress or displacement could not be read (mesh node coordinates).");
+
+        var (yieldMpa, studyMaterial, mixed) = StudyYield(ctx, s);
+        if (yieldMpa is null) ctx.Warn("The yield strength could not be read from the study material, so no factor of safety is given.");
+        else checks.Add($"yield strength {SimulationMath.F(SimulationMath.Sig(yieldMpa.Value, 6))} MPa from the study material" +
+                        (studyMaterial is { Length: > 0 } ? $" '{studyMaterial}'" : "") + (mixed ? " (lowest of several materials)" : ""));
+        return new Outcome(vm, vmAt, ures, uAt, comps, yieldMpa, reactions, solved.Mesh, solved);
+    }
+
+    /// <summary>
+    /// Fixture and loads (each read back), then the mesh (high quality, SOLIDWORKS' default size unless given) and the
+    /// solver. <paramref name="beforeSolve"/> sets the study's own options once the mesh exists, as SOLIDWORKS' examples do.
+    /// </summary>
+    private static Solved Solve(SwContext ctx, CWStudy s, Inputs inputs, IReadOnlyList<SimLoadSpec> loads, double? meshSizeMm,
+        List<string> checks, Action<string>? phase, Stopwatch total, Action? beforeSolve)
     {
         var lr = s.LoadsAndRestraintsManager
                  ?? throw new SwException(ErrorCodes.FeatureFailed, "The new study has no loads-and-restraints manager.");
         var flavor = new Flavor();
 
         phase?.Invoke("applying fixtures and loads");
-        var fixObjs = fixedFaces.Select(r => r.Obj).ToList();
-        if (fixObjs.Count > 0)
+        var fixObjs = new List<object>();
+        foreach (var (spec, faces) in inputs.Fixtures)
         {
-            var (restraint, rerr, how) = AddOnEntities(lr, fixObjs, flavor, a =>
+            var objs = faces.Select(r => r.Obj).ToList();
+            var (restraint, rerr, how) = AddOnEntities(lr, objs, flavor, a =>
             {
-                var r = lr.AddRestraint((int)swsRestraintType_e.swsRestraintTypeFixed, a, null, out int e);
+                var r = lr.AddRestraint(spec.Code, a, null, out int e);
                 return (r, e);
             });
             if (restraint is null)
                 throw new SwException(ErrorCodes.FeatureFailed,
-                    $"Simulation did not accept the fixture on {fixObjs.Count} face(s) ({Name<swsRestraintError_e>(rerr)}{how}).",
-                    "fixedFaces must be faces of the part's solid body (face_list shows them).");
-            int type = restraint.RestraintType;
-            if (type != (int)swsRestraintType_e.swsRestraintTypeFixed)
-                throw new SwException(ErrorCodes.VerifyFailed, $"The fixture reads back as restraint type {Name<swsRestraintType_e>(type)} instead of fixed.");
-            checks.Add($"fixed fixture on {fixObjs.Count} face(s) accepted{how}{EntitiesNote(lr, fixObjs.Count)}");
+                    $"Simulation did not accept the {spec.Kind} fixture of {spec.Arg} on {objs.Count} face(s) ({Name<swsRestraintError_e>(rerr)}{how}).",
+                    $"{spec.Arg} must be faces of the part's solid body (face_list shows them).");
+            int rtype = restraint.RestraintType;
+            if (rtype != spec.Code)
+                throw new SwException(ErrorCodes.VerifyFailed, $"The {spec.Kind} fixture reads back as restraint type {Name<swsRestraintType_e>(rtype)}.");
+            checks.Add($"{spec.Kind} fixture on {objs.Count} face(s) accepted{how}{EntitiesNote(lr, objs.Count)}");
+            fixObjs.AddRange(objs);
         }
-        else ctx.Warn("No fixture was applied (test mode).");
+        if (fixObjs.Count == 0 && s.AnalysisType == (int)swsAnalysisStudyType_e.swsAnalysisStudyTypeFrequency)
+            checks.Add("no fixtures: free-free, so the first six modes are rigid-body modes near 0 Hz");
+        else if (fixObjs.Count == 0) ctx.Warn("No fixture was applied (test mode).");
 
         var applied = new List<SimLoadInfo>();
         for (int i = 0; i < loads.Count; i++)
-            applied.Add(ApplyLoad(ctx, lr, loads[i], loadFaces[i], flavor, checks));
+            applied.Add(ApplyLoad(ctx, lr, loads[i], inputs.LoadFaces[i], flavor, checks));
         double setupS = total.Elapsed.TotalSeconds;
 
         // Mesh: high quality (second order), SOLIDWORKS' default size unless the caller gave one. Lengths in mm (unit 0).
@@ -403,6 +522,7 @@ public sealed class SimulationService(SwSession session)
             Quality = quality == (int)swsMeshQuality_e.swsMeshQualityHigh ? "high" : "draft", DefaultSize = meshSizeMm is null,
         };
 
+        beforeSolve?.Invoke();
         phase?.Invoke("solving");
         var solveClock = Stopwatch.StartNew();
         int run = s.RunAnalysis();
@@ -411,45 +531,126 @@ public sealed class SimulationService(SwSession session)
             throw new SwException(ErrorCodes.FeatureFailed, $"The solver did not finish: RunAnalysis returned {run} ({Name<swsRunAnalysisError_e>(run)}).",
                 SimulationMath.RunHint(run));
         checks.Add("solver status 0");
-
         phase?.Invoke("reading results");
-        var res = s.Results ?? throw new SwException(ErrorCodes.VerifyFailed, "The solver reported success but the study has no results.");
-        var vm = SimulationMath.Range(res.StressRange((int)swsStressComponent_e.swsStressComponentVON, NPerMm2, out int vmErr));
-        if (vm is null || vmErr != 0)
-            throw new SwException(ErrorCodes.VerifyFailed, $"The von Mises stresses could not be read ({Name<swsResultsError_e>(vmErr)}).");
-        var ures = SimulationMath.Range(res.DisplacementRange((int)swsDisplacementComponent_e.swsDisplacementComponentURES, Mm, out int uErr));
-        if (ures is null || uErr != 0)
-            throw new SwException(ErrorCodes.VerifyFailed, $"The displacements could not be read ({Name<swsResultsError_e>(uErr)}).");
-        if (vm.Max < 0 || vm.Min < -1e-9 || vm.Max < vm.Min || ures.Max < 0 || ures.Max < ures.Min)
-            throw new SwException(ErrorCodes.VerifyFailed,
-                $"The results are inconsistent: von Mises {SimulationMath.F(vm.Min)}..{SimulationMath.F(vm.Max)} MPa, URES {SimulationMath.F(ures.Min)}..{SimulationMath.F(ures.Max)} mm.");
-        checks.Add("von Mises stress and resultant displacement read");
+        return new Solved(lr, flavor, fixObjs, applied, meshInfo, mesh, inputs.Box, setupS, meshClock.Elapsed.TotalSeconds, solveClock.Elapsed.TotalSeconds);
+    }
 
-        var comps = new SimDisplacementRanges
+    // ------------------------------------------------------------------ sim_run: frequency and buckling
+
+    /// <summary>
+    /// A frequency study (the natural frequencies, Hz) or a buckling study (the load factors) through the same steps as
+    /// sim_static: material, fixtures, loads, mesh, solve, cleanup.
+    /// </summary>
+    public Task<SimModesResult> ModesAsync(SimStaticRequest q, string? type, Action<string>? phase = null, CancellationToken ct = default)
+    {
+        string kind = SimulationMath.ModalType(type);
+        int modes = q.Modes ?? (kind == "frequency" ? 5 : 1);
+        if (modes is < 1 or > SimulationMath.MaxModes)
+            throw SwException.InvalidArgument($"modes must be between 1 and {SimulationMath.MaxModes} (got {modes}).");
+        var loads = SimulationMath.ParseLoads(q.Loads, allowNone: true);
+        if (kind == "frequency" && loads.Count > 0)
+            throw SwException.InvalidArgument("A frequency study here takes fixtures only: its natural frequencies don't depend on loads.",
+                "Leave out loads (prestressed frequencies are not supported).");
+        if (kind == "buckling")
         {
-            Ux = Component(res, swsDisplacementComponent_e.swsDisplacementComponentUX),
-            Uy = Component(res, swsDisplacementComponent_e.swsDisplacementComponentUY),
-            Uz = Component(res, swsDisplacementComponent_e.swsDisplacementComponentUZ),
+            if (loads.Count == 0)
+                throw SwException.InvalidArgument("A buckling study needs the loads that compress the part: the load factors scale them.",
+                    "e.g. loads:[{kind:'force',faces:[{at:…top face…}],valueN:1000,direction:[0,-1,0]}].");
+            if (SimulationMath.ParseFixtures(q.FixedFaces, q.Fixtures).Count == 0)
+                throw SwException.InvalidArgument("A buckling study needs fixed faces.", "Pass fixedFaces, e.g. the column's foot.");
+        }
+        if (q.MeshSizeMm is double ms && (!double.IsFinite(ms) || ms <= 0))
+            throw SwException.InvalidArgument($"'meshSizeMm' must be a positive length in mm (got {ms}).", "Omit it for SOLIDWORKS' default size.");
+        string study = SimulationMath.StudyName(q.StudyName, kind == "frequency" ? "MCP Frequency" : "MCP Buckling");
+        string? material = string.IsNullOrWhiteSpace(q.Material) ? null : q.Material.Trim();
+        var timeout = TimeSpan.FromSeconds(Math.Max(SimulationMath.TimeoutS, session.Options.DefaultTimeout.TotalSeconds));
+        var run = q with { AllowNoFixtures = kind == "frequency" };
+        return session.RunAsync("sim_run", ctx => Modes(ctx, run, loads, study, material, kind, modes, phase),
+            RunOptions.Write(q.Doc) with { Timeout = timeout, DialogRules = DialogRules.SimulationRun(study) }, ct);
+    }
+
+    private SimModesResult Modes(SwContext ctx, SimStaticRequest q, IReadOnlyList<SimLoadSpec> loads, string study, string? material,
+        string kind, int modes, Action<string>? phase)
+    {
+        var type = kind == "frequency" ? swsAnalysisStudyType_e.swsAnalysisStudyTypeFrequency : swsAnalysisStudyType_e.swsAnalysisStudyTypeBuckling;
+        var r = Execute(ctx, q, loads, study, material, phase, type, (s, inputs, checks, total) =>
+        {
+            var solved = Solve(ctx, s, inputs, loads, q.MeshSizeMm, checks, phase, total, () =>
+            {
+                if (kind == "frequency")
+                {
+                    var fo = s.FrequencyStudyOptions ?? throw new SwException(ErrorCodes.FeatureFailed, "The frequency study has no options object.");
+                    fo.Options = (int)swsFrequencyStudyOption_e.swsFrequencyStudyOptionNumberFrequencies;
+                    fo.NoOfFrequencies = modes;
+                    if (fo.NoOfFrequencies != modes)
+                        throw new SwException(ErrorCodes.VerifyFailed, $"The study asks for {fo.NoOfFrequencies} frequencies instead of {modes}.");
+                    checks.Add($"{modes} natural frequenc{(modes == 1 ? "y" : "ies")} asked for (read back)");
+                }
+                else
+                {
+                    var bo = s.BucklingStudyOptions ?? throw new SwException(ErrorCodes.FeatureFailed, "The buckling study has no options object.");
+                    bo.BucklingModes = modes;
+                    if (bo.BucklingModes != modes)
+                        throw new SwException(ErrorCodes.VerifyFailed, $"The study asks for {bo.BucklingModes} buckling modes instead of {modes}.");
+                    checks.Add($"{modes} buckling mode{(modes == 1 ? "" : "s")} asked for (read back)");
+                }
+            });
+            var res = s.Results ?? throw new SwException(ErrorCodes.VerifyFailed, "The solver reported success but the study has no results.");
+            List<double> values;
+            if (kind == "frequency")
+            {
+                values = SimulationMath.Frequencies(ComArgs.Doubles((object?)res.GetResonantFrequencies(out int err)));
+                if (err != 0) throw new SwException(ErrorCodes.VerifyFailed, $"The natural frequencies could not be read ({Name<swsResultsError_e>(err)}).");
+                if (values.Count != modes) ctx.Warn($"Simulation found {values.Count} natural frequencies, not the {modes} asked for.");
+                for (int i = 1; i < values.Count; i++)
+                    if (values[i] < values[i - 1] - 1e-6 * Math.Max(1, values[i - 1]))
+                        throw new SwException(ErrorCodes.VerifyFailed, $"The natural frequencies are not in ascending order: {string.Join(", ", values.Select(SimulationMath.F))} Hz.");
+                if (inputs.FixtureFaces == 0 && values.Count >= 6)
+                {
+                    // A free body has six rigid-body modes (three translations, three rotations) at 0 Hz.
+                    int rigid = values.Count(v => v < 1);
+                    if (rigid == 6) checks.Add("six rigid-body modes below 1 Hz, as a free body has");
+                    else ctx.Warn($"{rigid} modes below 1 Hz in a free-free study, where six rigid-body modes are expected.");
+                }
+                checks.Add($"{values.Count} natural frequencies read, lowest {SimulationMath.F(SimulationMath.Sig(values[0], 5))} Hz (each group: rad/s = 2π·Hz)");
+            }
+            else
+            {
+                values = SimulationMath.LoadFactors(ComArgs.Doubles((object?)res.GetBucklingLoadFactors(out int err)), modes);
+                if (err != 0) throw new SwException(ErrorCodes.VerifyFailed, $"The buckling load factors could not be read ({Name<swsResultsError_e>(err)}).");
+                double f = values[0];
+                checks.Add($"{values.Count} buckling load factor(s) read; the first is {SimulationMath.F(SimulationMath.Sig(f, 5))}: " +
+                           (f < 0 ? "the loads reversed would buckle the part" : f < 1 ? "the applied loads already buckle the part" : $"it buckles at {SimulationMath.F(SimulationMath.Sig(f, 4))} × the loads"));
+            }
+            return (solved, values);
+        });
+        var (sv, vals) = r.Outcome;
+        return new SimModesResult
+        {
+            Doc = r.Title,
+            Type = kind,
+            Study = study,
+            StudyKept = r.Clean.Kept,
+            Material = r.Material,
+            MaterialAssigned = r.Assigned ? true : null,
+            PreviousMaterial = r.PreviousMaterial,
+            FrequenciesHz = kind == "frequency" ? vals.Select(v => SimulationMath.Sig(v)).ToList() : null,
+            LoadFactors = kind == "buckling" ? vals.Select(v => SimulationMath.Sig(v)).ToList() : null,
+            Mesh = sv.Mesh,
+            Time = r.Times(sv),
+            FixedFaces = r.FixedFaces,
+            Loads = sv.Loads,
+            Addin = r.AddinInfo,
+            Checks = r.Checks,
+            Resolved = r.Resolved,
         };
-        CheckForceDirection(ctx, loads, comps, ures.Max, checks);
-        var reactions = Reactions(ctx, res, nodes, fixObjs, flavor, loads, loadResultant, checks);
-
-        var vmAt = NodeAt(mesh, vm.MaxNode, box);
-        var uAt = NodeAt(mesh, ures.MaxNode, box);
-        if (vmAt is null || uAt is null) ctx.Warn("The location of the largest stress or displacement could not be read (mesh node coordinates).");
-
-        var (yieldMpa, studyMaterial, mixed) = StudyYield(ctx, s);
-        if (yieldMpa is null) ctx.Warn("The yield strength could not be read from the study material, so no factor of safety is given.");
-        else checks.Add($"yield strength {SimulationMath.F(SimulationMath.Sig(yieldMpa.Value, 6))} MPa from the study material" +
-                        (studyMaterial is { Length: > 0 } ? $" '{studyMaterial}'" : "") + (mixed ? " (lowest of several materials)" : ""));
-        return new Outcome(vm, vmAt, ures, uAt, comps, yieldMpa, reactions, meshInfo, setupS, meshClock.Elapsed.TotalSeconds,
-            solveClock.Elapsed.TotalSeconds, applied);
     }
 
     /// <summary>Adds one pressure or force and reads its value back.</summary>
     private static SimLoadInfo ApplyLoad(SwContext ctx, CWLoadsAndRestraintsManager lr, SimLoadSpec load, List<Resolved> faces, Flavor flavor,
         List<string> checks)
     {
+        if (load.Kind == SimLoadKind.Gravity) return ApplyGravity(ctx, lr, load, checks);
         var objs = faces.Select(r => r.Obj).ToList();
         if (load.Kind == SimLoadKind.Pressure)
         {
@@ -554,6 +755,53 @@ public sealed class SimulationService(SwSession session)
         return new SimLoadInfo { Kind = load.KindName, Faces = objs.Count, ValueN = load.Value, Direction = SimulationMath.Vector(load.Direction.Value) };
     }
 
+    /// <summary>
+    /// Gravity on the whole part: AddGravity with the Front Plane as reference, the acceleration (m/s², SI) set along the
+    /// plane's direction 1, direction 2 and normal inside Begin/EndEdit and read back.
+    /// </summary>
+    private static SimLoadInfo ApplyGravity(SwContext ctx, CWLoadsAndRestraintsManager lr, SimLoadSpec load, List<string> checks)
+    {
+        var (front, xAxis, yAxis, n) = ForceReference(ctx.Doc);
+        var dir = load.Direction!.Value;
+        double[] c = SimulationMath.Components(dir * load.Value, xAxis, yAxis, n);
+        var g = lr.AddGravity(front, out int err);
+        if (g is null || err != 0)
+            throw new SwException(ErrorCodes.FeatureFailed, $"Simulation did not accept the gravity of {load.Arg} ({Name<swsGravityError_e>(err)}).",
+                "A study holds one gravity load.");
+        g.GravityBeginEdit();
+        g.Unit = SI;
+        g.SetGravitationalAcclerationValues(c[0], c[1], c[2]);
+        int end = g.GravityEndEdit();
+        if (end != 0) throw new SwException(ErrorCodes.FeatureFailed, $"Simulation refused the gravity of {load.Arg} (code {end}).");
+        g.GetGravitationalAcclerationValues(out double a1, out double a2, out double a3);
+        double[] back = [a1, a2, a3];
+        for (int k = 0; k < 3; k++)
+            if (Math.Abs(back[k] - c[k]) > 1e-6 * load.Value)
+                throw new SwException(ErrorCodes.VerifyFailed,
+                    $"{load.Arg}: gravity reads back [{string.Join(", ", back.Select(SimulationMath.F))}] m/s² instead of [{string.Join(", ", c.Select(v => SimulationMath.F(SimulationMath.Sig(v))))}].");
+        checks.Add($"{load.Arg}: gravity {SimulationMath.F(SimulationMath.Sig(load.Value, 6))} m/s² along [{SimulationMath.Vector(dir)}] read back (components on '{front.Name}')");
+        double mass = (object?)ctx.Doc.Extension.CreateMassProperty2() is IMassProperty2 mp ? mp.Mass : 0;
+        return new SimLoadInfo
+        {
+            Kind = "gravity", Faces = 0, Direction = SimulationMath.Vector(dir), AccelerationMs2 = SimulationMath.Sig(load.Value),
+            ForceN = mass > 0 ? SimulationMath.Sig(mass * load.Value) : null,
+        };
+    }
+
+    /// <summary>A fixture's faces, checked against the surface its kind needs (roller and symmetry: flat; hinge: cylindrical).</summary>
+    private static List<Resolved> FixtureFaces(SwContext ctx, IModelDoc2 d, SimFixtureSpec f)
+    {
+        var faces = EntityResolver.ResolveAll(ctx, d, f.Faces, $"{f.Arg}.faces", EntityKind.Face);
+        if (f.Surface is not null)
+            foreach (var r in faces)
+            {
+                string kind = r.Obj is IFace2 face ? Topology.SurfaceKind(face.Surface()) : "unknown";
+                if (kind != f.Surface)
+                    throw SwException.InvalidArgument($"{f.Arg}: a {f.Kind} fixture needs {(f.Surface == "plane" ? "flat" : "cylindrical")} faces; {r.Label} is a {kind}.");
+            }
+        return faces;
+    }
+
     /// <summary>Tier B for a lone axis-aligned force: the model moves the way the force pushes.</summary>
     private static void CheckForceDirection(SwContext ctx, IReadOnlyList<SimLoadSpec> loads, SimDisplacementRanges comps, double uresMax, List<string> checks)
     {
@@ -631,6 +879,7 @@ public sealed class SimulationService(SwSession session)
         for (int i = 0; i < loads.Count; i++)
         {
             var l = loads[i];
+            if (l.Kind == SimLoadKind.Gravity) continue; // the weight is added once the mass is known
             if (l.Kind == SimLoadKind.Force && l.Direction is Vec3 dir)
             {
                 sum += dir * l.Value;

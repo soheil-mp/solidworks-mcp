@@ -675,7 +675,23 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
 - **Oracle.** A 100 × 10 × 10 AISI 1020 cantilever fixed at x = 0 with 0.1 MPa on top gives σvM max 32.04 MPa (beam theory
   30) and δmax 0.07530 mm (theory 0.075).
 - **Cleanup.** `ISldWorks.UnloadAddIn(path)`. Closing a document that has studies prompts "save Simulation data?".
-- **Beyond static** (other study types, fixtures, loads, connectors, contacts, plots): the API survey in §17.
+- **Frequency** (VERIFIED 2026-10-31). `CreateNewStudy3(name, 1, 0, …)`, fixtures as for static, mesh, then
+  `study.FrequencyStudyOptions.Options = 0` (number of frequencies) and `.NoOfFrequencies = n` before `RunAnalysis`.
+  `ICWResults.GetResonantFrequencies(out err)` returns groups of four: mode number, rad/s, Hz, period. A 10 x 10 x 200
+  AISI 1020 column fixed at its foot: 203.29 Hz twice (beam theory 203.2), then 1259 Hz (6.27 x f1 in Euler-Bernoulli,
+  lower with shear) and 3464 Hz (torsion). Without fixtures: six modes at 0 Hz, then 1281 Hz (free-free theory 1293).
+- **Buckling** (VERIFIED). `CreateNewStudy3(name, 2, 0, …)`, fixtures and loads, mesh, `BucklingStudyOptions.BucklingModes
+  = n`, solve; `GetBucklingLoadFactors(out err)` gave one plain factor: 10.2848 for 1 kN on that column's head (Euler,
+  fixed-free: π²EI/(2L)² = 10.28 kN). Both study types ran with SOLIDWORKS Premium's Simulation licence here.
+- **Gravity** (VERIFIED). `AddGravity(plane, out err)` (one per study), then `GravityBeginEdit`, `Unit = 0` (SI, m/s²),
+  `SetGravitationalAcclerationValues(dir1, dir2, normal)` along the reference plane's axes, `GravityEndEdit`;
+  `GetGravitationalAcclerationValues` reads them back. The 100 x 10 x 10 cantilever under 10 g bent 0.005828 mm
+  (wL⁴/(8EI) = 0.00581) and its fixture carried 7.747 N, the part's weight.
+- **Fixtures** (VERIFIED). `AddRestraint` with `swsRestraintType_e` 3 roller/slider (flat faces: no motion along their
+  normal), 2 symmetric (flat), 4 fixed hinge (cylindrical); `RestraintType` reads back. On a solid's end face roller and
+  symmetry hold the same: the 100 mm cantilever with its end on either bent 0.2562 mm under 500 N (free: 1.0034 mm), the
+  guided cantilever's PL³/(12EI) = 0.25 mm plus shear.
+- **Beyond these** (thermal, connectors, contacts, plots): the API survey in §17.
 
 ## 15. VBA engine facts (for `vba_run`)
 - **Format and runner.** `RunMacro2(path, module, proc, 0, out err)` runs plain-text `.swb` files written in SolidWorks
