@@ -386,7 +386,7 @@ Conventions:
 - **Common parameter:** document tools take an optional `doc` (handle, title or path).
 
 **Status:** ✅ verified live, 🧪 implemented and untested, ⏳ planned, ⚠ API path unresolved (behind
-`SWMCP_EXPERIMENTAL=1` until green). The tools planned for M8 are in §7.2.
+`SWMCP_EXPERIMENTAL=1` until green). The tools planned for M8 are in §7.2, those for M9 in §7.3.
 
 ### 4.1 Session (toolset `session`) — M0
 | Tool | Purpose | Status |
@@ -651,6 +651,7 @@ ergonomics. Each finding is verified before it is fixed.
 | **M6 Release** | README (safety, quickstart, clients, configuration, compatibility, troubleshooting, migration), CONTRIBUTING, SECURITY, THIRD-PARTY-NOTICES, the skill (written fresh), `install.ps1`, CI, the GitHub repository, tag v0.1.0. | A clean clone builds; CI is green; smoke tests pass. |
 | **M7 Breadth** | Done: `asm_pattern` (linear, circular, mirror, opposite-hand parts), `asm_mate_add` limit/symmetric/width/hinge/gear/rack mates, `asm_explode`, `face_edit` (delete and heal, offset, move; imported bodies too), `drw_annotation_add` (datums, surface finish, tolerance frames, balloons), `drw_table_add` (hole and revision tables), `weldment_member`, `sheetmetal_hem`, `sheetmetal_bend`, `sheetmetal_miter_flange`. Open: screw mates and jogs (unresolved in the API), more simulation types. New tools stay few (several kinds per tool) to keep the catalog small. | Each tool meets §6.6; all live tests green. |
 | **M8 Engineering projects** | Done 2026-10-31 (§7.2, from the audit of 2026-10-24): tolerances and fits; production drawings (more sheets, flat-pattern, broken, auxiliary and broken-out views, cut-list tables, weld symbols); BOM as data and a one-call release package; fabrication data (cut lists, weldment trims, end caps, gussets, beads); simulation breadth (assemblies, contacts and connectors, more fixtures and loads, frequency, buckling, thermal, plots); section properties, costing, custom materials, Pack and Go, revision compare, a health report; standard hardware; top-down design; everyday modelling gaps. | Each work package meets §6.6 with live tests; all live tests and golden scenarios green, plus new scenarios for a toleranced drawing and a release package. |
+| **M9 Tier 2** | §7.3: configuration families, surfaces and curves, manufacturability and mold tools, motion studies, section views and renders, assembly structure, simulation extras, feature recognition, templates. | Each work package meets §6.6 with live tests; all live tests and golden scenarios green. |
 
 ### 7.1 Parallel work breakdown
 M0 fixes the conventions. After that, each area owns its own files and needs no shared registration:
@@ -869,6 +870,124 @@ and an exact oracle.
 usual. The add-in help can be extracted again with `hh.exe -decompile <folder> <file>.chm` after copying the `.chm` out
 of `Program Files` to a folder without spaces; the output never goes into the repository (§8).
 
+### 7.3 M9 plan: the Tier 2 backlog (2026-10-31)
+**Survey.** Each Tier 2 item was checked against the 2025 help (core, Simulation, Motion, Utilities, FeatureWorks).
+What changes the plan:
+- Sensors can be read and edited (`ISensor`) but not created: no API inserts one.
+- The tooling split has an API after all: `IFeatureManager.InsertMoldCoreCavitySolids`, next to
+  `InsertMoldPartingLine`, `InsertMoldShutOffSurface`, `InsertMoldPartingSurface`, `MoldUndercutDetect2`,
+  `IModelDoc2.MoldDraftAnalysis` and `InsertScale`.
+- No boundary-surface feature exists in the API (only `IBoundaryBossFeatureData`, for solids).
+- Motion: `IMotionStudyManager.CreateMotionStudy`; motors, springs, gravity and contacts are motion features
+  (`IMotionStudy.CreateDefinition` with `swFmAEM…`, ids 74–85: `ISimulationMotorFeatureData`, `…SpringFeatureData`,
+  `…GravityFeatureData`); `Calculate`; results through `IMotionStudyResults` (basic motion) and
+  `ICosmosMotionStudyResults.GetValues` with `swMotionPlotAxisType_e` (Motion Analysis); `SaveToAVI`. The add-in is
+  `cmotionsw.dll`.
+- Excel is installed on the test machine, so `InsertFamilyTableNew` can be probed; a table of configurations doesn't
+  need it.
+- `ISldWorks.GetRayTraceRenderer` → `IRayTraceRenderer.RenderToFile` exists and `sldraytracerenderu.dll` is installed;
+  whether it still renders in 2025 is a probe.
+- FeatureWorks: `GetAddInObject("FeatureWorks.FeatureWorksApp")` → `IFeatureWorksApp` (`RecognizeFeatureAutomatic`,
+  `CreateFeatures`).
+- Simulation has study types for fatigue (`ICWFatigueStudyOptions`, `ICWFatigueEvent`) and nonlinear, with C#
+  examples; contact sets (`CreateContactSet2`) and connectors (`AddBoltConnector`, `AddPinConnector`).
+
+**Work packages, in order** (sizes and status as in §7.2):
+
+**M9 WP1 · Configuration families** (S–M)
+- Scope: many configurations in one call, as a design table does: per configuration, dimension values, feature
+  suppression, custom properties and material; the same table read back. Display states (list, add, activate,
+  delete). Existing sensors, with values and alerts, in `model_review`.
+- Tools: `config_table {rows}` with design-table column names (`D1@Boss-Extrude1`, `$STATE@Fillet1`,
+  `$PRP@PartNo`); display states as a kind on `config_add`, `config_activate` and `config_delete`, listed by
+  `config_list`.
+- API: `AddConfiguration3`, `IDimension.SetSystemValue3` (`swSetValue_InSpecificConfigurations`),
+  `IFeature.SetSuppression2` (`swSpecifyConfiguration`), `ICustomPropertyManager` per configuration,
+  `IPartDoc.SetMaterialPropertyName2`, `IConfiguration.CreateDisplayState` / `ApplyDisplayState` /
+  `DeleteDisplayState` / `GetDisplayStates`, `ISensor`.
+- Oracle: each configuration activated, its dimensions, suppression, properties and mass read back.
+- Probe: a real design table (`InsertFamilyTableNew`), only if it runs without UI.
+
+**M9 WP2 · Surfaces, curves and shape features** (M)
+- Scope: filled surfaces (a boundary of edges; merged, or a solid); trim (by a surface, plane or sketch, keeping chosen
+  regions), extend and untrim; curves: projected, composite and XYZ through points; wrap (emboss, deboss, scribe),
+  dome, indent and flex (bend, twist, taper, stretch).
+- Tools: `surface_fill`, `surface_trim {kind: trim | extend | untrim}`, `ref_curve {kind: projected | composite |
+  xyz}`, `feature_deform {kind: wrap | dome | indent | flex}`.
+- API: `InsertFillSurface2` (`IFillSurfaceFeatureData`), `IFeatureManager.PreTrimSurface` / `PostTrimSurface`,
+  `InsertExtendSurface`, `InsertUntrimSurface2`, `InsertProjectedSketch2`, `InsertCompositeCurve`,
+  `InsertCurveFileBegin` / `Point` / `End`, `InsertWrapFeature2`, `InsertDome` (`IDomeFeatureData2`), `InsertIndent`
+  (`IIndentFeatureData`), `InsertFlexFeature`.
+- Oracle: a fill over a square opening has the opening's area; a trim removes the expected area; curve lengths against
+  the geometry; a wrap's volume against depth × outline area; a dome against its spherical cap.
+
+**M9 WP3 · Manufacturability and mold tools** (M–L)
+- Scope: draft analysis for a pull direction (positive, negative, straddling and vertical faces, the smallest angle),
+  undercut faces, thin walls under a limit; the mold sequence: shrinkage scale, parting line, shut-off surfaces, parting
+  surface and the core/cavity split.
+- Tools: `model_check {kind: draft | undercut | thickness}` (new kinds on the existing tool); `mold_split` (the whole
+  sequence in one call, or chosen steps).
+- API: draft angles from the face geometry; `MoldUndercutDetect2`; Utilities `IThicknessAnalysis`
+  (`RunThinAnalysis2`); `InsertScale`, `InsertMoldPartingLine`, `InsertMoldShutOffSurface`,
+  `InsertMoldPartingSurface`, `InsertMoldCoreCavitySolids`.
+- Oracle: a drafted box reads its draft angles exactly; a side hole is an undercut; a shelled part's walls against the
+  shell thickness; core + cavity = block − scaled part, without overlap.
+
+**M9 WP4 · Motion studies** (L)
+- Scope: rotary and linear motors (speed, distance, oscillation), springs, gravity; animation, basic motion and
+  Motion Analysis; results over time (positions, velocities, angles, reaction forces, motor torque and power), range of
+  motion and collisions; AVI output.
+- Tools: `motion_run {type, durationS, motors, springs, gravity, outputs, aviPath}`; studies listed and deleted with
+  the simulation tools or a `motion_delete`.
+- API: as in the survey above.
+- Oracle: a crank driven at constant speed reaches the expected angle; a slider-crank's stroke is twice the crank
+  radius; the torque holding a lever with a known mass is m·g·r.
+- Probe: loading the Motion add-in, and which study types this licence runs.
+
+**M9 WP5 · Section views and renders** (S–M)
+- Scope: 3D section views in screenshots (a plane or face, an offset; removed afterwards); ray-traced renders to a file.
+- Tools: `view_screenshot {section}`, `view_render`.
+- API: `IModelViewManager.CreateSectionViewData` / `CreateSectionView` / `RemoveSectionView` (`ISectionViewData`);
+  `IRayTraceRenderer` (`RayTraceRendererOptions`, `RenderToFile`, `CloseRayTraceRender`).
+- Oracle: the section image differs from the plain one and the view is restored; the render file is written at its
+  size.
+
+**M9 WP6 · Assembly structure** (M)
+- Scope: forming a subassembly from components and dissolving one; hole series through stacked parts; lightweight
+  components and SpeedPak; screw mates (again, with `CreateMate` and `IScrewMateFeatureData`).
+- Tools: `asm_structure {kind: form | dissolve}`, `asm_hole_series`, `asm_component_set {lightweight}`, `config_add
+  {kind:"speedpak"}`, `asm_mate_add {kind:"screw"}`.
+- API: `IAssemblyDoc.InsertNewAssembly`, `DissolveSubAssembly`, `IHoleSeriesFeatureData2`, `MakeLightWeight`,
+  `ResolveAllLightWeightComponents`, `IConfigurationManager.AddSpeedPak2`, `CreateMateData` / `CreateMate`.
+- Oracle: the tree per level before and after (BOM quantities unchanged); a hole through each part; the lightweight
+  state read back; a screw mate's travel per turn measured by rotating the component.
+
+**M9 WP7 · Simulation extras** (L)
+- Scope: local contacts (no penetration, bonded) and bolt and pin connectors in assemblies, the factor of safety plot
+  (again), mesh convergence, fatigue and nonlinear studies, a report.
+- Tools: new parameters on `sim_static` and `sim_run` (`contacts`, `connectors`, `convergence`), `sim_plot {kind:"fos"}`,
+  study types on `sim_run`.
+- API: `ICWContactManager.CreateContactSet2`, `ICWLoadsAndRestraintsManager.AddBoltConnector` / `AddPinConnector`,
+  `ICWResults.GetMinMaxFactorOfSafety2`, `ICWPlot.SetFOSPlot`, the fatigue and nonlinear study options.
+- Oracle: two plates with a no-penetration contact deflect more than bonded ones; a bolted joint's axial force against
+  its preload; a cantilever's tip deflection converging to beam theory; factor of safety = yield / max stress.
+
+**M9 WP8 · Feature recognition** (S–M)
+- Scope: imported STEP/IGES bodies turned into editable features (extrudes, revolves, holes, fillets, chamfers).
+- Tools: `feature_recognize`.
+- API: `IFeatureWorksApp.RecognizeFeatureAutomatic`, `CreateFeatures`, `SetAdvancedOptions`.
+- Oracle: a known part exported to STEP, imported and recognized: the feature types come back and the volume is
+  unchanged.
+
+**M9 WP9 · Templates, sheet formats and leftovers** (S)
+- Scope: a template per call for new documents, a sheet format per drawing sheet; sheet-metal jogs (again, with
+  `InsertSheetMetalJog` and `IJogFeatureData`); `vba_run` detecting the suspended-macro state.
+- Tools: `doc_new {template}`, `drw_sheet_setup {format}`, `sheetmetal_jog`.
+- Oracle: the template's units and properties in the new document; the sheet format's notes on the sheet; the jog's
+  offset measured.
+
+**Resuming.** Mark each package ✅ here as it lands, as for M8.
+
 ---
 
 ## 8. Distribution and installation
@@ -910,4 +1029,4 @@ of `Program Files` to a folder without spaces; the output never goes into the re
 
 ## 10. Future work
 HTTP transport, add-in mode, PDM, signed binary releases with a computed API floor. Design tables, mold tools, motion
-and rendering are in M8's Tier 2 (§7.2).
+and rendering are milestone M9 (§7.3).
