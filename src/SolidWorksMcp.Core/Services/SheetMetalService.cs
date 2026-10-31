@@ -717,9 +717,12 @@ public sealed partial class SheetMetalService(SwSession session)
         return session.RunAsync("sheetmetal_export_flat", ctx => ExportFlat(ctx, file, format, bendLines, overwrite), RunOptions.Read(doc) with { Timeout = timeout }, ct);
     }
 
-    private static FlatExportResult ExportFlat(SwContext ctx, string file, string format, bool bendLines, bool overwrite)
+    private static FlatExportResult ExportFlat(SwContext ctx, string file, string format, bool bendLines, bool overwrite) =>
+        ExportFlatOf(ctx, ctx.Part(), file, format, bendLines, overwrite);
+
+    /// <summary>sheetmetal_export_flat of one part (the bound one, or one model_export_all walks to).</summary>
+    internal static FlatExportResult ExportFlatOf(SwContext ctx, IPartDoc part, string file, string format, bool bendLines, bool overwrite)
     {
-        var part = ctx.Part();
         var d = (IModelDoc2)part;
         if (SheetMetalFeature(d) is null)
             throw SwException.InvalidArgument($"'{ctx.Title(d)}' is not a sheet-metal part (no SheetMetal feature).", "sheetmetal_base_flange makes one; model_export writes other formats.");

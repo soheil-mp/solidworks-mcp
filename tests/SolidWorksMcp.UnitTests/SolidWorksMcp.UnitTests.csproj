@@ -59,6 +59,7 @@
     <Compile Include="..\..\src\SolidWorksMcp.Core\Services\FlatPatternDxf.cs" Link="Core\Services\FlatPatternDxf.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Services\EdgeChain.cs" Link="Core\Services\EdgeChain.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Services\DimensionTolerance.cs" Link="Core\Services\DimensionTolerance.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Services\AssemblyBom.cs" Link="Core\Services\AssemblyBom.cs" />
   </ItemGroup>
 
 </Project>

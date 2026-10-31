@@ -740,9 +740,11 @@ public sealed class ExportService(SwSession session)
         return session.RunAsync("model_export", ctx => Export(ctx, q, plan), RunOptions.Read(q.Doc) with { Timeout = timeout }, ct);
     }
 
-    private static ExportResult Export(SwContext ctx, ExportRequest q, ExportPlan plan)
+    private static ExportResult Export(SwContext ctx, ExportRequest q, ExportPlan plan) => ExportDoc(ctx, ctx.Doc, q, plan);
+
+    /// <summary>model_export of one document (the bound one, or one model_export_all walks to).</summary>
+    internal static ExportResult ExportDoc(SwContext ctx, IModelDoc2 d, ExportRequest q, ExportPlan plan)
     {
-        var d = ctx.Doc;
         int type = d.GetType();
         var kind = type switch
         {
@@ -764,7 +766,7 @@ public sealed class ExportService(SwSession session)
         {
             string sketch = ((IFeature)open).Name;
             throw new SwException(ErrorCodes.SketchState, $"Sketch '{sketch}' is open in '{ctx.Title(d)}'; export the model with no sketch in edit.",
-                ctx.DocEntry.ServerSketch == sketch ? "Finish it with sketch_finish first." : "The user is editing it; ask them to exit the sketch.");
+                ctx.Documents.Find(d)?.ServerSketch == sketch ? "Finish it with sketch_finish first." : "The user is editing it; ask them to exit the sketch.");
         }
         ctx.CheckUserCommand();
         double[]? modelMm = ModelSizeMm(ctx, d, kind, f);

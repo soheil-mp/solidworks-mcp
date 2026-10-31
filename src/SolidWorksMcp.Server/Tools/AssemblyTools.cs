@@ -193,6 +193,20 @@ public sealed class AssemblyTools(SwSession session)
             Folder = folder, KeepOnFailure = keepOnFailure,
         }, cancellationToken), progress, "asm_pattern");
 
+    [McpServerTool(Name = "asm_bom", Title = "Bill of materials (data)", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("Bill of materials of the assembly as data, no drawing needed: item, part number (PartNo / Part Number property, else " +
+                 "the file name), description, material, quantity, mass, file and configuration; levels top, parts (every part, quantities " +
+                 "through subassemblies) or indented. Suppressed, excluded and envelope components are left out (listed). Optional CSV " +
+                 "file (Excel). Verified: the quantities add up to the instances; the CSV read back.")]
+    public Task<string> AsmBom(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("top (default) | parts | indented")] string? levels = null,
+        [Description("A .csv file to write, e.g. \"bom.csv\" (relative paths go under Documents\\solidworks-mcp).")] string? path = null,
+        [Description("Replace an existing file.")] bool overwrite = false,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_svc.BomAsync(new AsmBomRequest { Doc = doc, Levels = levels, Path = path, Overwrite = overwrite }, cancellationToken), progress, "asm_bom");
+
     [McpServerTool(Name = "asm_explode", Title = "Exploded view", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Exploded view of the assembly (a new one in the active configuration): steps that move components along assembly " +
                  "axes, applied in order; drawings can show it. Verified: every component moved by the sum of its steps; else the view " +

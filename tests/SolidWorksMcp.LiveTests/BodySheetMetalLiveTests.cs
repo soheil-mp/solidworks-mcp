@@ -705,6 +705,24 @@ public class BodySheetMetalLiveTests(LiveFixture fx) : LiveTest(fx)
     }
 
     [Fact]
+    public async Task Cut_list_of_a_bent_plate_gives_its_blank_thickness_and_bend_count()
+    {
+        // The 50 x 30 x 2 plate bent along x = 10: one sheet-metal item whose blank is still 50 x 30 (a sketched bend keeps the flat).
+        string doc = await SheetAsync("cutlist_sheet");
+        await Sm.BendAsync(new SketchedBendRequest { Doc = doc, FromMm = [10, 0, -15], ToMm = [10, 0, 15] });
+        var r = await new CutListService(S).CutListAsync(doc, update: false);
+        var item = Assert.Single(r.Items);
+        Assert.Equal("sheet_metal", item.Type);
+        Assert.Equal(1, item.Quantity);
+        double Num(string key) => double.Parse(item.Properties[key].Split(' ')[0].Replace(',', '.'), System.Globalization.CultureInfo.InvariantCulture);
+        Assert.Equal(50, Num("Bounding Box Length"), 0.01);
+        Assert.Equal(30, Num("Bounding Box Width"), 0.01);
+        Assert.Equal(2, Num("Sheet Metal Thickness"), 0.001);
+        Assert.Equal(1, Num("Bends"));
+        Assert.Contains(r.Checks, c => c.StartsWith("every solid body of the part (1)", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Sketched_bends_off_the_sheet_or_at_its_edge_are_refused()
     {
         string doc = await SheetAsync("bend_bad");

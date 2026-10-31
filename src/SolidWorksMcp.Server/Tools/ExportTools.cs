@@ -11,6 +11,7 @@ namespace SolidWorksMcp.Server.Tools;
 public sealed class ExportTools(SwSession session)
 {
     private readonly ExportService _svc = new(session);
+    private readonly ReleaseService _release = new(session);
 
     [McpServerTool(Name = "model_export", Title = "Export (STEP, STL, PDF, ...)", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
     [Description("Export, save as STEP/STL/IGES/Parasolid/3MF/PNG/JPG/eDrawings/PDF, and DWG/DXF from drawings; the file extension picks the " +
@@ -35,4 +36,20 @@ public sealed class ExportTools(SwSession session)
             Path = path, Format = format, StepAp = stepAp, StlBinary = stlBinary, StlQuality = stlQuality,
             StlDeviationMm = stlDeviationMm, StlAngleDeg = stlAngleDeg, Overwrite = overwrite, Doc = doc,
         }, cancellationToken), progress, "model_export");
+
+    [McpServerTool(Name = "model_export_all", Title = "Release package (batch export)", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
+    [Description("Release package in one call: for a saved part or assembly and every model file in it, a STEP (or IGES / Parasolid / " +
+                 "STL / 3MF) each, a PDF of each drawing saved next to its model under the same name, a flat DXF of each sheet-metal " +
+                 "part, and the parts-only BOM as CSV, all in one folder. Each file is checked like model_export; what can't be " +
+                 "made (no drawing, not saved, not sheet metal) is listed with the reason.")]
+    public Task<string> ModelExportAll(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("step | iges | parasolid | stl | 3mf | pdf | dxf | bom (default step, pdf, dxf, bom).")] string[]? formats = null,
+        [Description("Output folder (relative paths go under Documents\\solidworks-mcp); default <name>_release.")] string? folder = null,
+        [Description("Replace files that exist (backed up unless this server wrote them).")] bool overwrite = false,
+        [Description("STEP application protocol: 203 | 214 | 242.")] int stepAp = 214,
+        [Description("Document (handle, title or path); default: the target document.")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_release.ExportAllAsync(new ExportAllRequest { Doc = doc, Formats = formats, Folder = folder, Overwrite = overwrite, StepAp = stepAp },
+            cancellationToken), progress, "model_export_all");
 }

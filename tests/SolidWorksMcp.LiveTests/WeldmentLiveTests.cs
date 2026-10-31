@@ -28,6 +28,29 @@ public class WeldmentLiveTests(LiveFixture fx) : LiveTest(fx)
     private static double Area(WeldmentMember m) => m.VolumeMm3 / m.SegmentLengthMm;
 
     [Fact]
+    public async Task Cut_list_groups_the_frames_members_by_length_with_their_properties()
+    {
+        // The 400 x 300 frame, mitered: two items, the 440 mm and the 340 mm members (20 mm past each segment end), two each.
+        string doc = await RectangleAsync("wm_cutlist");
+        await Wm.MemberAsync(new WeldmentMemberRequest { Doc = doc, Type = "square tube", Size = "40x40x4" });
+        var r = await new CutListService(S).CutListAsync(doc, update: true);
+        Assert.Equal(2, r.Items.Count);
+        Assert.All(r.Items, i => Assert.Equal(2, i.Quantity));
+        Assert.All(r.Items, i => Assert.Equal("weldment", i.Type));
+        Assert.Equal(4, r.Bodies);
+        var lengths = r.Items.Select(i => double.Parse(i.Properties.First(p => p.Key.Equals("LENGTH", StringComparison.OrdinalIgnoreCase)).Value.Split(' ')[0].Replace(',', '.'),
+            System.Globalization.CultureInfo.InvariantCulture)).Order().ToArray(); // the value follows the document's locale
+        Assert.Equal(340, lengths[0], 0.01);
+        Assert.Equal(440, lengths[1], 0.01);
+        Assert.Contains(r.Checks, c => c.StartsWith("every solid body of the part (4)", StringComparison.Ordinal));
+        string block = await NewPartAsync("wm_cutlist_none");
+        await Sk.StartAsync(block, new EntityRef { Name = "top" }, false);
+        await Sk.AddAsync(block, [new SketchEntity { Kind = "rectangle", Center = [0, 0], WidthMm = 40, HeightMm = 20 }]);
+        await new FeatureService(S).ExtrudeAsync(new ExtrudeRequest { Doc = block, DepthMm = 10 });
+        Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() => new CutListService(S).CutListAsync(block, false))).Code);
+    }
+
+    [Fact]
     public async Task Square_tube_on_a_rectangle_makes_four_mitered_members_of_one_section()
     {
         string doc = await RectangleAsync("wm_miter");

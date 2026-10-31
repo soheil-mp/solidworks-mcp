@@ -845,6 +845,86 @@ public class AssemblyLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.False(File.Exists(Path.Combine(_dir, $"{l.Name}_x.sldprt")));
     }
 
+    // ------------------------------------------------------------------ asm_bom (M8 WP3)
+
+    [Fact]
+    public async Task Bom_counts_top_level_parts_and_indented_lines_and_writes_a_csv()
+    {
+        // top = 2 x cube + sub; sub = 1 x cube + 1 x box. The cube carries PartNo and Description.
+        var cube = await CubeAsync("bomcube");
+        var props = new PropertiesService(S);
+        await props.PropSetAsync(cube.Doc, "PartNo", "A-100");
+        await props.PropSetAsync(cube.Doc, "Description", "Cube, 20 mm");
+        var box = await BoxAsync("bombox");
+        string sub = await NewAssemblyAsync("bom_sub");
+        await InsertAsync(sub, cube.Path, [0, 0, 0]);
+        await InsertAsync(sub, box.Path, [50, 0, 0], fixedState: false);
+        var subSaved = await Docs.SaveAsync(sub, "as", Path.Combine(_dir, $"bom_sub_{_tag}.sldasm"), false);
+        string top = await NewAssemblyAsync("bom_top");
+        await InsertAsync(top, cube.Path, [0, 0, 0]);
+        await InsertAsync(top, cube.Path, [0, 40, 0], fixedState: false);
+        await InsertAsync(top, subSaved.SavedTo!, [0, 0, 100], fixedState: false);
+
+        var t = await Asm.BomAsync(new AsmBomRequest { Doc = top });
+        Assert.Equal(3, t.Instances);
+        Assert.Equal(2, t.RowCount);
+        var cubeRow = t.Rows.Single(r => r.Kind == "part");
+        Assert.Equal(("A-100", "Cube, 20 mm", 2), (cubeRow.PartNumber, cubeRow.Description, cubeRow.Quantity));
+        Assert.Equal(1, t.Rows.Single(r => r.Kind == "assembly").Quantity);
+
+        var parts = await Asm.BomAsync(new AsmBomRequest { Doc = top, Levels = "parts" });
+        Assert.Equal(4, parts.Instances);
+        Assert.Equal(3, parts.Rows.Single(r => r.PartNumber == "A-100").Quantity);
+        Assert.Equal(1, parts.Rows.Single(r => r.PartNumber == box.Name).Quantity); // no PartNo: the file name
+
+        var ind = await Asm.BomAsync(new AsmBomRequest { Doc = top, Levels = "indented", Path = Path.Combine(_dir, "bom.csv") });
+        Assert.Equal(["1", "2", "2.1", "2.2"], ind.Rows.Select(r => r.Item));
+        Assert.Equal([2, 1, 1, 1], ind.Rows.Select(r => r.Quantity));
+        Assert.True(File.Exists(ind.File));
+        Assert.Contains(ind.Checks, c => c.StartsWith("CSV written and read back: 4 row(s)", StringComparison.Ordinal));
+        Assert.Contains("\"Cube, 20 mm\"", await File.ReadAllTextAsync(ind.File!));
+        var again = await Assert.ThrowsAsync<SwException>(() => Asm.BomAsync(new AsmBomRequest { Doc = top, Path = ind.File }));
+        Assert.Equal(ErrorCodes.IoError, again.Code); // never overwritten without overwrite:true
+    }
+
+    [Fact]
+    public async Task Release_package_writes_a_step_per_model_the_drawing_pdf_the_flat_dxf_and_the_bom()
+    {
+        // A sheet-metal bracket (80 x 40 x 2, one bend) and a block with a drawing saved next to it, in a saved assembly.
+        string bracket = await NewPartAsync("rel_bracket");
+        await Sk.StartAsync(bracket, new EntityRef { Name = "top" }, false);
+        await Sk.AddAsync(bracket, [new SketchEntity { Kind = "rectangle", Center = [0, 0], WidthMm = 80, HeightMm = 40 }]);
+        await Sk.FinishAsync(bracket);
+        var sm = new SheetMetalService(S);
+        await sm.BaseFlangeAsync(new BaseFlangeRequest { Doc = bracket, ThicknessMm = 2, BendRadiusMm = 2 });
+        await sm.BendAsync(new SketchedBendRequest { Doc = bracket, FromMm = [20, 0, -20], ToMm = [20, 0, 20] });
+        var br = await SaveAsync(bracket, "rel_bracket");
+        var block = await BoxAsync("rel_block");
+        var dr = await Docs.NewAsync("drawing", "mmgs", null, $"rel_drw_{_tag}");
+        _asms.Add(dr.Document.Handle);
+        await new DrawingService(S).ViewsStandardAsync(block.Path, ["front"], null, dr.Document.Handle);
+        await Docs.SaveAsync(dr.Document.Handle, "as", Path.ChangeExtension(block.Path, ".slddrw"), false);
+        string asm = await NewAssemblyAsync("rel_asm");
+        await InsertAsync(asm, br.Path, [0, 0, 0]);
+        await InsertAsync(asm, block.Path, [100, 0, 0], fixedState: false);
+        await Docs.SaveAsync(asm, "as", Path.Combine(_dir, $"rel_asm_{_tag}.sldasm"), false);
+
+        string folder = Path.Combine(_dir, "release");
+        var r = await new ReleaseService(S).ExportAllAsync(new ExportAllRequest { Doc = asm, Folder = folder });
+        Assert.Equal(Path.GetFullPath(folder), r.Folder, ignoreCase: true);
+        Assert.Equal(3, r.Files.Count(f => f.Format == "step")); // the assembly, the bracket, the block
+        var pdf = Assert.Single(r.Files, f => f.Format == "pdf");
+        Assert.Equal(Path.GetFileName(Path.ChangeExtension(block.Path, ".slddrw")), pdf.Source, ignoreCase: true);
+        var dxf = Assert.Single(r.Files, f => f.Format == "dxf");
+        Assert.Contains("rel_bracket", dxf.Source, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(r.Files, f => f.Format == "bom");
+        Assert.All(r.Files, f => Assert.True(File.Exists(f.Path) && new FileInfo(f.Path).Length > 0, f.Path));
+        Assert.Contains(r.Skipped!, s => s.Format == "pdf" && s.Source.Contains("rel_bracket", StringComparison.OrdinalIgnoreCase)); // no drawing
+        // Again without overwrite: every file exists, so nothing is written and each is reported.
+        var again = await Assert.ThrowsAsync<SwException>(() => new ReleaseService(S).ExportAllAsync(new ExportAllRequest { Doc = asm, Folder = folder, Formats = ["step"] }));
+        Assert.Equal(ErrorCodes.FeatureFailed, again.Code);
+    }
+
     [Fact]
     public async Task Pattern_requests_that_cant_work_are_refused_before_anything_changes()
     {

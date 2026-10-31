@@ -699,7 +699,8 @@ them with §4's conventions when a package starts.
 - Oracle: sheet count and size; view type, scale and bounds (a broken view is shorter than the part at its scale); table
   rows against the model's cut list.
 
-**WP3 · BOM as data and a release package** (M, ⏳)
+**WP3 · BOM as data and a release package** (M, ✅ 2026-10-31: `asm_bom {levels, path}`, `model_export_all`; CSV with a
+UTF-8 mark instead of XLSX, since Excel opens it; every column is always written, so there is no `columns` choice)
 - Scope: the assembly's bill of materials without a drawing (quantity per file and configuration, part number,
   description, material, mass; top level or indented), also as CSV or XLSX. One call writes a release package: a STEP of
   each part, a PDF of each drawing, a flat DXF of each sheet-metal part, and the BOM.
@@ -709,7 +710,7 @@ them with §4's conventions when a package starts.
 - Oracle: quantities against `asm_component_list`; every file written by this call, its header checked as
   `model_export` does; nothing overwritten.
 
-**WP4 · Fabrication data** (M, ⏳)
+**WP4 · Fabrication data** (M, ⏳; `model_cut_list` ✅ 2026-10-31 for weldment and sheet-metal items)
 - Scope: the weldment cut list (profile, length, end angles, quantity per member); trim/extend, end caps, gussets and
   fillet beads; the sheet-metal cut list (thickness, blank size, bend count).
 - Tools: a `weldment_finish {kind: trim | end_cap | gusset | bead}`; a read-only `model_cut_list`.

@@ -270,6 +270,15 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   per segment. A 400 × 300 rectangle in ISO square tube 40 x 40 x 4 gave 534.8 mm² of section per mm on every member,
   mitered members 20 mm (half the profile) longer than their segment at each end. A group holds contiguous (or parallel)
   segments: a table frame from one 3D sketch is two calls, the top rectangle (miter) and the legs (no corner treatment).
+- **Cut list** (VERIFIED 2026-10-31). The items are the tree's `CutListFolder` features, each `GetSpecificFeature2()` an
+  `IBodyFolder` (`GetBodyCount`, `GetBodies`, `GetCutListType()`: `swCutListType_e` 1 solid, 2 sheet metal,
+  3 weldment); their parent `SolidBodyFolder` has `GetAutomaticUpdate()` and `UpdateCutList()`. The properties come from
+  the folder feature's `IFeature.CustomPropertyManager.GetAll3(ref names, ref types, ref values, ref resolved, ref
+  links)`: **the third array holds the evaluated values; the fourth (`Resolved`) is a status per property
+  (`swCustomInfoGetResult_e`, 2 for all of them), not text.** The 400 x 300 mitered frame of 40 x 40 x 4 tube: 2 items
+  of 2 bodies, LENGTH 440 and 340, ANGLE1/ANGLE2 45°, TOTAL LENGTH 1560. A sheet with one sketched bend: 1 sheet-metal
+  item with `Bounding Box Length`/`Width` (the blank), `Sheet Metal Thickness`, `Bends`, `Bend Radius`. The values carry
+  no unit (the parts were in mm).
 
 ## 7. Sheet metal
 - **Base flange** (VERIFIED, exact volume).
@@ -408,6 +417,22 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   `CreateFeature`: a `MirrorCompFeat` whose new component references the new part file, which SOLIDWORKS writes at once
   (its path comes back lower-cased). With `PreserveZAxis = true` (SOLIDWORKS' example) the copy sat turned 180° about y
   off its mirror image; with false, a handed L at x 40..70 landed exactly on x -70..-40, every vertex reflected.
+
+- **BOM as data** (VERIFIED 2026-10-31). Walk `IAssemblyDoc.GetComponents(true)` and each subassembly's
+  `IComponent2.GetChildren`, leaving out components with `GetSuppression2() == swComponentSuppressed`, `ExcludeFromBOM`
+  or `IsEnvelope()`; a line is a file path plus `ReferencedConfiguration`. **`GetComponents` returns the components in no
+  fixed order** (the same assembly came back cube, cube, subassembly in one run and subassembly first in the next), so
+  number the items in tree order: the `Reference` and `ReferencePattern` features (`Tree.WalkAll`), whose
+  `GetSpecificFeature2()` is the `IComponent2`; a subassembly's children by its own document's tree (their names in
+  the top assembly are `sub-1/child-1`). Part number and description: `Extension.CustomPropertyManager[config]`, then `[""]`, with
+  `Get6(name, false, out raw, out resolved, …)`; material `IPartDoc.GetMaterialPropertyName2(config, out db)`; mass
+  `Extension.CreateMassProperty2().Mass` (kg). Two cubes and a subassembly (a cube and a box): top level 2 rows for
+  3 instances, parts only 3 cubes and 1 box, indented items 1, 2, 2.1, 2.2. Write the CSV in UTF-8 with the byte-order
+  mark, or Excel reads it in the ANSI code page.
+- **Release package** (VERIFIED 2026-10-31). The model files are the distinct `IComponent2.GetPathName()` of
+  `GetComponents(false)` (every level), each exported from its own `GetModelDoc2()`. A drawing next to a model (same
+  name, `.slddrw`) that isn't open is opened with `OpenDoc6(path, swDocDRAWING, Silent | ReadOnly)`, saved as PDF and
+  closed again (`CloseDoc(title)`), so the user's open drawings stay as they are.
 
 ## 9. Drawing
 - **Default drawing template:** US Letter (279.4 × 215.9), 1:1, third angle, **no sheet format**, units **CGS**. Set MMGS

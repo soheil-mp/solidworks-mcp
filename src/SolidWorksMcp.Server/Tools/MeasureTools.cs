@@ -54,4 +54,15 @@ public sealed class MeasureTools(SwSession session)
         [Description(DocDescription)] string? doc = null,
         CancellationToken cancellationToken = default) =>
         Output.Json(_svc.CheckAsync(doc, body, cancellationToken), progress, "model_check");
+
+    [McpServerTool(Name = "model_cut_list", Title = "Cut list", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("Cut list of a weldment or sheet-metal part, for fabrication: each item (identical bodies) with its quantity, type and " +
+                 "properties as SOLIDWORKS resolves them (LENGTH, ANGLE1/2 of members; bounding box, thickness and bends of blanks; " +
+                 "description, material). update:true refreshes the cut list first. Verified: the items hold every solid body once.")]
+    public Task<string> ModelCutList(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("Refresh the cut list first (changes the part).")] bool update = false,
+        [Description(DocDescription)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(new CutListService(session).CutListAsync(doc, update, cancellationToken), progress, "model_cut_list");
 }

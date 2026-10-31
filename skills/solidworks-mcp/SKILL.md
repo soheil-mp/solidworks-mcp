@@ -84,6 +84,9 @@ view_screenshot
 **Exporting.** Save native files with `doc_save {mode:"as", path:"bracket.sldprt"}`. Relative paths go under
 Documents\solidworks-mcp. Export with `model_export {path:"bracket.step"}` (STEP AP214 by default; also IGES, STL, 3MF,
 Parasolid and more). Existing files need `overwrite:true`. `doc_open` imports STEP/IGES/Parasolid/STL as a new part.
+A release in one call: `model_export_all {}` on the saved assembly or part writes a STEP of every model, a PDF of each
+drawing saved next to its model under the same name, a flat DXF of each sheet-metal part and the BOM (CSV) into
+`<name>_release`; what it couldn't make is listed with the reason.
 
 **Editing an imported (or any) body directly.** An imported STEP has no features to edit, so change its faces:
 - `face_edit {op:"delete", faces:[{where:{surface:"cylinder", radiusMm:3}, expect:4}]}` removes holes, fillets or bosses
@@ -107,12 +110,14 @@ pick, mitered where they meet); fold edges back with `sheetmetal_hem {edges:[…
 `gapMm`, teardrop and rolled `radiusMm`), bend the plate along a line with `sheetmetal_bend {fromMm:[x,y,z], toMm:[x,y,z],
 angleDeg:90}` (the larger side stays unless you give `fixedAtMm`), check the blank with `sheetmetal_flatten {flat:true}`,
 save the part, then
-`sheetmetal_export_flat {path:"bracket_flat.dxf"}` for the laser cutter.
+`sheetmetal_export_flat {path:"bracket_flat.dxf"}` for the laser cutter. `model_cut_list` gives the blank's size,
+thickness and number of bends.
 
 **Weldment frames.** Sketch the frame's centre lines (a 2D sketch, or `sketch_start {threeD:true}` with [x,y,z] points),
 then `weldment_member {type:"square tube", size:"40 x 40 x 4"}` (ISO by default; a wrong type or size lists the real
 ones). One call per group of contiguous or parallel lines: e.g. a table's top rectangle (corners mitered), then its legs
-with `segments:["Line5",…], corner:"none"`. The result lists each member's body and length.
+with `segments:["Line5",…], corner:"none"`. The result lists each member's body and length; `model_cut_list
+{update:true}` gives the cut list (each length with its quantity and end angles).
 
 **Assemblies.**
 1. Save each part first (`doc_save {mode:"as", path:"cube.sldprt"}`): components must be files.
@@ -133,6 +138,8 @@ with `segments:["Line5",…], corner:"none"`. The result lists each member's bod
 6. Exploded view (for assembly instructions or a drawing): `asm_explode {steps:[{components:["lid-1"], direction:"+y",
    distanceMm:60}, {components:["bolt-1","bolt-2"], direction:"+y", distanceMm:120}]}`; `collapse:true` keeps the view
    but shows the assembly assembled again.
+7. Bill of materials without a drawing: `asm_bom {levels:"parts", path:"bom.csv"}` (`top`, `parts` with quantities through
+   subassemblies, or `indented`; part numbers from the PartNo / Part Number property, else the file name).
 
 **Drawings.**
 1. Save the part or assembly.
