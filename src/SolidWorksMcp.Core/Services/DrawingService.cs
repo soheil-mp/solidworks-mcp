@@ -119,6 +119,8 @@ public sealed class DrwDimensionResult : ToolResult
     public double? Expected { get; init; }
     /// <summary>True for a reference (driven) dimension, the usual kind in drawings.</summary>
     public bool? Reference { get; init; }
+    /// <summary>hole_callout: the callout's text parts as SOLIDWORKS holds them.</summary>
+    public string? Callout { get; init; }
     public double[]? TextAtMm { get; init; }
     public IReadOnlyList<string>? Checks { get; init; }
     public IReadOnlyList<ResolvedInfo>? Resolved { get; init; }
@@ -991,10 +993,11 @@ public sealed partial class DrawingService(SwSession session)
     {
         string k = DrawingLayout.Norm(kind) ?? "linear";
         if (k is "aligned" or "smart") k = "linear";
-        if (k is not ("linear" or "horizontal" or "vertical" or "radial" or "diameter" or "angular"))
-            throw SwException.InvalidArgument($"Unknown kind '{kind}'.", "Use linear, horizontal, vertical, radial, diameter or angular.");
+        if (k is "callout" or "hole") k = "hole_callout";
+        if (k is not ("linear" or "horizontal" or "vertical" or "radial" or "diameter" or "angular" or "hole_callout"))
+            throw SwException.InvalidArgument($"Unknown kind '{kind}'.", "Use linear, horizontal, vertical, radial, diameter, angular or hole_callout.");
         if (a is null) throw SwException.InvalidArgument("'a' is required: an edge or vertex of the view's model, e.g. {type:'edge', at:[x,y,z]}.");
-        if (k is "radial" or "diameter" && b is not null) throw SwException.InvalidArgument($"A {k} dimension takes one circular edge ('a' only).");
+        if (k is "radial" or "diameter" or "hole_callout" && b is not null) throw SwException.InvalidArgument($"A {k} dimension takes one circular edge ('a' only).");
         if (k == "angular" && b is null) throw SwException.InvalidArgument("An angular dimension needs two straight edges ('a' and 'b').");
         (double X, double Y)? text = textAtMm is null ? null : Sheet2(textAtMm, "textAtMm");
         var options = RunOptions.Write(doc) with { DialogRules = [DialogRules.ModifyDimension] };
@@ -1016,11 +1019,11 @@ public sealed partial class DrawingService(SwSession session)
             var gb = rb is null ? null : Seen(rb, t, part, "b");
             if (gb is not null && ga.Pick.DistanceTo(gb.Pick) < PosTol && ga.Kind == gb.Kind)
                 throw SwException.InvalidArgument("'a' and 'b' are drawn at the same place in this view.", "Pick two different edges or vertices.");
-            if (k is "radial" or "diameter" && !(ga.Kind == "circle" && ga.FaceOn))
+            if (k is "radial" or "diameter" or "hole_callout" && !(ga.Kind == "circle" && ga.FaceOn))
                 throw SwException.InvalidArgument($"A {k} dimension needs a circular edge seen face-on; {ga.Label} is a {ga.Kind}{(ga.Kind == "circle" ? " seen edge-on" : "")} in '{hit.Name}'.");
             if (k == "angular" && !(ga.Kind == "line" && gb!.Kind == "line"))
                 throw SwException.InvalidArgument("An angular dimension needs two straight edges.");
-            double? expected = Expected(k, ga, gb, s);
+            double? expected = Expected(k == "hole_callout" ? "diameter" : k, ga, gb, s);
             if (k == "angular" && expected is null)
                 throw SwException.InvalidArgument("The two edges are parallel in this view, so there is no angle between them.");
             var outline = Outline(hit);
@@ -1047,6 +1050,19 @@ public sealed partial class DrawingService(SwSession session)
             {
                 DeleteDimension(d, dd);
                 throw new SwException(ErrorCodes.FeatureFailed, "The new display dimension has no dimension value; it was removed.");
+            }
+            string? callout = null;
+            if (k == "hole_callout")
+            {
+                if (!dd.IsHoleCallout())
+                {
+                    bool gone = DeleteDimension(d, dd);
+                    throw new SwException(ErrorCodes.VerifyFailed,
+                        $"SOLIDWORKS made a plain dimension, not a hole callout, on {ra.Label}; {(gone ? "it was removed" : "it could not be removed")}.",
+                        "Hole callouts need a hole made by feature_hole (Hole Wizard) or a cut, seen face-on; use kind diameter otherwise.");
+                }
+                callout = CalloutText(dd);
+                checks.Add($"a hole callout{(callout is null ? "" : $": {callout}")}");
             }
             bool angular = k == "angular" || dim.GetType() == (int)swDimensionParamType_e.swDimensionParamTypeDoubleAngular;
             double v = dim.SystemValue;
@@ -1080,11 +1096,31 @@ public sealed partial class DrawingService(SwSession session)
                 Unit = angular ? "deg" : "mm",
                 Expected = expected is double ex ? (angular ? Units.Deg(ex) : Units.Mm(ex)) : null,
                 Reference = dim.DrivenState == (int)swDimensionDrivenState_e.swDimensionDriven ? true : null,
+                Callout = callout,
                 TextAtMm = [Math.Round(tp.X, 3), Math.Round(tp.Y, 3)],
                 Checks = checks,
                 Resolved = resolved,
             };
         }, options, ct);
+    }
+
+    /// <summary>The callout's text parts (prefix, value, suffix, above, below) joined, or null when SOLIDWORKS gives none.</summary>
+    private static string? CalloutText(IDisplayDimension dd)
+    {
+        var parts = new List<string>();
+        foreach (var which in new[] { swDimensionTextParts_e.swDimensionTextAll, swDimensionTextParts_e.swDimensionTextPrefix,
+                     swDimensionTextParts_e.swDimensionTextSuffix, swDimensionTextParts_e.swDimensionTextCalloutAbove,
+                     swDimensionTextParts_e.swDimensionTextCalloutBelow })
+        {
+            try
+            {
+                if (dd.GetText((int)which) is { Length: > 0 } t && !parts.Contains(t)) parts.Add(t);
+            }
+            catch (COMException e) when (!ComArgs.IsDisconnect(e))
+            {
+            }
+        }
+        return parts.Count == 0 ? null : string.Join(" | ", parts);
     }
 
     /// <summary>How a resolved model entity appears on the sheet.</summary>

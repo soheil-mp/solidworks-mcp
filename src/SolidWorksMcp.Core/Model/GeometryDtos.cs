@@ -100,6 +100,23 @@ public sealed class DimensionInfo
     /// <summary>mm | deg | count.</summary>
     public required string Unit { get; init; }
     public bool? Driven { get; init; }
+    /// <summary>The tolerance, when it has one (type other than none).</summary>
+    public ToleranceInfo? Tolerance { get; init; }
+}
+
+/// <summary>A dimension's tolerance as SOLIDWORKS reads it back (deviations in the dimension's unit: mm or deg).</summary>
+public sealed class ToleranceInfo
+{
+    /// <summary>none | basic | bilateral | limit | symmetric | min | max | fit | fit_with_tolerance | fit_tolerance_only.</summary>
+    public required string Type { get; init; }
+    /// <summary>Upper deviation (symmetric: the ± value).</summary>
+    public double? Upper { get; init; }
+    /// <summary>Lower deviation, usually negative.</summary>
+    public double? Lower { get; init; }
+    /// <summary>ISO hole class of a fit, e.g. H7.</summary>
+    public string? Hole { get; init; }
+    /// <summary>ISO shaft class of a fit, e.g. g6.</summary>
+    public string? Shaft { get; init; }
 }
 
 /// <summary>Result of every feature-creating tool.</summary>

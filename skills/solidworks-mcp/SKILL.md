@@ -137,7 +137,11 @@ with `segments:["Line5",…], corner:"none"`. The result lists each member's bod
 **Drawings.**
 1. Save the part or assembly.
 2. `doc_new {type:"drawing"}` (A3 landscape, ISO, first angle; change it with `drw_sheet_setup`).
-3. `drw_views_standard {model:"bracket.sldprt"}` (front, top, right, iso), then `drw_dimensions_auto`.
+3. `drw_views_standard {model:"bracket.sldprt"}` (front, top, right, iso), then `drw_dimensions_auto`. Tolerances: set them
+   on the model's dimensions with `dimension_tolerance_set {tolerances:[{name:"D1@Sketch1", type:"bilateral", upper:0.1,
+   lower:-0.05}]}` (also `symmetric`, `limit`, `basic`, or fits `{type:"fit", hole:"H7", shaft:"g6"}`), so the drawing shows
+   them; a drawing's own dimension (the name `drw_dimension_add` returns) takes one the same way with `doc` = the drawing.
+   Hole Wizard holes get `drw_dimension_add {kind:"hole_callout", a:{type:"edge", at:[…]}}` (size and depth).
 4. GD&T and symbols on model edges: `drw_annotation_add {kind:"datum", view, at:{type:"edge", at:[x,y,z]}, label:"A"}`,
    `{kind:"gtol", characteristic:"position", tolerance:"0.1", diameter:true, material:"mmc", datums:["A"], at:…}`,
    `{kind:"surface_finish", roughness:"1.6", at:…}` or a `balloon` (after `drw_bom_add`; without `at`, one per part of the

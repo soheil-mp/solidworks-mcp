@@ -225,7 +225,7 @@ public sealed class UnitsResult : ToolResult
 /// set dimensions, and the document-level rebuild, undo and units tools. Nothing here creates features, so instead of
 /// <see cref="FeatureVerifier.Check"/> every change is read back, and a change that doesn't read back is restored.
 /// </summary>
-public sealed class FeatureManagementService(SwSession session)
+public sealed partial class FeatureManagementService(SwSession session)
 {
     private const double VolEps = 1e-13; // m³, as FeatureVerifier
 

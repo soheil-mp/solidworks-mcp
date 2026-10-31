@@ -436,6 +436,35 @@ public class DrawingLiveTests(LiveFixture fx) : LiveTest(fx)
     }
 
     [Fact]
+    public async Task Hole_callouts_and_tolerances_on_drawing_dimensions()
+    {
+        // The block plus a Ø6 x 10 Hole Wizard drill on its front face (z = 20) at (30, 15).
+        var (doc, path) = await BlockAsync("drw_callout");
+        await new PartFeatureService(S).HoleAsync(new HoleRequest { Doc = doc, Points = [[30, 15, 20]], Type = "drill", DiameterMm = 6, End = "blind", DepthMm = 10 });
+        await Docs.SaveAsync(doc, "inPlace", null, false);
+        string drw = await DrawingAsync("drw_callout");
+        var front = (await Drw.ViewsStandardAsync(path, ["front"], null, drw)).Views.Single();
+
+        var hc = await Drw.DimensionAddAsync(front.Name, new EntityRef { Type = "edge", At = [33, 15, 20] }, null, "hole_callout", null, drw);
+        Assert.Equal("hole_callout", hc.Kind);
+        Assert.Equal(6, hc.Value, 1e-6);
+        Assert.Contains(hc.Checks!, c => c.StartsWith("a hole callout", StringComparison.Ordinal));
+        var notRound = await Assert.ThrowsAsync<SwException>(() =>
+            Drw.DimensionAddAsync(front.Name, new EntityRef { Type = "edge", At = [0, 30, 20] }, null, "hole_callout", null, drw));
+        Assert.Equal(ErrorCodes.InvalidArgument, notRound.Code);
+
+        // A drawing's own (reference) dimension takes a tolerance; a model dimension is toleranced in its part.
+        var width = await Drw.DimensionAddAsync(front.Name, new EntityRef { Type = "edge", At = [0, 30, 20] }, null, "linear", null, drw);
+        var fm = new FeatureManagementService(S);
+        var tol = Assert.Single((await fm.DimensionToleranceSetAsync(drw, [new ToleranceRequest { Name = width.Dimension, Type = "symmetric", Upper = 0.1 }])).Changes);
+        Assert.Equal(("symmetric", 0.1), (tol.Tolerance.Type, tol.Tolerance.Upper!.Value));
+        Assert.Equal([99.9, 100.1], tol.Limits!);
+        var model = await Assert.ThrowsAsync<SwException>(() => fm.DimensionToleranceSetAsync(drw, [new ToleranceRequest { Name = "D1@Sketch1", Type = "basic" }]));
+        Assert.Equal(ErrorCodes.EntityNotFound, model.Code);
+        Assert.Contains("part", model.Hint);
+    }
+
+    [Fact]
     public async Task Dimensions_that_cannot_be_drawn_are_refused()
     {
         var (drw, r) = await ViewsAsync("drw_dim_bad", ["front"]);

@@ -149,6 +149,61 @@ public class FeatureManagementLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.Equal(120000, await VolumeAsync(b.Doc), 1e-3); // nothing changed
     }
 
+    // ------------------------------------------------------------------ dimension_tolerance_set
+
+    [Fact]
+    public async Task Tolerances_read_back_and_fits_follow_the_ISO_tables()
+    {
+        var b = await BlockAsync("fm_tol");
+        Task<DimensionToleranceResult> Set(ToleranceRequest q) => M.DimensionToleranceSetAsync(b.Doc, [q]);
+
+        var bi = await Set(new ToleranceRequest { Name = b.Depth, Type = "bilateral", Upper = 0.1, Lower = -0.05 });
+        var c = Assert.Single(bi.Changes);
+        Assert.Equal("none", c.Previous.Type);
+        Assert.Equal(("bilateral", 0.1, -0.05), (c.Tolerance.Type, c.Tolerance.Upper!.Value, c.Tolerance.Lower!.Value));
+        Assert.Equal([19.95, 20.1], c.Limits!);
+        var listed = Assert.Single((await M.DimensionListAsync(b.Doc, b.Extrude)).Dimensions, x => x.Name == b.Depth);
+        Assert.Equal("bilateral", listed.Tolerance!.Type);
+
+        var sym = Assert.Single((await Set(new ToleranceRequest { Name = b.Depth, Type = "symmetric", Upper = 0.2 })).Changes);
+        Assert.Equal([19.8, 20.2], sym.Limits!);
+        Assert.Equal("bilateral", sym.Previous.Type);
+        var lim = Assert.Single((await Set(new ToleranceRequest { Name = b.Depth, Type = "limit", Upper = 0.3, Lower = 0.1 })).Changes);
+        Assert.Equal([20.1, 20.3], lim.Limits!);
+        Assert.Equal("basic", Assert.Single((await Set(new ToleranceRequest { Name = b.Depth, Type = "basic" })).Changes).Tolerance.Type);
+
+        // ISO 286 for 18..30 mm: H7 = 0 / +0.021, g6 = -0.020 / -0.007 (SOLIDWORKS computes them from the class).
+        var h7 = Assert.Single((await Set(new ToleranceRequest { Name = b.Depth, Type = "fit_with_tolerance", Hole = "H7" })).Changes);
+        Assert.Equal("H7", h7.Tolerance.Hole);
+        Assert.Equal(0.021, h7.Tolerance.Upper!.Value, 1e-9);
+        Assert.Equal(0, h7.Tolerance.Lower!.Value, 1e-9);
+        var g6 = Assert.Single((await Set(new ToleranceRequest { Name = b.Depth, Type = "fit_tolerance_only", Shaft = "g6" })).Changes);
+        Assert.Equal(-0.007, g6.Tolerance.Upper!.Value, 1e-9);
+        Assert.Equal(-0.020, g6.Tolerance.Lower!.Value, 1e-9);
+        var fit = Assert.Single((await Set(new ToleranceRequest { Name = b.Depth, Type = "fit", Hole = "H7", Shaft = "g6" })).Changes);
+        Assert.Equal(("H7", "g6"), (fit.Tolerance.Hole, fit.Tolerance.Shaft));
+
+        // A rebuild keeps it; none clears it; the geometry never changes.
+        await M.RebuildAsync(b.Doc, force: true);
+        Assert.Equal("fit", Assert.Single((await M.DimensionListAsync(b.Doc, b.Extrude)).Dimensions, x => x.Name == b.Depth).Tolerance!.Type);
+        Assert.Equal("none", Assert.Single((await Set(new ToleranceRequest { Name = b.Depth, Type = "none" })).Changes).Tolerance.Type);
+        Assert.Null(Assert.Single((await M.DimensionListAsync(b.Doc, b.Extrude)).Dimensions, x => x.Name == b.Depth).Tolerance);
+        Assert.Equal(120000, await VolumeAsync(b.Doc), 1e-3);
+    }
+
+    [Fact]
+    public async Task Tolerances_refuse_unknown_dimensions_and_bad_entries_before_changing_anything()
+    {
+        var b = await BlockAsync("fm_tol_bad");
+        var missing = await Assert.ThrowsAsync<SwException>(() =>
+            M.DimensionToleranceSetAsync(b.Doc, [new ToleranceRequest { Name = b.Depth, Type = "basic" }, new ToleranceRequest { Name = "D9@NoSuchFeature1", Type = "basic" }]));
+        Assert.Equal(ErrorCodes.EntityNotFound, missing.Code);
+        var bad = await Assert.ThrowsAsync<SwException>(() =>
+            M.DimensionToleranceSetAsync(b.Doc, [new ToleranceRequest { Name = b.Depth, Type = "bilateral", Upper = -0.1, Lower = 0.1 }]));
+        Assert.Equal(ErrorCodes.InvalidArgument, bad.Code);
+        Assert.Null(Assert.Single((await M.DimensionListAsync(b.Doc, b.Extrude)).Dimensions, x => x.Name == b.Depth).Tolerance);
+    }
+
     [Fact]
     public async Task Dimension_set_restores_the_value_when_a_feature_breaks()
     {

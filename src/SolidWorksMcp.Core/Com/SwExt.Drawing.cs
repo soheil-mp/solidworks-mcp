@@ -118,6 +118,7 @@ internal static partial class SwExt
         "vertical" => (object?)d.AddVerticalDimension2(x, y, 0) as IDisplayDimension,
         "radial" => (object?)d.AddRadialDimension2(x, y, 0) as IDisplayDimension,
         "diameter" => (object?)d.AddDiameterDimension2(x, y, 0) as IDisplayDimension,
+        "hole_callout" => (object?)((IDrawingDoc)d).AddHoleCallout2(x, y, 0) as IDisplayDimension,
         _ => (object?)d.AddDimension2(x, y, 0) as IDisplayDimension,
     };
 

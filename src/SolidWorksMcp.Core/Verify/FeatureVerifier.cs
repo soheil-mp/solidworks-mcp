@@ -209,12 +209,14 @@ internal static class FeatureVerifier
             (int)swDimensionParamType_e.swDimensionParamTypeInteger => (Math.Round(v), "count"),
             _ => (Units.Mm(v), "mm"),
         };
+        var tol = Services.FeatureManagementService.ReadTolerance(dim, type);
         return new DimensionInfo
         {
             Name = ShortName(dim.FullName),
             Value = value,
             Unit = unit,
             Driven = dim.DrivenState == (int)swDimensionDrivenState_e.swDimensionDriven ? true : null,
+            Tolerance = tol is { Type: not "none" } ? tol : null,
         };
     }
 

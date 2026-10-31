@@ -482,6 +482,20 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   `AddRevision("A")` → id, `GetRowNumberForId(id)`, and `ITableAnnotation.Text[row, descriptionColumn] = …`;
   `CurrentRevision` reads the last letter. Templates come from the file locations (`swFileLocationsHoleTableTemplates`
   33, `swFileLocationsRevisionTableTemplates` 35).
+- **Dimension tolerances** (VERIFIED 2026-10-31, parts and drawings). `IDimension.Tolerance` → `IDimensionTolerance`:
+  set `Type` (`swTolType_e`: 1 basic, 2 bilateral, 3 limit, 4 symmetric, 5 MIN, 6 MAX, 7 fit, 8 fit with tolerance,
+  9 fit tolerance only), then the deviations with **`SetValues(min, max)`** (signed deviations in m: −0.05 mm / +0.1 mm;
+  symmetric: (−v, v)). **`SetValues2(min, max, config, names)` returned False** from VBA and from C#, whatever the
+  configuration option and names (null, "", Nothing). Fits: `SetFitValues("H7", "g6")` (either may be ""); with type 8
+  or 9, `GetMinValue2` / `GetMaxValue2` return the deviations SOLIDWORKS computes from ISO 286: a 20 mm dimension read
+  H7 0 / +0.021 and g6 −0.020 / −0.007. The getters return `swDimensionTolerance_NotValidForType` (1) where a value
+  doesn't apply (symmetric's minimum, basic, fit). Tolerances survive a forced rebuild. Drawing reference dimensions
+  (`RD1@Drawing View1`, from `IModelDoc2.Parameter`) take them the same way. `IDisplayDimension.GetText` is empty for
+  plain dimensions.
+- **Hole callout** (VERIFIED). The hole's circular edge selected in the view, then `IDrawingDoc.AddHoleCallout2(x, y, 0)`
+  (sheet m) → an `IDisplayDimension` with `IsHoleCallout()` true; `GetText(0)` holds the callout,
+  `<MOD-DIAM> 6.60 <HOLE-DEPTH> 20.00` for an M6 clearance hole through a 20 mm block, and `GetDimension2(0)` is the
+  diameter.
 - **Sheet scale of an empty sheet** (VERIFIED again): a 250 mm assembly put on a 1:1 sheet came out 1:2 after its first
   view; set the planned scale after the views exist.
 - **Leaders attach where the edge was picked** (VERIFIED). `IView.SelectEntity(edge)` selects it without a point, and a

@@ -95,6 +95,17 @@ public sealed class FeatureManagementTools(SwSession session)
         [Description(DocArg)] string? doc = null,
         CancellationToken cancellationToken = default) =>
         Output.Json(_svc.DimensionSetAsync(doc, values, configs, cancellationToken), progress, "dimension_set");
+
+    [McpServerTool(Name = "dimension_tolerance_set", Title = "Set dimension tolerances", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("Tolerances and fits on dimensions (part, assembly, or a drawing's own dimensions): bilateral +upper/lower, limit, " +
+                 "symmetric ±, basic, min/max, or ISO fits (H7, g6; fit_with_tolerance shows SOLIDWORKS' deviations). Model dimensions " +
+                 "carry them into drawings. Verified: type, deviations and fit classes read back, else all restored; returns the limits.")]
+    public Task<string> DimensionToleranceSet(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("Tolerances, e.g. [{name:'D1@Sketch1', type:'bilateral', upper:0.1, lower:-0.05}, {name:'D2@Sketch1', type:'fit', hole:'H7'}].")] ToleranceRequest[] tolerances,
+        [Description(DocArg)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_svc.DimensionToleranceSetAsync(doc, tolerances, cancellationToken), progress, "dimension_tolerance_set");
 }
 
 /// <summary>Rebuild, undo and units of a document (toolset "documents").</summary>

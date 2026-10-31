@@ -108,13 +108,14 @@ public sealed class DrawingTools(SwSession session)
 
     [McpServerTool(Name = "drw_dimension_add", Title = "Drawing dimension", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Dimension edges or vertices of the view's model in a drawing view (a reference dimension): linear, horizontal, vertical, " +
-                 "radial, diameter or angular. References are in model mm, e.g. a:{type:'edge',at:[0,30,20]}. Verified: the value SOLIDWORKS " +
-                 "reads equals the geometry, otherwise removed.")]
+                 "radial, diameter, angular, or a hole callout (Hole Wizard holes: size, depth, thread). References are in model mm, e.g. " +
+                 "a:{type:'edge',at:[0,30,20]}. Verified: the value SOLIDWORKS reads equals the geometry, otherwise removed. Tolerances: " +
+                 "dimension_tolerance_set with the returned name.")]
     public async Task<string> DrwDimensionAdd(
         [Description("View name (drw_info lists views).")] string view,
         [Description("Edge or vertex of the view's model.")] EntityRef a,
         [Description("Second edge or vertex (distance or angle).")] EntityRef? b = null,
-        [Description("linear | horizontal | vertical | radial | diameter | angular")] string kind = "linear",
+        [Description("linear | horizontal | vertical | radial | diameter | angular | hole_callout")] string kind = "linear",
         [Description("Dimension text [x,y] sheet mm; default: beside the view.")] double[]? textAtMm = null,
         [Description(DocDesc)] string? doc = null,
         CancellationToken cancellationToken = default) =>

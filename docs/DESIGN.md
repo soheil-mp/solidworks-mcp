@@ -678,7 +678,7 @@ forces and pressures only. All of it is reachable through the API except inserti
 the §4 legend. Prefer new kinds on existing tools; add a tool only where the job is new. Tool names are proposals: settle
 them with §4's conventions when a package starts.
 
-**WP1 · Tolerances and fits** (S, ⏳)
+**WP1 · Tolerances and fits** (S, ✅ 2026-10-31: `dimension_tolerance_set`, `drw_dimension_add {kind:"hole_callout"}`)
 - Scope: tolerances on model dimensions (they carry into drawings) and on drawing dimensions: bilateral, symmetric,
   limit, MIN/MAX, basic, and fits by ISO hole and shaft classes (H7/g6); hole callouts for Hole Wizard holes.
 - Tools: `dimension_set` and `drw_dimension_add` gain `tolerance {type, plusMm, minusMm, hole, shaft}`;
