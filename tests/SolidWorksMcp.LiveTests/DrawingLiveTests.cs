@@ -464,6 +464,130 @@ public class DrawingLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.Contains("part", model.Hint);
     }
 
+    // ------------------------------------------------------------------ M8 WP2: sheets, flat-pattern / auxiliary views, breaks
+
+    [Fact]
+    public async Task Sheets_are_added_made_current_and_chosen_by_name()
+    {
+        string drw = await DrawingAsync("drw_sheets");
+        var add = await Drw.SheetAddAsync(new DrwSheetAddRequest { Doc = drw, Size = "a4", Orientation = "portrait", Scale = "1:2" });
+        Assert.Equal(2, add.Sheets.Count);
+        Assert.Equal(("a4", "portrait", "1:2"), (add.Sheet.Size, add.Sheet.Orientation, add.Sheet.Scale));
+        var info = await Drw.InfoAsync(drw);
+        Assert.True(info.Sheets.Single(s => s.Name == add.Sheet.Name).Current);
+        var dup = await Assert.ThrowsAsync<SwException>(() => Drw.SheetAddAsync(new DrwSheetAddRequest { Doc = drw, Name = add.Sheet.Name }));
+        Assert.Equal(ErrorCodes.InvalidArgument, dup.Code);
+        var first = info.Sheets.Single(s => s.Name != add.Sheet.Name).Name;
+        var back = await Drw.SheetSetupAsync(new DrwSheetRequest { Doc = drw, Sheet = first, Scale = "1:1" });
+        Assert.Equal(first, back.Sheet.Name);
+        Assert.True((await Drw.InfoAsync(drw)).Sheets.Single(s => s.Name == first).Current);
+        var missing = await Assert.ThrowsAsync<SwException>(() => Drw.SheetSetupAsync(new DrwSheetRequest { Doc = drw, Sheet = "NoSuchSheet" }));
+        Assert.Equal(ErrorCodes.EntityNotFound, missing.Code);
+    }
+
+    [Fact]
+    public async Task Flat_pattern_view_draws_the_blank_of_a_bent_sheet()
+    {
+        // An 80 x 40 x 2 sheet (K 0.5) bent 90° along x = 20: its blank stays 80 x 40.
+        string part = await NewPartAsync("drw_flat");
+        await Sk.StartAsync(part, new EntityRef { Name = "top" }, false);
+        await Sk.AddAsync(part, [new SketchEntity { Kind = "rectangle", Center = [0, 0], WidthMm = 80, HeightMm = 40 }]);
+        await Sk.FinishAsync(part);
+        var sm = new SheetMetalService(S);
+        await sm.BaseFlangeAsync(new BaseFlangeRequest { Doc = part, ThicknessMm = 2, BendRadiusMm = 2 });
+        await sm.BendAsync(new SketchedBendRequest { Doc = part, FromMm = [20, 0, -20], ToMm = [20, 0, 20] });
+        var saved = await Docs.SaveAsync(part, "as", Path.Combine(_dir, "drw_flat.sldprt"), false);
+        string drw = await DrawingAsync("drw_flat");
+        var r = await Drw.ViewAddAsync(new DrwViewAddRequest { Doc = drw, Kind = "flat_pattern", Model = saved.SavedTo, Scale = "1:1" });
+        Assert.Contains(r.Checks!, c => c.StartsWith("a flat-pattern view", StringComparison.Ordinal));
+        Assert.Equal(80, r.FlatSizeMm![0], 0.05); // measured from the view's edges (the outline carries a margin)
+        Assert.Equal(40, r.FlatSizeMm[1], 0.05);
+        Assert.Contains(r.Checks!, c => c.StartsWith("1 bend line", StringComparison.Ordinal));
+
+        var notSheetMetal = await BlockAsync("drw_flat_block");
+        var refused = await Assert.ThrowsAsync<SwException>(() => Drw.ViewAddAsync(new DrwViewAddRequest { Doc = drw, Kind = "flat_pattern", Model = notSheetMetal.Path }));
+        Assert.Equal(ErrorCodes.InvalidArgument, refused.Code);
+    }
+
+    [Fact]
+    public async Task Auxiliary_view_looks_square_onto_a_chamfer()
+    {
+        // The block's corner edge along z at (50, 30) chamfered 10 mm: in the front view a 45° line from (40, 30) to (50, 20).
+        var (doc, path) = await BlockAsync("drw_aux", dimensions: false);
+        await new PartFeatureService(S).ChamferAsync(new ChamferRequest { Doc = doc, Edges = [new EntityRef { At = [50, 30, 10] }], DistanceMm = 10 });
+        await Docs.SaveAsync(doc, "inPlace", null, false);
+        string drw = await DrawingAsync("drw_aux");
+        var front = (await Drw.ViewsStandardAsync(path, ["front"], "1:2", drw)).Views.Single();
+        var aux = await Drw.ViewAddAsync(new DrwViewAddRequest { Doc = drw, Kind = "auxiliary", Parent = front.Name, Edge = new EntityRef { Type = "edge", At = [45, 25, 20] } });
+        Assert.Equal("auxiliary", aux.View.Type);
+        Assert.Equal(front.Name, aux.View.Parent);
+        Assert.Contains(aux.Checks!, c => c.Contains("square to", StringComparison.Ordinal));
+        var straight = await Assert.ThrowsAsync<SwException>(() =>
+            Drw.ViewAddAsync(new DrwViewAddRequest { Doc = drw, Kind = "auxiliary", Parent = front.Name, Edge = new EntityRef { Type = "edge", At = [0, 10, 20] } }));
+        Assert.Contains(straight.Code, new[] { ErrorCodes.InvalidArgument, ErrorCodes.EntityNotFound });
+    }
+
+    [Fact]
+    public async Task Break_shortens_a_long_bar_and_broken_out_cuts_a_window()
+    {
+        // A 300 x 20 x 20 bar along x, front view at 1:1, broken between sheet x = center ± 50.
+        string bar = await NewPartAsync("drw_bar");
+        await Sk.StartAsync(bar, new EntityRef { Name = "front" }, false);
+        await Sk.AddAsync(bar, [new SketchEntity { Kind = "rectangle", Center = [0, 0], WidthMm = 300, HeightMm = 20 }]);
+        await Fs.ExtrudeAsync(new ExtrudeRequest { Doc = bar, DepthMm = 20 });
+        var saved = await Docs.SaveAsync(bar, "as", Path.Combine(_dir, "drw_bar.sldprt"), false);
+        string drw = await DrawingAsync("drw_bar");
+        var front = (await Drw.ViewsStandardAsync(saved.SavedTo, ["front"], "1:1", drw)).Views.Single();
+        double cx = (front.BoundsMm![0] + front.BoundsMm[2]) / 2, cy = (front.BoundsMm[1] + front.BoundsMm[3]) / 2;
+        var br = await Drw.ViewEditAsync(new DrwViewEditRequest { Doc = drw, Kind = "break", View = front.Name, Lines = "vertical", FromMm = cx - 50, ToMm = cx + 50 });
+        Assert.Contains(br.Checks!, c => c.StartsWith($"'{front.Name}' is broken between", StringComparison.Ordinal));
+        Assert.Contains(br.Checks!, c => c.Contains("mm shorter", StringComparison.Ordinal));
+        var outside = await Assert.ThrowsAsync<SwException>(() =>
+            Drw.ViewEditAsync(new DrwViewEditRequest { Doc = drw, Kind = "break", View = front.Name, Lines = "vertical", FromMm = cx - 500, ToMm = cx }));
+        Assert.Equal(ErrorCodes.InvalidArgument, outside.Code);
+
+        var (_, blockPath) = await BlockAsync("drw_bo");
+        string drw2 = await DrawingAsync("drw_bo");
+        var bf = (await Drw.ViewsStandardAsync(blockPath, ["front"], "1:1", drw2)).Views.Single();
+        double bx = (bf.BoundsMm![0] + bf.BoundsMm[2]) / 2 + 20, by = (bf.BoundsMm[1] + bf.BoundsMm[3]) / 2;
+        var bo = await Drw.ViewEditAsync(new DrwViewEditRequest { Doc = drw2, Kind = "broken_out", View = bf.Name, CenterMm = [bx, by], RadiusMm = 12, DepthMm = 10 });
+        Assert.Contains(bo.Checks!, c => c.Contains("1 broken-out section", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Cut_list_table_lists_a_frames_members_and_weld_symbols_read_back()
+    {
+        // A 400 x 300 frame of 40 x 40 x 4 square tube, mitered: two cut-list items (the 400 and the 300 members), two each.
+        string frame = await NewPartAsync("drw_frame");
+        await Sk.StartAsync(frame, new EntityRef { Name = "top" }, false);
+        await Sk.AddAsync(frame, [new SketchEntity { Kind = "rectangle", Center = [0, 0], WidthMm = 400, HeightMm = 300 }]);
+        await new WeldmentService(S).MemberAsync(new WeldmentMemberRequest { Doc = frame, Type = "square tube", Size = "40x40x4" });
+        var saved = await Docs.SaveAsync(frame, "as", Path.Combine(_dir, "drw_frame.sldprt"), false);
+        string drw = await DrawingAsync("drw_frame");
+        var top = (await Drw.ViewsStandardAsync(saved.SavedTo, ["top"], "1:5", drw)).Views.Single();
+        var t = await Drw.TableAddAsync(new DrwTableRequest { Doc = drw, Kind = "cut_list", View = top.Name });
+        Assert.Equal("cut_list", t.Kind);
+        Assert.Equal(2, t.Rows);
+        Assert.Contains(t.Checks!, c => c.StartsWith("2 row(s), one per cut-list item", StringComparison.Ordinal));
+        // An ISO fillet weld a5 x 50 on both sides, all around, on the block's top front edge.
+        var (_, bpath) = await BlockAsync("drw_weld");
+        string drw2 = await DrawingAsync("drw_weld");
+        var front = (await Drw.ViewsStandardAsync(bpath, ["front"], null, drw2)).Views.Single();
+        var w = await Drw.AnnotationAddAsync(new DrwAnnotationRequest
+        {
+            Doc = drw2, Kind = "weld", View = front.Name, At = new EntityRef { Type = "edge", At = [0, 30, 20] }, Weld = "fillet", Size = "a5",
+            Length = "50", Side = "both", AllAround = true,
+        });
+        Assert.Equal("weld", w.Kind);
+        Assert.Equal("fillet a5 x 50, both side, all around", w.Text);
+        Assert.True(w.AttachedTo >= 1);
+        var notWeldment = await Assert.ThrowsAsync<SwException>(() => Drw.TableAddAsync(new DrwTableRequest { Doc = drw2, Kind = "cut_list", View = front.Name }));
+        Assert.Equal(ErrorCodes.InvalidArgument, notWeldment.Code);
+        var bad = await Assert.ThrowsAsync<SwException>(() =>
+            Drw.AnnotationAddAsync(new DrwAnnotationRequest { Doc = drw2, Kind = "weld", View = front.Name, At = new EntityRef { Type = "edge", At = [0, 30, 20] }, Weld = "glue" }));
+        Assert.Equal(ErrorCodes.InvalidArgument, bad.Code);
+    }
+
     [Fact]
     public async Task Dimensions_that_cannot_be_drawn_are_refused()
     {
@@ -702,7 +826,7 @@ public class DrawingLiveTests(LiveFixture fx) : LiveTest(fx)
         var (drw, r) = await ViewsAsync("drw_gdt_bad", ["front"]);
         string front = r.Views[0].Name;
         var edge = Edge(0, 30, 20);
-        await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "weld", edge));
+        await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "glue", edge));
         await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "datum", null));
         await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "datum", edge, q => q with { Label = "I" }));
         await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "datum", edge, q => q with { Roughness = "1.6" }));

@@ -688,7 +688,7 @@ them with §4's conventions when a package starts.
   `IDisplayDimension.IsHoleCallout`.
 - Oracle: the type and values read back, and the dimension's displayed text carries them.
 
-**WP2 · Production drawings** (M, ⏳)
+**WP2 · Production drawings** (M, ✅ 2026-10-31: `drw_sheet_add`, `drw_sheet_setup {sheet}`, `drw_view_add`, `drw_view_edit`, `drw_table_add {kind:"cut_list"}`, `drw_annotation_add {kind:"weld"}`)
 - Scope: more sheets; flat-pattern views with bend lines and notes; broken views for long parts; auxiliary views and
   broken-out sections; weldment cut-list tables; weld symbols.
 - Tools: `drw_sheet_add` (or a mode of `drw_sheet_setup`); new kinds for the view tools (`flat_pattern`, `broken`,

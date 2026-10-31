@@ -25,7 +25,8 @@ public sealed class DrawingTools(SwSession session)
 
     [McpServerTool(Name = "drw_sheet_setup", Title = "Drawing sheet setup", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Sheet size / paper, orientation, scale, projection (first or third angle) and sheet format (title block) of the current " +
-                 "sheet; omitted settings stay. Verified by reading the sheet back (a mismatch restores the previous setup).")]
+                 "sheet, or of 'sheet' (it becomes current); omitted settings stay. Verified by reading the sheet back (a mismatch restores " +
+                 "the previous setup).")]
     public async Task<string> DrwSheetSetup(
         [Description("a4 | a3 | a2 | a1 | a0 | a | b | c | d | e | user")] string? size = null,
         [Description("landscape | portrait")] string? orientation = null,
@@ -34,12 +35,75 @@ public sealed class DrawingTools(SwSession session)
         [Description("Sheet scale, e.g. \"1:2\".")] string? scale = null,
         [Description("first_angle | third_angle; default with a new format: iso first, ansi third.")] string? projection = null,
         [Description("iso | ansi | none | path of a .slddrt sheet format.")] string? format = null,
+        [Description("The sheet to set up and make current (drw_info lists them); default: the current sheet.")] string? sheet = null,
         [Description(DocDesc)] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ResultJson.Serialize(await _svc.SheetSetupAsync(new DrwSheetRequest
         {
             Doc = doc, Size = size, Orientation = orientation, WidthMm = widthMm, HeightMm = heightMm, Scale = scale,
+            Projection = projection, Format = format, Sheet = sheet,
+        }, cancellationToken));
+
+    [McpServerTool(Name = "drw_sheet_add", Title = "Add drawing sheet", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Adds a sheet to the drawing and makes it current (later views and tables go on it); size, scale, projection and format " +
+                 "default to the current sheet's. Verified: the sheet count, the new sheet current, and its setup read back; else removed.")]
+    public async Task<string> DrwSheetAdd(
+        [Description("Sheet name (default Sheet2, Sheet3, ...).")] string? name = null,
+        [Description("a4 | a3 | a2 | a1 | a0 | a | b | c | d | e | user")] string? size = null,
+        [Description("landscape | portrait")] string? orientation = null,
+        [Description("Size user: width in mm.")] double? widthMm = null,
+        [Description("Size user: height in mm.")] double? heightMm = null,
+        [Description("Sheet scale, e.g. \"1:2\".")] string? scale = null,
+        [Description("first_angle | third_angle")] string? projection = null,
+        [Description("iso | ansi | none | path of a .slddrt sheet format.")] string? format = null,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ResultJson.Serialize(await _svc.SheetAddAsync(new DrwSheetAddRequest
+        {
+            Doc = doc, Name = name, Size = size, Orientation = orientation, WidthMm = widthMm, HeightMm = heightMm, Scale = scale,
             Projection = projection, Format = format,
+        }, cancellationToken));
+
+    [McpServerTool(Name = "drw_view_add", Title = "Flat-pattern or auxiliary view", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Adds a flat-pattern view of a saved sheet-metal part (the blank, with bend lines) or an auxiliary view looking square " +
+                 "onto an angled edge of a parent view. Verified: the view's type and model, the auxiliary direction square to the " +
+                 "edge, overlaps; else removed.")]
+    public async Task<string> DrwViewAdd(
+        [Description("flat_pattern | auxiliary")] string kind,
+        [Description("flat_pattern: the saved sheet-metal part (path, handle or title).")] string? model = null,
+        [Description("auxiliary: the parent view (drw_info).")] string? parent = null,
+        [Description("auxiliary: a straight edge of the parent's model to look square at, e.g. {type:'edge', at:[x,y,z]} (model mm).")] EntityRef? edge = null,
+        [Description("The view's centre [x,y] sheet mm; default: a free spot (beside the parent for auxiliary).")] double[]? atMm = null,
+        [Description("flat_pattern: view scale, e.g. \"1:2\" (default: the sheet's).")] string? scale = null,
+        [Description("flat_pattern: show bend lines.")] bool bendLines = true,
+        [Description("auxiliary: view label, e.g. \"B\".")] string? label = null,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ResultJson.Serialize(await _svc.ViewAddAsync(new DrwViewAddRequest
+        {
+            Doc = doc, Kind = kind, Model = model, Parent = parent, Edge = edge, AtMm = atMm, Scale = scale, BendLines = bendLines, Label = label,
+        }, cancellationToken));
+
+    [McpServerTool(Name = "drw_view_edit", Title = "Break view / broken-out section", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Edits a view: break (shortens a long part between two break lines, sheet mm) or broken_out (cuts a circular window " +
+                 "depthMm into the model to show inside). Verified: break lines and a shorter outline, or one more broken-out section; " +
+                 "else undone.")]
+    public async Task<string> DrwViewEdit(
+        [Description("break | broken_out")] string kind,
+        [Description("The view (drw_info).")] string view,
+        [Description("break: vertical (lines across a horizontal part, positions on sheet x) | horizontal (positions on sheet y).")] string? lines = null,
+        [Description("break: first break line, sheet mm.")] double? fromMm = null,
+        [Description("break: second break line, sheet mm.")] double? toMm = null,
+        [Description("break: zigzag | straight | small_zigzag | curve | jagged")] string? style = null,
+        [Description("broken_out: the cut's centre [x,y] sheet mm.")] double[]? centerMm = null,
+        [Description("broken_out: the cut's radius, sheet mm.")] double? radiusMm = null,
+        [Description("broken_out: cut depth, model mm from the front.")] double? depthMm = null,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        ResultJson.Serialize(await _svc.ViewEditAsync(new DrwViewEditRequest
+        {
+            Doc = doc, Kind = kind, View = view, Lines = lines, FromMm = fromMm, ToMm = toMm, Style = style, CenterMm = centerMm,
+            RadiusMm = radiusMm, DepthMm = depthMm,
         }, cancellationToken));
 
     [McpServerTool(Name = "drw_views_standard", Title = "Standard drawing views", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
@@ -135,10 +199,11 @@ public sealed class DrawingTools(SwSession session)
 
     [McpServerTool(Name = "drw_annotation_add", Title = "Drawing annotation", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("GD&T and symbols in a view, on an edge of the view's model (model mm): datum feature (label), surface finish " +
-                 "(roughness Ra), geometric tolerance frame (characteristic, tolerance, Ø, MMC/LMC, datums) or a BOM balloon (without " +
-                 "'at': balloons for every component). Verified: label, roughness, frame or balloon text and the attachment read back; otherwise removed.")]
+                 "(roughness Ra), geometric tolerance frame (characteristic, tolerance, Ø, MMC/LMC, datums), ISO weld symbol (type, size, " +
+                 "length, side, all around, field) or a BOM balloon (without 'at': every component). Verified: what it reads back and the " +
+                 "attachment; otherwise removed.")]
     public async Task<string> DrwAnnotationAdd(
-        [Description("datum | surface_finish | gtol | balloon")] string kind,
+        [Description("datum | surface_finish | gtol | weld | balloon")] string kind,
         [Description("View name (drw_info lists views).")] string view,
         [Description("Edge or vertex it points to (model mm), e.g. {type:'edge',at:[0,20,10]}; gtol, balloon: optional.")] EntityRef? at = null,
         [Description("Symbol position [x,y] sheet mm; default: beside the edge, outside the view.")] double[]? atMm = null,
@@ -150,27 +215,34 @@ public sealed class DrawingTools(SwSession session)
         [Description("gtol: a diameter (Ø) tolerance zone.")] bool diameter = false,
         [Description("gtol: none (default) | mmc | lmc")] string? material = null,
         [Description("gtol: datum letters, e.g. [\"A\",\"B\"].")] string[]? datums = null,
+        [Description("weld: fillet (default) | square | v | bevel | u | j | butt | backing | plug | spot | seam")] string? weld = null,
+        [Description("weld: text left of the symbol, e.g. \"a5\" (throat).")] string? size = null,
+        [Description("weld: text right of the symbol, e.g. \"50\" (length).")] string? length = null,
+        [Description("weld: arrow (default) | other | both")] string? side = null,
+        [Description("weld: weld all around.")] bool allAround = false,
+        [Description("weld: a field (site) weld.")] bool field = false,
         [Description(DocDesc)] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ResultJson.Serialize(await _svc.AnnotationAddAsync(new DrwAnnotationRequest
         {
             Doc = doc, Kind = kind, View = view, At = at, AtMm = atMm, Label = label, Roughness = roughness, Finish = finish,
             Characteristic = characteristic, Tolerance = tolerance, Diameter = diameter, Material = material, Datums = datums,
+            Weld = weld, Size = size, Length = length, Side = side, AllAround = allAround, Field = field,
         }, cancellationToken));
 
-    [McpServerTool(Name = "drw_table_add", Title = "Hole or revision table", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-    [Description("Hole table for a view of a part (tag, X/Y from a datum origin vertex, size of each hole through a face), or a " +
-                 "revision table with new rows (A, B, … with their descriptions). Verified: every hole's row (position, size) or every " +
-                 "revision and description read back; otherwise removed.")]
+    [McpServerTool(Name = "drw_table_add", Title = "Hole, revision or cut-list table", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Hole table for a view of a part (tag, X/Y from a datum origin vertex, size of each hole through a face), a weldment " +
+                 "cut-list table for a view of a weldment (members, lengths, quantities), or a revision table with new rows (A, B, …). " +
+                 "Verified: every hole's row, one row per cut-list item, or every revision read back; otherwise removed.")]
     public Task<string> DrwTableAdd(
         IProgress<ProgressNotificationValue> progress,
-        [Description("hole | revision")] string kind,
-        [Description("hole: the view (drw_info lists views).")] string? view = null,
+        [Description("hole | revision | cut_list")] string kind,
+        [Description("hole, cut_list: the view (drw_info lists views).")] string? view = null,
         [Description("hole: datum origin vertex (model mm), e.g. {type:'vertex',at:[-50,-30,20]}; default: the face's lowest-left vertex.")] EntityRef? origin = null,
         [Description("hole: planar face the holes go through; default: the face toward the viewer with the most holes.")] EntityRef? face = null,
         [Description("revision: one description per new revision, e.g. [\"First release\"].")] string[]? revisions = null,
-        [Description("Table corner [x,y] sheet mm (hole: top-left, default below the view; revision: top-right, default the sheet's).")] double[]? atMm = null,
-        [Description("Template (.sldholtbt / .sldrevtbt); default: SOLIDWORKS' standard one.")] string? template = null,
+        [Description("Table corner [x,y] sheet mm (hole: top-left, default below the view; revision, cut_list: top-right, default the sheet's).")] double[]? atMm = null,
+        [Description("Template (.sldholtbt / .sldrevtbt / .sldwldtbt); default: SOLIDWORKS' standard one.")] string? template = null,
         [Description(DocDesc)] string? doc = null,
         CancellationToken cancellationToken = default) =>
         Output.Json(_svc.TableAddAsync(new DrwTableRequest

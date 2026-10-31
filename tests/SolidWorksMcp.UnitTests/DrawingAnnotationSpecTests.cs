@@ -22,11 +22,26 @@ public class DrawingAnnotationSpecTests
     }
 
     [Fact]
+    public void Weld_types_map_to_the_ISO_symbols_of_gtol_sym()
+    {
+        Assert.Equal("weld", DrwAnnotationSpec.Kind("weld symbol"));
+        Assert.Equal(("FILL", "fillet"), DrwAnnotationSpec.Weld(null));
+        Assert.Equal("BUSV", DrwAnnotationSpec.Weld("V").Code);
+        Assert.Equal("BUSQ", DrwAnnotationSpec.Weld("square-butt").Code);
+        Assert.Equal("BUTT", DrwAnnotationSpec.Weld("flanged").Code);
+        Assert.Equal("PLUG", DrwAnnotationSpec.Weld("slot").Code);
+        Assert.Throws<SwException>(() => DrwAnnotationSpec.Weld("glue"));
+        Assert.Equal("arrow", DrwAnnotationSpec.WeldSide(null));
+        Assert.Equal("both", DrwAnnotationSpec.WeldSide("Both sides"));
+        Assert.Throws<SwException>(() => DrwAnnotationSpec.WeldSide("left"));
+    }
+
+    [Fact]
     public void Bad_names_values_and_labels_are_refused()
     {
         Assert.Equal(ErrorCodes.InvalidArgument, Assert.Throws<SwException>(() => DrwAnnotationSpec.Gtol("wobble")).Code);
         Assert.Throws<SwException>(() => DrwAnnotationSpec.Gtol(null));
-        Assert.Throws<SwException>(() => DrwAnnotationSpec.Kind("weld"));
+        Assert.Throws<SwException>(() => DrwAnnotationSpec.Kind("glue"));
         Assert.Throws<SwException>(() => DrwAnnotationSpec.Material("max"));
         Assert.Throws<SwException>(() => DrwAnnotationSpec.Tolerance("-0.1", "tolerance"));
         Assert.Throws<SwException>(() => DrwAnnotationSpec.Tolerance("abc", "tolerance"));

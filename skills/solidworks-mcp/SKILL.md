@@ -148,7 +148,12 @@ with `segments:["Line5",…], corner:"none"`. The result lists each member's bod
    view). Each is placed beside its edge unless you pass `atMm`. Tables: `drw_table_add {kind:"hole", view}` (X/Y of every
    hole from the face's lower-left corner, or from `origin`) and `{kind:"revision", revisions:["First release"]}`.
 5. Add `drw_view_section`, `drw_view_detail`, `drw_note_add`, and `drw_bom_add` for assemblies. `drw_info` lists the
-   views with their positions.
+   views with their positions. Sheet metal: `drw_view_add {kind:"flat_pattern", model:"bracket.sldprt"}` (the blank, with
+   bend lines; it reports the blank's size). Angled faces: `drw_view_add {kind:"auxiliary", parent, edge:{type:"edge",
+   at:[…]}}`. Long parts: `drw_view_edit {kind:"break", view, lines:"vertical", fromMm, toMm}` (sheet mm); a look inside:
+   `{kind:"broken_out", view, centerMm, radiusMm, depthMm}`. Weldments: `drw_table_add {kind:"cut_list", view}` and
+   `drw_annotation_add {kind:"weld", weld:"fillet", size:"a5", length:"50", side:"both", at:…}`. More sheets:
+   `drw_sheet_add {size:"a4"}` (it becomes current); `drw_sheet_setup {sheet:"Sheet1"}` goes back.
 6. `model_export {path:"bracket.pdf"}` (or .dwg/.dxf).
 
 **Stress check.** `sim_static {material:"AISI 1020", fixedFaces:[{at:[0,5,5]}],

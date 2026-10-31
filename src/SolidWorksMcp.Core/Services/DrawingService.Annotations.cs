@@ -7,7 +7,7 @@ using SolidWorksMcp.Core.Model;
 
 namespace SolidWorksMcp.Core.Services;
 
-/// <summary>Input of drw_annotation_add: a datum, surface finish symbol, geometric tolerance or balloon in a view.</summary>
+/// <summary>Input of drw_annotation_add: a datum, surface finish symbol, geometric tolerance, weld symbol or balloon in a view.</summary>
 public sealed record DrwAnnotationRequest
 {
     public string? Doc { get; init; }
@@ -26,6 +26,15 @@ public sealed record DrwAnnotationRequest
     public bool Diameter { get; init; }
     public string? Material { get; init; }
     public IReadOnlyList<string>? Datums { get; init; }
+    /// <summary>weld: fillet | square | v | bevel | u | j | butt | backing | plug | spot | seam (ISO symbols).</summary>
+    public string? Weld { get; init; }
+    /// <summary>weld: the text left of the symbol (the size, e.g. "a5") and right of it (the length, e.g. "50").</summary>
+    public string? Size { get; init; }
+    public string? Length { get; init; }
+    /// <summary>weld: arrow (default) | other | both.</summary>
+    public string? Side { get; init; }
+    public bool AllAround { get; init; }
+    public bool Field { get; init; }
 }
 
 public sealed class DrwAnnotationResult : ToolResult
@@ -50,7 +59,8 @@ public sealed partial class DrawingService
     // ================================================================== drw_annotation_add
 
     private sealed record AnnotationPlan(string Kind, string? Label, string? Roughness, (int Code, string Name) Finish,
-        DrwAnnotationSpec.Characteristic? Gtol, string? Tolerance, string Material, IReadOnlyList<string> Datums);
+        DrwAnnotationSpec.Characteristic? Gtol, string? Tolerance, string Material, IReadOnlyList<string> Datums,
+        (string Code, string Name)? Weld = null, string? Side = null);
 
     public Task<DrwAnnotationResult> AnnotationAddAsync(DrwAnnotationRequest q, CancellationToken ct = default)
     {
@@ -67,7 +77,13 @@ public sealed partial class DrawingService
         Only("diameter", q.Diameter, "gtol");
         Only("material", q.Material is not null, "gtol");
         Only("datums", q.Datums is { Count: > 0 }, "gtol");
-        if (kind is "datum" or "surface_finish" && q.At is null)
+        Only("weld", q.Weld is not null, "weld");
+        Only("size", q.Size is not null, "weld");
+        Only("length", q.Length is not null, "weld");
+        Only("side", q.Side is not null, "weld");
+        Only("allAround", q.AllAround, "weld");
+        Only("field", q.Field, "weld");
+        if (kind is "datum" or "surface_finish" or "weld" && q.At is null)
             throw SwException.InvalidArgument($"kind '{kind}' needs 'at': the edge it points to, e.g. {{type:'edge', at:[x,y,z]}} (model mm).");
         if (kind == "balloon" && q.At is null && q.AtMm is not null)
             throw SwException.InvalidArgument("Balloons for the whole view (no 'at') are laid out by SOLIDWORKS; 'atMm' needs 'at'.");
@@ -94,6 +110,12 @@ public sealed partial class DrawingService
                 plan = new(kind, null, null, default, c, DrwAnnotationSpec.Tolerance(q.Tolerance, "tolerance"), DrwAnnotationSpec.Material(q.Material), datums);
                 break;
             }
+            case "weld":
+                foreach (var (what, s) in new[] { ("size", q.Size), ("length", q.Length) })
+                    if (s is { Length: > 20 } || s?.IndexOfAny(['<', '>', '"']) >= 0)
+                        throw SwException.InvalidArgument($"'{what}' is short text such as \"a5\" or \"50\" (no < > or quotes).");
+                plan = new(kind, null, null, default, null, null, "", [], DrwAnnotationSpec.Weld(q.Weld), DrwAnnotationSpec.WeldSide(q.Side));
+                break;
             default:
                 plan = new(kind, null, null, default, null, null, "", []);
                 break;
@@ -188,6 +210,38 @@ public sealed partial class DrawingService
                         throw new SwException(ErrorCodes.VerifyFailed, $"The frame's datums read [{string.Join(", ", gotDatums)}], not [{string.Join(", ", plan.Datums)}].");
                     text = DrwAnnotationSpec.FrameText(c, plan.Tolerance!, q.Diameter, plan.Material, plan.Datums);
                     checks.Add($"frame read back: symbol {symbols[0]}, tolerance {gotTol}{(gotDatums.Count > 0 ? $", datums {string.Join(" ", gotDatums)}" : "")}");
+                    break;
+                }
+                case "weld":
+                {
+                    var ws = (object?)d.InsertWeldSymbol3() as IWeldSymbol
+                             ?? throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS created no weld symbol on {r!.Label} in '{hit.Name}'.",
+                                 "Attach it to an edge seen in the view (the joint).");
+                    an = (object?)ws.GetAnnotation() as IAnnotation;
+                    var (code, name) = plan.Weld!.Value;
+                    // Top = above the reference line (the other side); below = the arrow side.
+                    bool[] tops = plan.Side switch { "other" => [true], "both" => [false, true], _ => [false] };
+                    foreach (bool top in tops)
+                        if (!ws.SetText(top, q.Size ?? "", code, q.Length ?? "", "", (int)swWeldSymbolContourTypes_e.swWeldContourNone))
+                            throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS refused the weld symbol text ({name}).");
+                    ws.SetPeripheral(q.AllAround);
+                    ws.SetFieldWeld(q.Field ? (int)swWeldSymbolField_e.swFieldWeldUp : (int)swWeldSymbolField_e.swFieldWeldNone);
+                    foreach (bool top in tops)
+                    {
+                        string sym = ws.GetText(top ? (int)swWeldSymbolTextTypes_e.swWeldSymbolTextAbove : (int)swWeldSymbolTextTypes_e.swWeldSymbolTextBelow) ?? "";
+                        string left = ws.GetText(top ? (int)swWeldSymbolTextTypes_e.swWeldLeftTextAbove : (int)swWeldSymbolTextTypes_e.swWeldLeftTextBelow) ?? "";
+                        string right = ws.GetText(top ? (int)swWeldSymbolTextTypes_e.swWeldRightTextAbove : (int)swWeldSymbolTextTypes_e.swWeldRightTextBelow) ?? "";
+                        if (!sym.Contains(code, StringComparison.OrdinalIgnoreCase))
+                            throw new SwException(ErrorCodes.VerifyFailed, $"The weld symbol {(top ? "above" : "below")} the line reads '{sym}', not {name}.");
+                        if (left.Trim() != (q.Size ?? "") || right.Trim() != (q.Length ?? ""))
+                            throw new SwException(ErrorCodes.VerifyFailed, $"The weld symbol's text reads '{left}' / '{right}', not '{q.Size}' / '{q.Length}'.");
+                    }
+                    if (ws.GetPeripheral() != q.AllAround) throw new SwException(ErrorCodes.VerifyFailed, "The all-around circle did not take.");
+                    bool field = ws.GetFieldWeld() != (int)swWeldSymbolField_e.swFieldWeldNone;
+                    if (field != q.Field) throw new SwException(ErrorCodes.VerifyFailed, "The field-weld flag did not take.");
+                    text = $"{name}{(q.Size is null ? "" : $" {q.Size}")}{(q.Length is null ? "" : $" x {q.Length}")}, {plan.Side} side" +
+                           (q.AllAround ? ", all around" : "") + (q.Field ? ", field weld" : "");
+                    checks.Add($"weld symbol read back: {text}");
                     break;
                 }
                 default:

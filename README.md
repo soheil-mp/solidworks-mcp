@@ -4,7 +4,7 @@
 # solidworks-mcp
 
 An MCP server that lets AI agents (Claude Code, Claude Desktop and other MCP clients) drive a running SOLIDWORKS.
-With its 128 tools, agents can sketch and model parts (extrudes, revolves, sweeps, lofts, holes, patterns, shells,
+With its 131 tools, agents can sketch and model parts (extrudes, revolves, sweeps, lofts, holes, patterns, shells,
 surfaces, sheet metal, weldment frames), edit imported bodies directly (delete, offset and move faces), build assemblies with mates (also limit, symmetric, width, hinge, gear and rack mates) and component patterns, make drawings with views, dimensions, GD&T, balloons and tables, import and export
 (STEP, IGES, STL, Parasolid, PDF, DXF …), run static stress studies, and inspect, measure and screenshot the result. It
 is written in C# against SolidWorks' official COM API.
@@ -96,7 +96,7 @@ Integrity event 3077). When the exe is blocked, `tools\install.ps1` registers th
 again: it publishes a new binary, which gets a new verdict. Signed releases will avoid this.
 
 ## Tools
-128 tools in 15 toolsets. The full, current list with parameters is in [`docs/tools.md`](docs/tools.md), generated from
+131 tools in 15 toolsets. The full, current list with parameters is in [`docs/tools.md`](docs/tools.md), generated from
 the server.
 
 | Toolset | Tools |
@@ -111,7 +111,7 @@ the server.
 | sheetmetal (7) | base flange, edge flange, miter flange (around corners, closed trays), hem (closed, open, teardrop, rolled), sketched bend, flatten, flat-pattern DXF/DWG |
 | weldments (1) | `weldment_member`: structural members (tube, pipe, channel, angle, beam profiles) along 2D or 3D sketch lines, mitered or butt corners |
 | assembly (10) | insert, mates (standard, limit, symmetric, width, hinge, gear, rack and pinion), mate list, component list/set/move, interference, replace, linear/circular patterns and mirror of components (also as new opposite-hand parts), exploded views |
-| drawing (13) | sheet setup, standard/projected/section/detail views, model dimensions, dimensions, hole callouts, notes, BOM, center marks, datums, surface finish, tolerance frames, balloons, hole and revision tables, info |
+| drawing (16) | sheets (setup, more sheets), standard/projected/section/detail/auxiliary/flat-pattern views, broken views and broken-out sections, model dimensions, dimensions, hole callouts, notes, BOM, center marks, datums, surface finish, tolerance frames, weld symbols, balloons, hole, cut-list and revision tables, info |
 | export (1) | `model_export`: STEP (AP203/214/242), IGES, Parasolid, STL, 3MF, images, eDrawings; PDF/DWG/DXF from drawings |
 | properties (13) | materials, custom properties, equations, configurations, appearance |
 | simulation (3) | `sim_static` (fixtures, pressure/force, mesh, von Mises, displacement, safety factor), `sim_list`, `sim_delete` |
@@ -119,7 +119,7 @@ the server.
 
 ### Live test status
 Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check the result against an exact answer
-(volumes, positions, angles, file headers, restored system options). All 355 pass:
+(volumes, positions, angles, file headers, restored system options). All 360 pass:
 
 | Area | Live tests |
 |---|---|
@@ -135,7 +135,7 @@ Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check th
 | Direct face editing (also on an imported STEP) | 6 |
 | Weldments | 4 |
 | Assembly (including component patterns, mirror, opposite hands, mechanical mates and exploded views) | 25 |
-| Drawing (including GD&T, balloons, hole callouts, hole and revision tables) | 30 |
+| Drawing (including GD&T, weld symbols, balloons, hole callouts, flat-pattern, auxiliary and broken views, hole, cut-list and revision tables) | 35 |
 | Simulation (static) | 9 |
 
 The golden scenarios in `tools/mcp_smoke.py` (drawing, plate, enclosure, edit, assembly, sheet metal) run through the

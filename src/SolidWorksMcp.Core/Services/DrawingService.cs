@@ -86,6 +86,8 @@ public sealed class DrwViewResult : ToolResult
 {
     public required DrwView View { get; init; }
     public string? Label { get; init; }
+    /// <summary>drw_view_add flat_pattern: the blank's size measured from the view's edges (mm, largest first).</summary>
+    public double[]? FlatSizeMm { get; init; }
     public IReadOnlyList<string>? Checks { get; init; }
 }
 
@@ -172,6 +174,8 @@ public sealed record DrwSheetRequest
     public string? Projection { get; init; }
     /// <summary>iso | ansi | none | a .slddrt file.</summary>
     public string? Format { get; init; }
+    /// <summary>The sheet to set up (it becomes the current one); default: the current sheet.</summary>
+    public string? Sheet { get; init; }
 }
 
 // ====================================================================== service
@@ -271,6 +275,7 @@ public sealed partial class DrawingService(SwSession session)
         {
             var d = ctx.Doc;
             var drw = ctx.Drawing();
+            UseSheet(ctx, drw, q.Sheet);
             var sheet = drw.DrwCurrentSheet() ?? throw new SwException(ErrorCodes.Internal, "The drawing has no current sheet.");
             var plan = DrawingLayout.PlanSheet(State(sheet), q.Size, q.Orientation, q.WidthMm, q.HeightMm, q.Scale, q.Projection,
                 file is null ? q.Format : null, file);

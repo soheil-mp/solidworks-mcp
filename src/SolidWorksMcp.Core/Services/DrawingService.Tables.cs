@@ -7,11 +7,11 @@ using SolidWorksMcp.Core.Model;
 
 namespace SolidWorksMcp.Core.Services;
 
-/// <summary>Input of drw_table_add: a hole table for a view, or a revision table with its rows.</summary>
+/// <summary>Input of drw_table_add: a hole table for a view, a weldment cut list, or a revision table with its rows.</summary>
 public sealed record DrwTableRequest
 {
     public string? Doc { get; init; }
-    /// <summary>hole | revision.</summary>
+    /// <summary>hole | revision | cut_list.</summary>
     public string? Kind { get; init; }
     public string? View { get; init; }
     /// <summary>hole: the datum origin vertex (model mm); default: the face's lowest-left vertex in the view.</summary>
@@ -52,14 +52,17 @@ public sealed partial class DrawingService
         {
             "hole" or "hole_table" or "holes" => "hole",
             "revision" or "revisions" or "revision_table" => "revision",
-            null => throw SwException.InvalidArgument("'kind' is required: hole or revision."),
-            _ => throw SwException.InvalidArgument($"Unknown kind '{q.Kind}'.", "Use hole (a hole table for a view) or revision (a revision table)."),
+            "cut_list" or "cutlist" or "weldment" or "weldment_cut_list" => "cut_list",
+            null => throw SwException.InvalidArgument("'kind' is required: hole, revision or cut_list."),
+            _ => throw SwException.InvalidArgument($"Unknown kind '{q.Kind}'.",
+                "Use hole (a hole table for a view), revision (a revision table) or cut_list (a weldment's members)."),
         };
         (double X, double Y)? at = q.AtMm is null ? null : Sheet2(q.AtMm, "atMm");
-        if (kind == "hole")
+        if (kind is "hole" or "cut_list")
         {
-            if (string.IsNullOrWhiteSpace(q.View)) throw SwException.InvalidArgument("kind 'hole' needs 'view': the view whose holes are listed (drw_info).");
+            if (string.IsNullOrWhiteSpace(q.View)) throw SwException.InvalidArgument($"kind '{kind}' needs 'view': the view whose model is listed (drw_info).");
             if (q.Revisions is not null) throw SwException.InvalidArgument("'revisions' only applies to kind 'revision'.");
+            if (kind == "cut_list" && (q.Origin is not null || q.Face is not null)) throw SwException.InvalidArgument("'origin' and 'face' only apply to kind 'hole'.");
         }
         else
         {
@@ -73,12 +76,17 @@ public sealed partial class DrawingService
         string? tpl = null;
         if (!string.IsNullOrWhiteSpace(q.Template))
         {
-            string ext = kind == "hole" ? ".sldholtbt" : ".sldrevtbt";
+            string ext = kind switch { "hole" => ".sldholtbt", "cut_list" => ".sldwldtbt", _ => ".sldrevtbt" };
             if (!q.Template.Trim().EndsWith(ext, StringComparison.OrdinalIgnoreCase))
                 throw SwException.InvalidArgument($"'template' must be a {ext} {kind} table template (got '{q.Template}').");
             tpl = session.Paths.ForRead(q.Template, "template");
         }
-        return session.RunAsync("drw_table_add", ctx => kind == "hole" ? HoleTable(ctx, q, tpl, at) : RevisionTable(ctx, q, tpl, at),
+        return session.RunAsync("drw_table_add", ctx => kind switch
+            {
+                "hole" => HoleTable(ctx, q, tpl, at),
+                "cut_list" => CutListTable(ctx, q, tpl, at),
+                _ => RevisionTable(ctx, q, tpl, at),
+            },
             RunOptions.Write(q.Doc) with { Timeout = Longer(session, 90) }, ct);
     }
 
@@ -313,6 +321,74 @@ public sealed partial class DrawingService
             Checks = checks,
         };
     }
+
+    /// <summary>
+    /// A weldment cut-list table for a view of a weldment part: IView.InsertWeldmentTable (SOLIDWORKS' example) anchored by
+    /// its top-right corner. Verified: one row per cut-list item with bodies (the part's CutListFolder features), else
+    /// removed.
+    /// </summary>
+    private static DrwTableResult CutListTable(SwContext ctx, DrwTableRequest q, string? tpl, (double X, double Y)? at)
+    {
+        var d = ctx.Doc;
+        var drw = ctx.Drawing();
+        var hit = FindView(ctx, drw, q.View, "view");
+        var model = ModelOf(hit);
+        if (model.GetType() != (int)swDocumentTypes_e.swDocPART || !Tree.Walk(model).Any(f => f.GetTypeName2() == "WeldmentFeature"))
+            throw SwException.InvalidArgument($"View '{hit.Name}' does not show a weldment part.", "Cut-list tables list a weldment's members (weldment_member).");
+        int items = Tree.Walk(model).Count(f => f.GetTypeName2() == "CutListFolder" && f.GetSpecificFeature2() is IBodyFolder bf && bf.GetBodyCount() > 0);
+        var sheet = SheetOf(drw, hit);
+        var sp = sheet.DrwProps();
+        var (x, y) = at ?? (sp.Length >= 7 ? (sp[5] * 1000 - 10, sp[6] * 1000 - 10) : (400, 280));
+        string path = tpl ?? TableTemplate(ctx, swUserPreferenceStringValue_e.swFileLocationsWeldmentCutListTemplates, "cut list.sldwldtbt");
+        // The configuration the table lists: the view's, else one of the model's (SOLIDWORKS' example names "Default<As Welded>").
+        var configs = new List<string>();
+        foreach (var c in new[] { hit.View.ReferencedConfiguration }.Concat(ComArgs.Strings((object?)model.GetConfigurationNames())).Append(""))
+            if (c is not null && !configs.Contains(c)) configs.Add(c);
+        object? wt = null;
+        string? used = null;
+        d.ClearSelection2(true);
+        foreach (var c in configs)
+        {
+            wt = (object?)hit.View.InsertWeldmentTable(false, Units.M(x), Units.M(y), (int)swBOMConfigurationAnchorType_e.swBOMConfigurationAnchor_TopRight, c, path);
+            if (wt is not null)
+            {
+                used = c;
+                break;
+            }
+        }
+        if (wt is null)
+            throw new SwException(ErrorCodes.FeatureFailed,
+                $"SOLIDWORKS made no cut-list table for '{hit.Name}' (configurations tried: {string.Join(", ", configs.Select(c => c.Length == 0 ? "(none)" : c))}).",
+                "The weldment's cut list may need updating (open the part: Cut list > Update).");
+        var table = wt as ITableAnnotation ?? throw new SwException(ErrorCodes.Internal, "The cut-list table has no ITableAnnotation.");
+        var (columns, rows) = ReadTable(table);
+        var checks = new List<string>();
+        if (rows.Count == 0 || (items > 0 && rows.Count != items))
+        {
+            bool gone = Safe(() => table.GetAnnotation() is IAnnotation an && DeleteAnnotation(d, an), false);
+            throw new SwException(ErrorCodes.VerifyFailed,
+                $"The cut-list table has {rows.Count} row(s), but the part's cut list has {items} item(s); the table was {(gone ? "" : "not ")}removed.",
+                "Update the part's cut list (open it: Cut list > Update), then retry.");
+        }
+        checks.Add($"{rows.Count} row(s), one per cut-list item of '{Path.GetFileName(DocumentRegistry_SafePath(model))}'" +
+                   (string.IsNullOrEmpty(used) ? "" : $" (configuration {used})"));
+        d.GraphicsRedraw2();
+        return new DrwTableResult
+        {
+            Doc = ctx.Title(d),
+            Kind = "cut_list",
+            View = hit.Name,
+            Sheet = sheet.GetName(),
+            Rows = rows.Count,
+            Columns = columns,
+            Items = rows.Take(MaxBomRows).ToList(),
+            AtMm = [Math.Round(x, 3), Math.Round(y, 3)],
+            Template = path,
+            Checks = checks,
+        };
+    }
+
+    private static string DocumentRegistry_SafePath(IModelDoc2 m) => Documents.DocumentRegistry.SafePath(m);
 
     /// <summary>A table's column titles and data rows (header rows left out, at the top or the bottom).</summary>
     private static (List<string> Columns, List<IReadOnlyList<string>> Rows) ReadTable(ITableAnnotation table)

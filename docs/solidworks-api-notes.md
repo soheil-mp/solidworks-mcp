@@ -496,6 +496,30 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   (sheet m) → an `IDisplayDimension` with `IsHoleCallout()` true; `GetText(0)` holds the callout,
   `<MOD-DIAM> 6.60 <HOLE-DEPTH> 20.00` for an M6 clearance hole through a 20 mm block, and `GetDimension2(0)` is the
   diameter.
+- **More sheets** (VERIFIED 2026-10-31). `IDrawingDoc.NewSheet4(name, paper, template, scale1, scale2, firstAngle, format,
+  width, height, "Default", 0, 0, 0, 0, 0, 0)` adds the sheet and makes it current; `ActivateSheet(name)` switches. A sheet
+  is deleted by `SelectByID2(name, "SHEET")` and `DeleteSelection2` (there is no DeleteSheet).
+- **Flat-pattern view** (VERIFIED). `CreateFlatPatternViewFromModelView3(path, "", x, y, 0, hideBendLines, false)` →
+  `IView` with `IsFlatPatternView()` and `GetBendLineCount()` (1 for one sketched bend). Its `GetOutline` carries a margin
+  (91.9 mm for an 80 mm blank): the blank's size comes from `GetVisibleEntities2(null, swViewEntityType_Edge)` mapped
+  through the view's transform and divided by the scale (exactly 80 x 40).
+- **Auxiliary view** (VERIFIED). The angled edge selected in the parent view, then `CreateAuxiliaryViewAt2(x, y, 0, false,
+  label, true, false)` → a `swDrawingAuxiliaryView` (5) looking square to the edge. **It leaves the view's
+  PropertyManager open**, so the next call would see a running command: `ISldWorks.RunCommand(swCommands_PmOK = -2, "")`
+  presses OK.
+- **Broken view** (VERIFIED). `IView.InsertBreak3(orientation, p1, p2, style, intensity, true)` with the positions relative to
+  `IView.Position` (sheet m) **only draws the break lines**; `IDrawingDoc.BreakView()` on the selected view applies them.
+  `GetOutline` keeps the unbroken outline afterwards; `IView.IsBroken()` and `IBreakLine.GetPosition(0/1)` read the break
+  back, `IView.BreakLineGap` the gap.
+- **Broken-out section** (VERIFIED). In the activated view, `SketchManager.CreateCircleByRadius` in sheet coordinates (m),
+  the segment selected, then `IDrawingDoc.CreateBreakOutSection(depth)`; `IView.GetBreakOutSectionCount` goes up by one.
+- **Weldment cut-list table** (VERIFIED). `IView.InsertWeldmentTable(false, x, y, swBOMConfigurationAnchor_TopRight, config,
+  "cut list.sldwldtbt")` needs a configuration name (SOLIDWORKS' example uses "Default<As Welded>"); an empty one gave
+  nothing. It casts to `ITableAnnotation`; a 400 x 300 frame of square tube listed 2 rows (the two member lengths).
+- **Weld symbol** (VERIFIED). The edge selected in the view, `IModelDoc2.InsertWeldSymbol3()` → `IWeldSymbol`, then
+  `SetText(top, left /*size*/, "FILL", right /*length*/, "", swWeldContourNone)` (top = above the reference line; the
+  symbol names are gtol.sym's #WELD block: FILL, BUSQ, BUSV, BUSB, BUSU, BUSJ, BUTT, BACK, PLUG, SPOT, SEAM),
+  `SetPeripheral` (all around) and `SetFieldWeld`; `GetText(swWeldSymbolTextBelow / Above, Left…, Right…)` read them back.
 - **Sheet scale of an empty sheet** (VERIFIED again): a 250 mm assembly put on a 1:1 sheet came out 1:2 after its first
   view; set the planned scale after the views exist.
 - **Leaders attach where the edge was picked** (VERIFIED). `IView.SelectEntity(edge)` selects it without a point, and a

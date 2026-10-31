@@ -41,8 +41,35 @@ internal static class DrwAnnotationSpec
         "surface_finish" or "finish" or "roughness" => "surface_finish",
         "gtol" or "geometric_tolerance" or "fcf" or "feature_control_frame" => "gtol",
         "balloon" => "balloon",
-        null => throw SwException.InvalidArgument("'kind' is required: datum, surface_finish, gtol or balloon."),
-        _ => throw SwException.InvalidArgument($"Unknown kind '{s}'.", "Use datum, surface_finish, gtol or balloon (drw_balloons balloons a whole view)."),
+        "weld" or "weld_symbol" => "weld",
+        null => throw SwException.InvalidArgument("'kind' is required: datum, surface_finish, gtol, weld or balloon."),
+        _ => throw SwException.InvalidArgument($"Unknown kind '{s}'.", "Use datum, surface_finish, gtol, weld or balloon (without 'at', balloons a whole view)."),
+    };
+
+    /// <summary>A weld type → its ISO symbol in SOLIDWORKS' gtol.sym library (#WELD) and a readable name.</summary>
+    public static (string Code, string Name) Weld(string? s) => Norm(s) switch
+    {
+        null or "fillet" => ("FILL", "fillet"),
+        "square" or "square_butt" or "i" => ("BUSQ", "square butt"),
+        "v" or "v_butt" or "single_v" => ("BUSV", "single-V butt"),
+        "bevel" or "single_bevel" => ("BUSB", "single-bevel butt"),
+        "u" or "single_u" => ("BUSU", "single-U butt"),
+        "j" or "single_j" => ("BUSJ", "single-J butt"),
+        "butt" or "flanged" => ("BUTT", "flanged butt"),
+        "backing" or "back" => ("BACK", "backing run"),
+        "plug" or "slot" => ("PLUG", "plug"),
+        "spot" => ("SPOT", "spot"),
+        "seam" => ("SEAM", "seam"),
+        _ => throw SwException.InvalidArgument($"Unknown weld '{s}'.", "Use fillet, square, v, bevel, u, j, butt, backing, plug, spot or seam."),
+    };
+
+    /// <summary>Which side of the joint the weld is on: arrow (default), other, both.</summary>
+    public static string WeldSide(string? s) => Norm(s) switch
+    {
+        null or "arrow" or "arrow_side" => "arrow",
+        "other" or "other_side" => "other",
+        "both" or "both_sides" => "both",
+        _ => throw SwException.InvalidArgument($"Unknown side '{s}'.", "Use arrow (default), other or both."),
     };
 
     public static Characteristic Gtol(string? s)
