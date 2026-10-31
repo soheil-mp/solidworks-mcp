@@ -614,6 +614,11 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
 - **Custom properties.** `ICustomPropertyManager.Add3(name, type, value, 2 /*replace*/)`: type `swCustomInfoNumber` (3) takes **whole numbers only** ("12.5" gives result 1); `swCustomInfoDouble` (5) takes "12.5" (a dot, whatever the Windows decimal separator; a comma fails), stores "12.500000" and reads back as type 3. VERIFIED.
 - **Material.** `IPartDoc.SetMaterialPropertyName2("", "SOLIDWORKS Materials", name)` **silently ignores unknown names**;
   check with `GetMaterialPropertyName2("", out db)`.
+- **Custom materials** (VERIFIED 2026-10-31). A library is a .sldmat file in a configured material folder (here
+  `ProgramData\SolidWorks\SOLIDWORKS 2025\Custom Materials`): UTF-16 XML, `<classification name>` holding `<material name>`
+  with `<physicalproperties>`: EX, NUXY, GXY, ALPX, DENS, KX, C, SIGXT, SIGYLD (`displayname` and `value` in SI). A new
+  file there is used **without a restart**: `SetMaterialPropertyName2("", "<file name>", name)` took it at once, the mass
+  followed DENS, and Simulation used EX and SIGYLD (E = 100 GPa doubled the cantilever's deflection, to 0.401339 mm).
   - The material databases are UTF-16 XML (`lang\english\sldmaterials\*.sldmat`), with `<classification name>` and
     `<material name>` elements.
   - The file-locations option `swFileLocationsMaterialDatabases` (string 28) can list **only the custom folders**

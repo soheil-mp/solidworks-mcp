@@ -32,6 +32,64 @@ public class PropertiesLiveTests(LiveFixture fx) : LiveTest(fx)
     // ------------------------------------------------------------------ materials
 
     [Fact]
+    public async Task A_custom_material_is_listed_assigned_and_used_by_simulation_with_its_own_stiffness()
+    {
+        // "Half steel": AISI 1020's density, yield and ν with E = 100 GPa. The 100 mm cantilever under 100 N bends 0.2007 mm in
+        // AISI 1020, so twice that in it.
+        string name = $"MCP Test Half Steel {Guid.NewGuid().ToString("N")[..6]}";
+        string? file = null;
+        bool created = false;
+        try
+        {
+            var r = await P.MaterialAddAsync(new MaterialAddRequest
+            {
+                Name = name, DensityKgM3 = 7900, ElasticModulusGpa = 100, PoissonRatio = 0.29, YieldMpa = 351.571, TensileMpa = 420.507,
+            });
+            file = r.Path;
+            created = r.CreatedDatabase;
+            Assert.Equal("solidworks-mcp", r.Database);
+            Assert.Equal(100e9, r.Properties["EX"]);
+            Assert.Equal(100e9 / 2.58, r.Properties["GXY"], 1);
+            Assert.Contains(r.Checks, c => c.StartsWith("material_list lists it", StringComparison.Ordinal));
+            Assert.Contains((await P.MaterialListAsync("half steel", 100, 0)).Materials, m => m.Name == name && m.Database == "solidworks-mcp");
+            Assert.Equal(ErrorCodes.InvalidArgument, await Code(() => P.MaterialAddAsync(new MaterialAddRequest
+            {
+                Name = name, DensityKgM3 = 7900, ElasticModulusGpa = 100, PoissonRatio = 0.29,
+            })));
+
+            string doc = await NewPartAsync("mat_custom");
+            var sk = new SketchService(S);
+            await sk.StartAsync(doc, new EntityRef { Name = "front" }, false);
+            await sk.AddAsync(doc, [new SketchEntity { Kind = "rectangle", Corners = [[0, 0], [100, 10]] }]);
+            await new FeatureService(S).ExtrudeAsync(new ExtrudeRequest { Doc = doc, DepthMm = 10 });
+            var set = await P.MaterialSetAsync(doc, name, "solidworks-mcp");
+            Assert.Equal(0.079, set.MassKg!.Value, 1e-6);
+            var st = await new SimulationService(S).StaticAsync(new SimStaticRequest
+            {
+                Doc = doc, FixedFaces = [new EntityRef { At = [0, 5, 5] }],
+                Loads = [new SimLoad { Kind = "force", Faces = [new EntityRef { At = [100, 5, 5] }], ValueN = 100,
+                    Direction = System.Text.Json.JsonDocument.Parse("[0,-1,0]").RootElement.Clone() }],
+            });
+            Assert.Equal(2 * 0.200669, st.MaxDisplacementMm, 0.002);
+            Assert.Equal(351.571, st.YieldStrengthMpa!.Value, 1e-3);
+        }
+        finally
+        {
+            // Leave the library as it was: the test's material out again (the whole file when the test created it).
+            if (file is not null && File.Exists(file))
+            {
+                if (created) File.Delete(file);
+                else
+                {
+                    var lib = MaterialXml.Parse(File.ReadAllText(file));
+                    lib.Root!.Descendants("material").Where(e => (string?)e.Attribute("name") == name).ToList().ForEach(e => e.Remove());
+                    File.WriteAllBytes(file, MaterialXml.Bytes(lib));
+                }
+            }
+        }
+    }
+
+    [Fact]
     public async Task Material_list_has_AISI_1020_at_7900_kg_per_m3()
     {
         var r = await P.MaterialListAsync("aisi 1020", 100, 0);

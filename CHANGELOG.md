@@ -10,7 +10,7 @@
   - verified feature creation with automatic rollback;
   - entity references by id, point, query and name;
   - compact input schemas (the EntityRef fields are explained once, in the server instructions).
-- Tools (139):
+- Tools (140):
   - session: `sw_status`, `sw_connect`, `sw_help`, `dialog_list`, `dialog_respond`;
   - documents: `doc_new` (part, assembly, drawing), `doc_open` (native files and STEP/IGES/Parasolid/SAT/STL imports),
     `doc_list`, `doc_activate`, `doc_save`, `doc_close`, `doc_rebuild`, `doc_undo`, `doc_units_set`, `doc_pack` (Pack and Go,
@@ -44,7 +44,7 @@
     balloons), `drw_table_add` (hole, weldment cut-list and revision tables), `drw_bom_add`, `drw_center_marks`, `drw_info`;
   - export: `model_export`, `model_export_all` (release package: a STEP per model, a PDF per drawing, a flat DXF per
     sheet-metal part, the BOM);
-  - properties: `material_list`, `material_set`, `prop_list`, `prop_set`, `prop_delete`, `equation_list`,
+  - properties: `material_list`, `material_set`, `material_add` (custom materials), `prop_list`, `prop_set`, `prop_delete`, `equation_list`,
     `equation_set`, `equation_delete`, `config_list`, `config_add`, `config_activate`, `config_delete`,
     `appearance_set`;
   - simulation: `sim_static` (parts and assemblies; fixed, roller, symmetry, hinge fixtures; pressure, force, gravity
@@ -55,7 +55,7 @@
   golden scenarios (plate, enclosure, edit, assembly, drawing, sheet metal).
 - Install: `tools/install.ps1` publishes into a versioned folder and registers the server with Claude Code; when Smart
   App Control blocks the exe, it registers `dotnet solidworks-mcp.dll` instead.
-- Live-tested against SOLIDWORKS 2025 SP1.2: 380 live tests across all areas pass. Fixes found that way include:
+- Live-tested against SOLIDWORKS 2025 SP1.2: 381 live tests across all areas pass. Fixes found that way include:
   - coupled system options (STL quality with deviation and angle) are saved and restored as one group, also after a
     crash (an STL export had left a user's STL quality at coarse);
   - Hole Wizard holes are placed exactly (a model-space ray pick) and through-all holes work;

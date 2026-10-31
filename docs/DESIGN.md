@@ -744,7 +744,7 @@ contacts and bolt/pin connectors join the Tier 2 backlog)
   error code of `CreateNewStudy3` for each type first, and refuse with NOT_SUPPORTED where a type isn't licensed. (The
   probe of 2026-10-24 was cut short by a SolidWorks crash, see Infrastructure below.)
 
-**WP6 · Engineering numbers and design reuse** (S–M each, ⏳; ✅ 2026-10-31: `model_section`, `doc_pack`)
+**WP6 · Engineering numbers and design reuse** (S–M each, ⏳; ✅ 2026-10-31: `model_section`, `doc_pack`, `material_add`)
 - Scope:
   - section properties of a face or a planar section (area, centroid, second moments, section moduli);
   - cost estimates (machining, sheet metal, plastic, casting, 3D printing: material, manufacturing, setup and total, per

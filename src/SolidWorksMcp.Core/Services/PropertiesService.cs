@@ -168,7 +168,7 @@ public sealed class AppearanceSetResult : ToolResult
 /// Materials, custom properties, equations, configurations and appearance (DESIGN §4.12). Every set tool reads back
 /// what it set and returns the previous state; tools that rebuild keep the "errors at every rebuild" dialog off.
 /// </summary>
-public sealed class PropertiesService(SwSession session)
+public sealed partial class PropertiesService(SwSession session)
 {
     /// <summary>Rebuilds can take a while on large models (progress is reported by the tool layer).</summary>
     private static readonly TimeSpan RebuildTimeout = TimeSpan.FromSeconds(120);

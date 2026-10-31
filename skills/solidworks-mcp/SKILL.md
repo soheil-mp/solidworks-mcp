@@ -170,6 +170,10 @@ legsMm:[50,50]}` and `{kind:"bead", faces:[…], faces2:[…], sizeMm:4}` (a wel
    `drw_sheet_add {size:"a4"}` (it becomes current); `drw_sheet_setup {sheet:"Sheet1"}` goes back.
 6. `model_export {path:"bracket.pdf"}` (or .dwg/.dxf).
 
+**Materials.** `material_set {name:"6061 Alloy"}` (material_list shows the installed ones). A material that isn't installed (a
+supplier's grade): `material_add {name:"S355J2", densityKgM3:7850, elasticModulusGpa:210, poissonRatio:0.3, yieldMpa:355,
+tensileMpa:510}`, then `material_set {name:"S355J2", database:"solidworks-mcp"}`; simulations use its values.
+
 **Stress check.** `sim_static {material:"AISI 1020", fixedFaces:[{at:[0,5,5]}],
 loads:[{kind:"pressure", faces:[{at:[50,10,5]}], valueMpa:0.1}]}` meshes, solves and returns the maximum von Mises
 stress (MPa), displacement (mm) and factor of safety. It can take minutes; the study is deleted afterwards unless
