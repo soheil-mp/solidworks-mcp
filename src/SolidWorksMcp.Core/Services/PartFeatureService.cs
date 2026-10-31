@@ -134,7 +134,7 @@ public sealed record MirrorRequest
 /// error, faces, volume rule) and Tier B by the intent checks in this file (coaxial revolve faces, chamfer legs, shell
 /// walls, hole cylinders, instance positions) — and rolled back on failure.
 /// </summary>
-public sealed class PartFeatureService(SwSession session)
+public sealed partial class PartFeatureService(SwSession session)
 {
     private const double PosTol = 2e-6;      // m: positions and plane offsets read back from SOLIDWORKS geometry
     private const double RadiusTol = 1e-6;   // m: radii and chamfer legs

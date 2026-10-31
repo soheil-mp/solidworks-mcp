@@ -191,6 +191,17 @@ compares with another revision (an open document or a file, opened read-only): v
 the features only one has and every changed dimension. `model_cost {lotSize:50}` gives a SOLIDWORKS Costing estimate of a
 single-body part with a material (material, manufacturing, setup and totals in the template's currency).
 
+**More modelling.** Engrave or emboss a mark: `sketch_start` on the face, `sketch_add [{kind:"text", text:"SN 001",
+at:[x,y], heightMm:5}]`, then `feature_extrude {cut:true, depthMm:0.5}`. Legacy 2D data: `sketch_import {path:"plate.dxf",
+on:{name:"front"}, units:"mm"}` makes a sketch with the drawing's coordinates; extrude it. A load or fixture region on part
+of a face: sketch its outline and `feature_split_line {faces:[{at:[x,y,z]}]}`. Fillets beyond constant ones:
+`feature_fillet {kind:"variable", edges:[…one edge…], radiiMm:[2,6], startAt:[x,y,z]}`, `{kind:"face", faces:[…],
+faces2:[…], radiusMm:5}`, `{kind:"full_round", faces:[top], centerFaces:[end], faces2:[bottom]}`. Patterns along a curve:
+`feature_pattern_curve {features:["Cut-Extrude2"], curve:{type:"sketch_segment", name:"Arc1", sketch:"Sketch3"},
+count:8}`; vent holes: `feature_pattern_fill {face:{at:[…]}, holeDiameterMm:4, spacingMm:8, marginMm:5}`. A real thread (3D printing, renders):
+`feature_thread {edge:{type:"edge", at:[3,20,0]}, size:"M6", depthMm:12}` on a shaft's end or a tap-drilled hole's rim;
+drawings and BOMs only need `feature_thread_cosmetic`.
+
 **Materials.** `material_set {name:"6061 Alloy"}` (material_list shows the installed ones). A material that isn't installed (a
 supplier's grade): `material_add {name:"S355J2", densityKgM3:7850, elasticModulusGpa:210, poissonRatio:0.3, yieldMpa:355,
 tensileMpa:510}`, then `material_set {name:"S355J2", database:"solidworks-mcp"}`; simulations use its values.

@@ -164,13 +164,13 @@ public sealed class SketchService(SwSession session)
                 {
                     var e = entities[i];
                     var before = SegmentNames(sketch);
-                    int pointsBefore = sketch.Points().Count;
+                    int pointsBefore = sketch.Points().Count, textsBefore = Texts(sketch);
                     var conv = new PointConverter(m2s, is3D, $"entities[{i}]", ctx);
                     var checks = new List<string>();
                     Draw(d, sm, e, conv, checks);
                     var segs = sketch.Segments().Where(s => !before.Contains(s.GetName())).ToList();
                     created.AddRange(segs);
-                    results.Add(Check(e, i, segs, sketch.Points().Count - pointsBefore, checks, conv));
+                    results.Add(Check(e, i, segs, sketch.Points().Count - pointsBefore, Texts(sketch) - textsBefore, checks, conv));
                 }
             }
             catch
@@ -355,9 +355,14 @@ public sealed class SketchService(SwSession session)
             case "point":
                 if (e.At is null) throw SwException.InvalidArgument($"{a} (point) needs 'at'.");
                 break;
+            case "text":
+                if (string.IsNullOrWhiteSpace(e.Text)) throw SwException.InvalidArgument($"{a} (text) needs 'text'.");
+                if (e.At is null) throw SwException.InvalidArgument($"{a} (text) needs 'at' (where it starts).");
+                Pos(e.HeightMm, "heightMm");
+                break;
             default:
                 throw SwException.InvalidArgument($"{a}: unknown kind '{e.Kind}'.",
-                    "Use line, centerline, polyline, rectangle, circle, arc, slot, polygon, ellipse, spline or point.");
+                    "Use line, centerline, polyline, rectangle, circle, arc, slot, polygon, ellipse, spline, point or text.");
         }
     }
 
@@ -493,6 +498,28 @@ public sealed class SketchService(SwSession session)
                 construction = false;
                 break;
             }
+            case "text":
+            {
+                var p = c.P(e.At, "at");
+                var text = (object?)d.InsertSketchText(p.X, p.Y, p.Z, e.Text, 0, 0, 0, 100, 100) as ISketchText;
+                if (text is not null)
+                {
+                    // Its own format: the height (and font) asked for, read back.
+                    double h = Units.M(e.HeightMm!.Value);
+                    var tf = (object?)text.GetTextFormat() as ITextFormat
+                             ?? throw new SwException(ErrorCodes.FeatureFailed, "The text has no format to set its height.");
+                    tf.CharHeight = h;
+                    if (!string.IsNullOrWhiteSpace(e.Font)) tf.TypeFaceName = e.Font.Trim();
+                    text.SetTextFormat(false, tf);
+                    var back = (object?)text.GetTextFormat() as ITextFormat;
+                    if (back is null || Math.Abs(back.CharHeight - h) > 1e-9)
+                        throw new SwException(ErrorCodes.VerifyFailed, $"The text height reads {(back is null ? "nothing" : Units.Mm(back.CharHeight) + " mm")}, not {e.HeightMm} mm.");
+                    notes.Add($"text '{text.Text}', {e.HeightMm} mm high{(string.IsNullOrWhiteSpace(e.Font) ? "" : ", " + back.TypeFaceName)}");
+                }
+                made = text;
+                construction = false;
+                break;
+            }
             default:
                 throw SwException.InvalidArgument($"Unknown kind '{e.Kind}'.");
         }
@@ -512,7 +539,7 @@ public sealed class SketchService(SwSession session)
     }
 
     /// <summary>Tier-B check of one entity: expected segment signature and key geometry read back.</summary>
-    private static SketchEntityResult Check(SketchEntity e, int i, List<ISketchSegment> segs, int newPoints, List<string> checks, PointConverter c)
+    private static SketchEntityResult Check(SketchEntity e, int i, List<ISketchSegment> segs, int newPoints, int newTexts, List<string> checks, PointConverter c)
     {
         string kind = e.Kind.Trim().ToLowerInvariant();
         string a = $"entities[{i}] ({kind})";
@@ -582,6 +609,9 @@ public sealed class SketchService(SwSession session)
             case "point":
                 Expect(newPoints >= 1, "1 point created");
                 break;
+            case "text":
+                Expect(newTexts == 1, "1 text created");
+                break;
         }
         return new SketchEntityResult
         {
@@ -602,10 +632,21 @@ public sealed class SketchService(SwSession session)
         return new Vec3((s.X + e.X) / 2, (s.Y + e.Y) / 2, 0);
     }
 
+    /// <summary>The sketch's texts (each a set of closed character outlines, not segments).</summary>
+    internal static int Texts(ISketch s)
+    {
+        try { return ComArgs.Objects<ISketchText>((object?)s.GetSketchTextSegments()).Count; }
+        catch (System.Runtime.InteropServices.COMException e) when (!ComArgs.IsDisconnect(e)) { return 0; } // 3D sketches
+    }
+
     internal static ContourStatus Contours(ISketch s)
     {
         int segs = s.Segments().Count(x => !x.ConstructionGeometry);
-        if (segs == 0) return new ContourStatus { Status = "empty", Segments = 0 };
+        int texts = Texts(s);
+        if (segs == 0)
+            return texts == 0
+                ? new ContourStatus { Status = "empty", Segments = 0 }
+                : new ContourStatus { Status = "closed", ClosedContours = texts, Segments = 0, Problem = $"{texts} text(s): their outlines are the profiles" };
         int open = 0, closed = 0;
         int status = s.CheckFeatureUse((int)swSketchCheckFeatureProfileUsage_e.swSketchCheckFeature_BASEEXTRUDE, ref open, ref closed);
         int regions = 0;

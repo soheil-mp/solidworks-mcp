@@ -220,6 +220,34 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
 - **Boss or cut** from the feature type name (`Cut`, `RevCut`): `IExtrudeFeatureData2.IsBossFeature()` reads false for an
   API-made boss extrude (`ICE`). VERIFIED.
 
+- **WP9 modelling** (VERIFIED 2026-10-31).
+  - Sketch text: `IModelDoc2.InsertSketchText(x, y, z, text, 0, 0, 0, 100, 100)` in sketch coordinates; set the height on
+    its own format (`GetTextFormat`, `CharHeight` in m, `SetTextFormat(false, tf)`) and read it back. Text is not a
+    segment (`ISketch.GetSketchTextSegments`); a cut extrude of a text-only sketch engraves it.
+  - DXF into a sketch: `ISldWorks.GetImportFileData(path)` as `IImportDxfDwgData`, `set_ImportMethod("",
+    ImportToExistingPart)`, `set_LengthUnit("", swMM)`, `SetMergePoints("", true, 1e-7)`, select the plane, then
+    `IFeatureManager.InsertDwgOrDxfFile2(path, data)`: the sketch keeps the drawing's coordinates. A minimal R12 file
+    (LINE and CIRCLE entities, `$INSUNITS` 4) imports.
+  - Split line: the sketch selected with mark 4, the faces with mark 1, `InsertSplitLineProject(directional, flip)`; the
+    feature's type is `PLine`.
+  - Fillets: face and full-round fillets through `CreateDefinition(swFmFillet)` as `ISimpleFilletFeatureData2`,
+    `Initialize(swFaceFillet | swFullRoundFillet)`, `SetFaces(1/2 or 3/4/5, faces)`, `CreateFeature`. Variable radius:
+    `FeatureFillet3` with the edge selected with mark 1, `Ftyp` 1, `Radii` = [start vertex, end vertex] (the edge's own
+    order) and two-element `Dist2Arr`/`RhoArr`; the feature's type is `VarFillet`; with `swFeatureFilletVarRadiusType` the
+    volume is within 0.08 % of a linear radius.
+  - Curve-driven and fill patterns take their entities from the selection made *before* `CreateDefinition` (as the API
+    examples do); set as properties (`D1Direction`, `PatternFeatureArray`, `PatternFillBoundaryArray`) `CreateFeature`
+    returns nothing. Curve: the seeds with mark 4, the curve (edge or sketch segment) with mark 1, then
+    `ICurveDrivenPatternFeatureData` (`D1InstanceCount` with the seed, `D1IsEqualSpaced`, `D1Spacing`); five holes along an
+    80 mm sketch line came out 20 mm apart. Fill: the seeds mark 4, the rows' edge mark 1, the boundary face mark 16384,
+    then `IFillPatternFeatureData` (`PatternLayoutType`, `InstanceSpacing`, `Margins`, `StaggerAngle`); its type is
+    `APattern`. Its own seed cut (`FeaturesToPatternType` 1, `CreateSeedCutType` circle) always comes out at the 8 mm
+    default whatever `Diameter` says, before or after the other properties; setting it through `ModifyDefinition` left no
+    holes at all. Cut a real seed hole and copy it instead (`FeaturesToPatternType` 0).
+  - Modelled thread: `CreateDefinition(swFmSweepThread)` as `IThreadFeatureData`, `InitializeThreadData()`, then `Type`
+    ("Metric Die" outside, "Metric Tap" inside: the `.SLDLFP` profile libraries), `Size` ("M6x1.0"), `ThreadMethod`
+    (cut 0, extrude 1), `EndCondition` blind with `BlindDepth`, `Edge` (the start edge), `CreateFeature`.
+
 ## 5. Reference geometry
 - **Plane.** Select the base plane or entity (marks 0/1/2 for multiple constraints), then
   `IFeatureManager.InsertRefPlane(c1, v1, c2, v2, c3, v3)`. VERIFIED for an offset (`8` = distance, `+256` = flip).

@@ -26,7 +26,7 @@ public sealed record ExtrudeRequest
 }
 
 /// <summary>Part features: extrude (boss/cut) and fillet in M0. Every call is verified and rolled back on failure.</summary>
-public sealed class FeatureService(SwSession session)
+public sealed partial class FeatureService(SwSession session)
 {
     private static readonly FeatureSpec BossSpec = new("feature_extrude", ["Extrusion", "ICE", "Boss", "BossThin"], VolumeRule.Increase);
     private static readonly FeatureSpec CutSpec = new("feature_extrude", ["Cut", "ICE", "CutThin"], VolumeRule.Decrease);

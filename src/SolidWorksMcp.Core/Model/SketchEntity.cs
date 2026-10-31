@@ -8,7 +8,7 @@ namespace SolidWorksMcp.Core.Model;
 /// </summary>
 public sealed class SketchEntity
 {
-    [Description("line | centerline | polyline | rectangle | circle | arc | slot | polygon | ellipse | spline | point")]
+    [Description("line | centerline | polyline | rectangle | circle | arc | slot | polygon | ellipse | spline | point | text")]
     public string Kind { get; set; } = "";
 
     [Description("line/centerline/slot: start point.")]
@@ -32,7 +32,7 @@ public sealed class SketchEntity
     [Description("rectangle (with center): width along sketch x, in mm.")]
     public double? WidthMm { get; set; }
 
-    [Description("rectangle (with center): height along sketch y, in mm.")]
+    [Description("rectangle (with center): height along sketch y, in mm; text: the character height.")]
     public double? HeightMm { get; set; }
 
     [Description("circle/arc: radius in mm.")]
@@ -74,8 +74,14 @@ public sealed class SketchEntity
     [Description("ellipse: semi-minor radius in mm.")]
     public double? MinorRadiusMm { get; set; }
 
-    [Description("point: location.")]
+    [Description("point: location; text: where the text starts (its lower left).")]
     public double[]? At { get; set; }
+
+    [Description("text: the characters (engrave with feature_extrude cut).")]
+    public string? Text { get; set; }
+
+    [Description("text: font name (default: the document's).")]
+    public string? Font { get; set; }
 
     [Description("Make the entity construction geometry (not part of profiles).")]
     public bool? Construction { get; set; }

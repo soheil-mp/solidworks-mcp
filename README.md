@@ -4,7 +4,7 @@
 # solidworks-mcp
 
 An MCP server that lets AI agents (Claude Code, Claude Desktop and other MCP clients) drive a running SOLIDWORKS.
-With its 148 tools, agents can sketch and model parts (extrudes, revolves, sweeps, lofts, holes, patterns, shells,
+With its 153 tools, agents can sketch and model parts (extrudes, revolves, sweeps, lofts, holes, patterns, shells,
 surfaces, sheet metal, weldment frames), edit imported bodies directly (delete, offset and move faces), build assemblies with mates (also limit, symmetric, width, hinge, gear and rack mates) and component patterns, make drawings with views, dimensions, GD&T, balloons and tables, import and export
 (STEP, IGES, STL, Parasolid, PDF, DXF …), run static stress studies, and inspect, measure and screenshot the result. It
 is written in C# against SolidWorks' official COM API.
@@ -96,7 +96,7 @@ Integrity event 3077). When the exe is blocked, `tools\install.ps1` registers th
 again: it publishes a new binary, which gets a new verdict. Signed releases will avoid this.
 
 ## Tools
-148 tools in 15 toolsets. The full, current list with parameters is in [`docs/tools.md`](docs/tools.md), generated from
+153 tools in 15 toolsets. The full, current list with parameters is in [`docs/tools.md`](docs/tools.md), generated from
 the server.
 
 | Toolset | Tools |
@@ -104,8 +104,8 @@ the server.
 | session (5) | `sw_status`, `sw_connect`, `sw_help`, `dialog_list`, `dialog_respond` |
 | documents (10) | `doc_new` (part, assembly, drawing), `doc_open` (also imports STEP/IGES/Parasolid/STL), `doc_save`, `doc_close`, `doc_activate`, `doc_list`, `doc_rebuild`, `doc_undo`, `doc_units_set`, `doc_pack` (Pack and Go) |
 | inspect (15) | `model_info`, `feature_list`, `face_list`, `edge_list`, `vertex_list`, `body_list`, `model_measure`, `model_mass`, `model_section` (section properties), `model_check`, `model_review` (health report), `model_compare` (two revisions), `model_cost` (Costing estimate), `model_cut_list` (weldment and sheet-metal cut lists), `view_screenshot` |
-| sketch (17) | `sketch_start`, `sketch_add` (lines, arcs, circles, rectangles, slots, polygons, ellipses, splines, points), `sketch_finish`, `sketch_edit`, `sketch_info`, dimensions, relations, trim, extend, offset, fillet, chamfer, pattern, mirror, convert, construction, delete |
-| features (23) | extrude, revolve, sweep, loft, fillet, chamfer, shell, Hole Wizard holes, draft, rib, helix, cosmetic thread, linear/circular patterns, mirror; feature info, delete, suppress, rename, rollback; dimension list/set, tolerances and fits |
+| sketch (18) | `sketch_start`, `sketch_add` (lines, arcs, circles, rectangles, slots, polygons, ellipses, splines, points, text), `sketch_import` (DXF/DWG), `sketch_finish`, `sketch_edit`, `sketch_info`, dimensions, relations, trim, extend, offset, fillet, chamfer, pattern, mirror, convert, construction, delete |
+| features (27) | extrude, revolve, sweep, loft, fillets (constant, variable, face, full round), chamfer, shell, Hole Wizard holes, draft, rib, helix, cosmetic and modelled threads, split lines, linear/circular/curve-driven/fill patterns, mirror; feature info, delete, suppress, rename, rollback; dimension list/set, tolerances and fits |
 | reference (4) | `ref_plane`, `ref_axis`, `ref_point`, `ref_coordsys` |
 | bodies (13) | move/copy, delete, combine, split; direct face edits (`face_edit`: delete and heal, offset, move); surfaces: extrude, revolve, planar, offset, knit, thicken; bodies saved as parts (with an assembly), derived and mirrored parts |
 | sheetmetal (7) | base flange, edge flange, miter flange (around corners, closed trays), hem (closed, open, teardrop, rolled), sketched bend, flatten, flat-pattern DXF/DWG |
@@ -119,7 +119,7 @@ the server.
 
 ### Live test status
 Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check the result against an exact answer
-(volumes, positions, angles, file headers, restored system options). All 392 pass:
+(volumes, positions, angles, file headers, restored system options). All 401 pass:
 
 | Area | Live tests |
 |---|---|
@@ -139,6 +139,7 @@ Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check th
 | Simulation (static, gravity, guided fixtures, frequency, buckling, thermal, plots, assemblies) | 17 |
 | Standard hardware (ISO parts from their tables, screws with washers and nuts, blind holes) | 3 |
 | Top-down design (in-context parts that follow their face, parts in the assembly's frame, saved bodies, derived and mirrored parts) | 4 |
+| Everyday modelling (engraved text, DXF import, split lines, variable/face/full-round fillets, curve and fill patterns, modelled threads) | 9 |
 
 The golden scenarios in `tools/mcp_smoke.py` (drawing, plate, enclosure, edit, assembly, sheet metal) run through the
 real MCP protocol within their call budgets, each with an exact oracle (volumes, interference, inserted dimensions, a

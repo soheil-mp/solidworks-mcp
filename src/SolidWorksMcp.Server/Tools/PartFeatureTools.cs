@@ -155,6 +155,52 @@ public sealed class PartFeatureTools(SwSession session)
             Name = name, KeepOnFailure = keepOnFailure,
         }, cancellationToken), progress, "feature_pattern_circular");
 
+    [McpServerTool(Name = "feature_pattern_curve", Title = "Curve-driven pattern", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Patterns features along a curve: an edge or a sketch segment, e.g. {type:'sketch_segment', name:'Arc1', sketch:'Sketch3'}. " +
+                 "count includes the seed; spacingMm apart along the curve, or spread equally over it. Verified: no errors, the volume " +
+                 "changed and (round seeds) count − 1 new instances; the curve's other sense is tried if the asked one misses the body.")]
+    public Task<string> FeaturePatternCurve(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("Seed features, e.g. [\"Cut-Extrude2\"].")] string[] features,
+        [Description("The curve: an edge or a sketch segment.")] EntityRef curve,
+        [Description("Instances, the seed included.")] int count,
+        [Description("Spacing along the curve, mm (default: equal over the whole curve).")] double? spacingMm = null,
+        [Description("Run the other way along the curve.")] bool reverse = false,
+        [Description("tangent (turn with the curve) | seed (keep the seed's orientation).")] string align = "tangent",
+        [Description(NameDesc)] string? name = null,
+        [Description(KeepDesc)] bool keepOnFailure = false,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_svc.CurvePatternAsync(new CurvePatternRequest
+        {
+            Doc = doc, Features = features, Curve = curve, Count = count, SpacingMm = spacingMm, Reverse = reverse, Align = align,
+            Name = name, KeepOnFailure = keepOnFailure,
+        }, cancellationToken), progress, "feature_pattern_curve");
+
+    [McpServerTool(Name = "feature_pattern_fill", Title = "Fill pattern", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Fills a flat face with round holes (holeDiameterMm, cut through) or copies of seed features: perforation (staggered " +
+                 "rows), square, circular or polygon layout, spacingMm apart, marginMm from the boundary. Vents, perforated panels. " +
+                 "Verified: no errors, the volume changed; round holes are counted.")]
+    public Task<string> FeaturePatternFill(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("The flat face to fill, e.g. {at:[0,2,0]}.")] EntityRef face,
+        [Description("Spacing between instances, mm.")] double spacingMm,
+        [Description("Round holes of this diameter, mm: a seed hole is cut through at the face's interior point (or features).")] double? holeDiameterMm = null,
+        [Description("Seed features to copy instead of holes.")] string[]? features = null,
+        [Description("perforation | square | circular | polygon")] string layout = "perforation",
+        [Description("Distance kept from the boundary, mm.")] double? marginMm = null,
+        [Description("perforation/square: a straight edge for the rows (default: the face's longest).")] EntityRef? directionRef = null,
+        [Description("perforation: stagger angle, degrees (default 60).")] double? staggerDeg = null,
+        [Description(NameDesc)] string? name = null,
+        [Description(KeepDesc)] bool keepOnFailure = false,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_svc.FillPatternAsync(new FillPatternRequest
+        {
+            Doc = doc, Face = face, SpacingMm = spacingMm, HoleDiameterMm = holeDiameterMm, Features = features, Layout = layout, MarginMm = marginMm,
+            DirectionRef = directionRef, StaggerDeg = staggerDeg, Name = name, KeepOnFailure = keepOnFailure,
+        }, cancellationToken), progress, "feature_pattern_fill");
+
     [McpServerTool(Name = "feature_mirror", Title = "Mirror features", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Mirror features about a plane or a planar face. Verified: a MirrorPattern feature without errors, the volume or faces " +
                  "changed, and the new faces are the reflections of the seed's faces; otherwise rolled back.")]

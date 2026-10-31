@@ -10,7 +10,7 @@
   - verified feature creation with automatic rollback;
   - entity references by id, point, query and name;
   - compact input schemas (the EntityRef fields are explained once, in the server instructions).
-- Tools (148):
+- Tools (153):
   - session: `sw_status`, `sw_connect`, `sw_help`, `dialog_list`, `dialog_respond`;
   - documents: `doc_new` (part, assembly, drawing), `doc_open` (native files and STEP/IGES/Parasolid/SAT/STL imports),
     `doc_list`, `doc_activate`, `doc_save`, `doc_close`, `doc_rebuild`, `doc_undo`, `doc_units_set`, `doc_pack` (Pack and Go,
@@ -20,10 +20,12 @@
     (rebuild errors, sketch definition, suppressed features, material, components and mates in one report), `model_compare`
     (two revisions: measures, features, dimensions), `model_cost` (SOLIDWORKS Costing), `model_cut_list` (weldment and
     sheet-metal cut lists), `view_screenshot`;
-  - sketch: `sketch_start`, `sketch_add`, `sketch_finish`, `sketch_edit`, `sketch_info`, `sketch_dimension_add`,
+  - sketch: `sketch_start`, `sketch_add` (also text), `sketch_import` (DXF/DWG into a sketch), `sketch_finish`, `sketch_edit`, `sketch_info`, `sketch_dimension_add`,
     `sketch_relation_add`, `sketch_trim`, `sketch_extend`, `sketch_offset`, `sketch_fillet`, `sketch_chamfer`,
     `sketch_pattern`, `sketch_mirror`, `sketch_convert`, `sketch_construction_set`, `sketch_delete`;
-  - features: `feature_extrude`, `feature_revolve`, `feature_sweep`, `feature_loft`, `feature_fillet`,
+  - features: `feature_extrude`, `feature_revolve`, `feature_sweep`, `feature_loft`, `feature_fillet` (constant, variable,
+    face, full round), `feature_split_line`, `feature_thread` (modelled ISO metric threads), `feature_pattern_curve`,
+    `feature_pattern_fill`,
     `feature_chamfer`, `feature_shell`, `feature_hole`, `feature_draft`, `feature_rib`, `feature_helix`,
     `feature_thread_cosmetic`, `feature_pattern_linear`, `feature_pattern_circular`, `feature_mirror`,
     `feature_info`, `feature_delete`, `feature_suppress_set`, `feature_rename`, `feature_rollback`,
@@ -60,7 +62,7 @@
   golden scenarios (plate, enclosure, edit, assembly, drawing, sheet metal).
 - Install: `tools/install.ps1` publishes into a versioned folder and registers the server with Claude Code; when Smart
   App Control blocks the exe, it registers `dotnet solidworks-mcp.dll` instead.
-- Live-tested against SOLIDWORKS 2025 SP1.2: 392 live tests across all areas pass. Fixes found that way include:
+- Live-tested against SOLIDWORKS 2025 SP1.2: 401 live tests across all areas pass. Fixes found that way include:
   - coupled system options (STL quality with deviation and angle) are saved and restored as one group, also after a
     crash (an STL export had left a user's STL quality at coarse);
   - Hole Wizard holes are placed exactly (a model-space ray pick) and through-all holes work;

@@ -650,7 +650,7 @@ ergonomics. Each finding is verified before it is fixed.
 | **M5 Simulation** | `sim_static`, `sim_delete`. | Green against the oracle. |
 | **M6 Release** | README (safety, quickstart, clients, configuration, compatibility, troubleshooting, migration), CONTRIBUTING, SECURITY, THIRD-PARTY-NOTICES, the skill (written fresh), `install.ps1`, CI, the GitHub repository, tag v0.1.0. | A clean clone builds; CI is green; smoke tests pass. |
 | **M7 Breadth** | Done: `asm_pattern` (linear, circular, mirror, opposite-hand parts), `asm_mate_add` limit/symmetric/width/hinge/gear/rack mates, `asm_explode`, `face_edit` (delete and heal, offset, move; imported bodies too), `drw_annotation_add` (datums, surface finish, tolerance frames, balloons), `drw_table_add` (hole and revision tables), `weldment_member`, `sheetmetal_hem`, `sheetmetal_bend`, `sheetmetal_miter_flange`. Open: screw mates and jogs (unresolved in the API), more simulation types. New tools stay few (several kinds per tool) to keep the catalog small. | Each tool meets §6.6; all live tests green. |
-| **M8 Engineering projects** | Planned (§7.2, from the audit of 2026-10-24): tolerances and fits; production drawings (more sheets, flat-pattern, broken, auxiliary and broken-out views, cut-list tables, weld symbols); BOM as data and a one-call release package; fabrication data (cut lists, weldment trims, end caps, gussets, beads); simulation breadth (assemblies, contacts and connectors, more fixtures and loads, frequency, buckling, thermal, plots); section properties, costing, custom materials, Pack and Go, revision compare, a health report; standard hardware; top-down design; everyday modelling gaps. | Each work package meets §6.6 with live tests; all live tests and golden scenarios green, plus new scenarios for a toleranced drawing and a release package. |
+| **M8 Engineering projects** | Done 2026-10-31 (§7.2, from the audit of 2026-10-24): tolerances and fits; production drawings (more sheets, flat-pattern, broken, auxiliary and broken-out views, cut-list tables, weld symbols); BOM as data and a one-call release package; fabrication data (cut lists, weldment trims, end caps, gussets, beads); simulation breadth (assemblies, contacts and connectors, more fixtures and loads, frequency, buckling, thermal, plots); section properties, costing, custom materials, Pack and Go, revision compare, a health report; standard hardware; top-down design; everyday modelling gaps. | Each work package meets §6.6 with live tests; all live tests and golden scenarios green, plus new scenarios for a toleranced drawing and a release package. |
 
 ### 7.1 Parallel work breakdown
 M0 fixes the conventions. After that, each area owns its own files and needs no shared registration:
@@ -811,7 +811,7 @@ contacts and bolt/pin connectors join the Tier 2 backlog)
   coordinates; two bodies saved as parts and an assembly (volumes, MMGS units); a mirror reflects the box and the
   centre of mass; an inserted part adds its volume.
 
-**WP9 · Everyday modelling gaps** (S–M each, ⏳)
+**WP9 · Everyday modelling gaps** (S–M each, ✅ 2026-10-31)
 - Scope: DXF/DWG into a sketch (legacy 2D data); sketch text (engraving, part marks); split lines (load regions,
   partial faces); modelled threads; variable-radius, face and full-round fillets; fill and curve-driven patterns.
 - Tools: `sketch_import {path}`, `sketch_add {kind:"text"}`, `feature_split_line`, `feature_thread`, kinds for
@@ -821,6 +821,14 @@ contacts and bolt/pin connectors join the Tier 2 backlog)
   `swFmCurvePattern` (103).
 - Oracle: imported segments and extents against the DXF (with the existing DXF reader); the text's bounds; the face
   count after a split line; the thread's volume against its profile; pattern instance counts.
+- Done: `sketch_add {kind:"text"}` (InsertSketchText, height read back; text outlines count as closed profiles, so
+  feature_extrude engraves them), `sketch_import` (a DXF the test writes: 4 lines and 1 arc at its coordinates, extruded
+  to (800 − 25π)·10 mm³), `feature_split_line` (a Ø20 disc split off a face: π·100 mm², faces 6 → 7), `feature_fillet`
+  kinds face (r²(1 − π/4)·L), full_round (the end of a 10 mm plate a half round) and variable (2 → 6 mm: within 0.08 % of
+  the linear-radius integral; the bigger radius checked at its end), `feature_pattern_curve` (five holes along a sketch
+  line at the expected axes) and `feature_pattern_fill` (holeDiameterMm cuts a real seed hole and fills the face with
+  copies, because the pattern's own seed cut stays at 8 mm; the counted holes account for the removed volume exactly), `feature_thread` (the Thread feature with the installed Metric Die / Metric Tap profiles:
+  an external M6 on a Ø6 shaft and an internal one in a Ø5 tap drill move material within the thread's annulus).
 
 **Tier 2 backlog** (after M8, as projects need it):
 - motion studies: range of motion, collisions while moving, motor torque, animation

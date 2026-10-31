@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using SolidWorksMcp.Core;
 using SolidWorksMcp.Core.Model;
@@ -35,6 +36,20 @@ public sealed class SketchTools(SwSession session)
         [Description("Document (handle, title or path); default: the target document.")] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ResultJson.Serialize(await _svc.AddAsync(doc, entities, cancellationToken));
+
+    [McpServerTool(Name = "sketch_import", Title = "Import DXF/DWG", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("A DXF or DWG drawing into a new sketch on a plane or flat face of the part (legacy 2D data, laser profiles), with the " +
+                 "drawing's coordinates and unit; coincident ends are merged. Returns the segments by type and their extents (mm, sketch " +
+                 "coordinates); it becomes the last sketch, so feature_extrude uses it.")]
+    public Task<string> SketchImport(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("The .dxf or .dwg file.")] string path,
+        [Description("Plane or flat face (default: the Front plane).")] EntityRef? on = null,
+        [Description("The drawing's unit: mm | cm | m | in | ft.")] string units = "mm",
+        [Description("Document (handle, title or path); default: the target document.")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(new SketchImportService(session).ImportAsync(new SketchImportRequest { Doc = doc, Path = path, On = on, Units = units }, cancellationToken),
+            progress, "sketch_import");
 
     [McpServerTool(Name = "sketch_finish", Title = "Finish sketch", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Closes the open sketch. Returns its segment and relation counts, constrained status and contour status (closed/open " +
