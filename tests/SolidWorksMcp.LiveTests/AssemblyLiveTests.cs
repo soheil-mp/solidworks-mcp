@@ -981,6 +981,25 @@ public class AssemblyLiveTests(LiveFixture fx) : LiveTest(fx)
     }
 
     [Fact]
+    public async Task Review_of_an_assembly_counts_the_floating_component_and_lists_a_suppressed_one()
+    {
+        var cube = await CubeAsync("rv");
+        string asm = await NewAssemblyAsync("rv_asm");
+        await InsertAsync(asm, cube.Path, [0, 0, 0]); // fixed: the first component
+        string free = (await InsertAsync(asm, cube.Path, [0, 50, 0], fixedState: false)).Component.Name;
+        var review = new ReviewService(S);
+        var r = await review.ReviewAsync(asm);
+        Assert.Equal("assembly", r.Type);
+        Assert.Equal(0, r.Errors);
+        Assert.StartsWith("1 component(s) not fully positioned", Assert.Single(r.Issues, i => i.Kind == "component_floating").Message, StringComparison.Ordinal);
+        Assert.Contains(r.Checked, c => c.StartsWith("2 component(s)", StringComparison.Ordinal));
+        await Set(new AsmComponentSetRequest { Doc = asm, Component = free, Suppressed = true });
+        var r2 = await review.ReviewAsync(asm);
+        Assert.Contains(r2.Issues, i => i.Kind == "component_suppressed" && i.Where == free);
+        Assert.DoesNotContain(r2.Issues, i => i.Kind == "component_floating");
+    }
+
+    [Fact]
     public async Task Pack_and_go_is_refused_for_files_in_the_temp_folder_that_it_would_leave_out()
     {
         // This class saves its files under %TEMP%, which Pack and Go skips: the copies would still point at the originals.

@@ -574,6 +574,98 @@ public class ReferenceLiveTests(LiveFixture fx) : LiveTest(fx)
     }
 
     [Fact]
+    public async Task Cost_of_the_machined_block_adds_up_and_a_smaller_lot_costs_more_per_part()
+    {
+        string doc = await BlockWithHoleAsync("cost_block");
+        var cost = new CostService(S);
+        await Fails(ErrorCodes.InvalidArgument, () => cost.CostAsync(doc, null, null)); // no material yet
+        await new PropertiesService(S).MaterialSetAsync(doc, "AISI 1020");
+        var big = await cost.CostAsync(doc, 100, 100);
+        Assert.Equal("machining", big.Method);
+        Assert.True(big.MaterialCost > 0 && big.ManufacturingCost > 0, "positive costs");
+        Assert.Equal(big.MaterialCost + big.ManufacturingCost, big.TotalToManufacture, 1e-3);
+        Assert.Equal((100, 100), (big.LotSize, big.Quantity));
+        Assert.Contains(big.Items, i => i.Name == "Setup");
+        Assert.DoesNotContain(big.Items, i => i.Cost < 0);
+        Assert.Equal(0.936, big.MassKg!.Value, 0.001); // 118 429 mm³ of steel
+        // The setup is spread over fewer parts: each costs more, the material the same.
+        var small = await cost.CostAsync(doc, 10, 100);
+        Assert.Equal(big.MaterialCost, small.MaterialCost, 1e-6);
+        Assert.True(small.TotalToManufacture > big.TotalToManufacture, $"{small.TotalToManufacture} vs {big.TotalToManufacture}");
+    }
+
+    [Fact]
+    public async Task Review_reports_a_broken_shell_a_suppressed_cut_an_under_defined_sketch_and_a_missing_material()
+    {
+        string doc = await BlockWithHoleAsync("review");
+        var review = new ReviewService(S);
+        var clean = await review.ReviewAsync(doc);
+        Assert.Equal("part", clean.Type);
+        Assert.Equal(0, clean.Errors);
+        Assert.Contains(clean.Issues, i => i is { Kind: "no_material", Severity: "warning" });
+        // The block's rectangle has no dimensions: it is under defined.
+        Assert.Contains(clean.Issues, i => i is { Kind: "sketch_under_defined", Where: "Sketch1" });
+        Assert.Contains(clean.Checked, c => c.StartsWith("1 solid and 0 surface bod(ies)", StringComparison.Ordinal));
+
+        await new PropertiesService(S).MaterialSetAsync(doc, "AISI 1020");
+        var fm = new FeatureManagementService(S);
+        await fm.SuppressAsync(doc, ["Cut-Extrude1"], true);
+        string shell = (await new PartFeatureService(S).ShellAsync(new ShellRequest { Doc = doc, RemoveFaces = [Face(30, 20, 10)], ThicknessMm = 2 })).Feature.Name;
+        // A wall thicker than the 20 mm block: the shell fails on rebuild (a fillet would not: SOLIDWORKS lets it overflow).
+        string wall = (await fm.DimensionListAsync(doc, shell)).Dimensions.Single(x => x.Unit == "mm").Name;
+        Assert.Equal((0, 40.0), await TestHooks.SetDimensionRawAsync(S, doc, wall, 40));
+        var broken = await review.ReviewAsync(doc);
+        Assert.True(broken.Errors >= 1, string.Join("; ", broken.Issues.Select(i => $"{i.Severity} {i.Kind} {i.Where}: {i.Message}")));
+        Assert.Equal("error", broken.Issues[0].Severity); // errors first
+        Assert.Contains(broken.Issues, i => i is { Kind: "rebuild_error", Severity: "error" } && i.Where == shell);
+        Assert.Contains(broken.Issues, i => i is { Kind: "suppressed", Where: "Cut-Extrude1" });
+        Assert.DoesNotContain(broken.Issues, i => i.Kind == "no_material");
+    }
+
+    [Fact]
+    public async Task Compare_with_a_saved_copy_finds_nothing_then_the_deeper_block_and_the_new_fillet()
+    {
+        string doc = await BlockWithHoleAsync("compare");
+        string copy = Path.Combine(Path.GetTempPath(), $"swmcp_cmp_{Guid.NewGuid():N}.sldprt");
+        var cmp = new CompareService(S);
+        try
+        {
+            await new DocumentService(S).SaveAsync(doc, "copy", copy, false);
+            var same = await cmp.CompareAsync(doc, copy);
+            Assert.True(same.Same, string.Join("; ", same.Differences));
+            Assert.Equal(120000 - Math.PI * 25 * 20, same.Metrics.Single(m => m.Name == "volumeMm3").This, 1e-2);
+            Assert.DoesNotContain(await TestHooks.OpenTitlesAsync(S),
+                t => t.StartsWith(Path.GetFileNameWithoutExtension(copy), StringComparison.OrdinalIgnoreCase)); // closed again
+
+            await new FeatureManagementService(S).DimensionSetAsync(doc, [new DimensionValue { Name = "D1@Boss-Extrude1", Value = 25 }]);
+            string fillet = (await new FeatureService(S).FilletAsync(doc, [Edge(50, 10, 30)], null, 2, false, null, false)).Feature.Name;
+            var diff = await cmp.CompareAsync(doc, copy);
+            Assert.False(diff.Same);
+            var depth = Assert.Single(diff.Dimensions!);
+            Assert.Equal(("D1@Boss-Extrude1", 25.0, 20.0, "mm"), (depth.Name, depth.This, depth.Other, depth.Unit));
+            Assert.Contains(diff.FeaturesOnlyHere!, f => f.StartsWith(fillet + " (", StringComparison.Ordinal));
+            Assert.Null(diff.FeaturesOnlyThere);
+            // 5 mm more block less 5 mm more hole, less the fillet's corner along the 25 mm edge: (4 − π)·25.
+            Assert.Equal(100 * 60 * 5 - Math.PI * 25 * 5 - (4 - Math.PI) * 25, diff.Metrics.Single(m => m.Name == "volumeMm3").Delta, 1e-2);
+            Assert.Equal(5, diff.Metrics.Single(m => m.Name == "sizeYMm").Delta, L);
+            Assert.Equal(0, diff.Metrics.Single(m => m.Name == "sizeXMm").Delta, L);
+
+            // An open document by its handle: the block without the hole.
+            string plain = await BlockAsync("compare_plain");
+            var open = await cmp.CompareAsync(doc, plain);
+            Assert.Contains(open.FeaturesOnlyHere!, f => f.StartsWith("Cut-Extrude1 (", StringComparison.Ordinal));
+            await Fails(ErrorCodes.InvalidArgument, () => cmp.CompareAsync(doc, doc));
+            await Fails(ErrorCodes.EntityNotFound, () => cmp.CompareAsync(doc, Path.Combine(Path.GetTempPath(), "swmcp_no_such_part.sldprt")));
+            await Fails(ErrorCodes.EntityNotFound, () => cmp.CompareAsync(doc, "NoSuchTitle"));
+        }
+        finally
+        {
+            try { File.Delete(copy); }
+            catch (IOException) { /* best effort */ }
+        }
+    }
+
+    [Fact]
     public async Task Section_of_the_block_and_of_it_with_a_hole_match_the_formulas_and_faces_off_one_plane_are_refused()
     {
         // The block's top face (y = 20), 100 along x by 60 along z: A = 6000 mm², I = b h³/12 about each centroidal axis.

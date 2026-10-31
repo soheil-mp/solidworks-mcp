@@ -660,6 +660,20 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   π·d⁴/64. Two parallel faces at different levels come back with moments that don't add up: refuse them. Section moduli
   aren't returned: I over the farthest tessellation vertex from each principal axis gave b·h²/6.
 
+- **Costing** (VERIFIED 2026-10-31; `SolidWorks.Interop.sldcostingapi`). `IModelDocExtension.GetCostingManager()` →
+  `CostManager` (call `WaitForUIUpdate()`), `CostingModel` is a `CostPart`; `GetBodies()` gives `CostBody` objects whose
+  `GetBodyType()` says machined, sheet metal or structural. The part needs a common analysis
+  (`CostPart.CreateCostAnalysis(<common template>)`) and each body its own (`CostBody.CreateCostAnalysis(<machining
+  template>)`); `GetTemplatePathnames(swcCostingType_e)` lists the installed templates (metric and imperial). The part's
+  `CostAnalysis` then reads `GetMaterialCost`, `GetManufacturingCost`, `GetSetupCost`, `GetTotalCostToManufacture` (=
+  material + manufacturing) and `GetTotalCostToCharge`; `LotSize` and `TotalQuantity` are writable. The 100 × 20 × 60 steel
+  block with a Ø10 hole: material 2.91 + manufacturing 3.07 = 5.98 USD at lot 100; at lot 10 the setup is spread over fewer
+  parts and it costs more. Cost items (`GetFirstCostFeature` / `GetNextFeature`) read -1 for "no cost".
+- **Design review** (VERIFIED 2026-10-31). `IFeature.GetErrorCode2(out warning)` flags rebuild errors;
+  `ISketch.GetConstrainedStatus()` (swConstrainedStatus_e: 2 under, 3 fully, 4 over, 5/6 no or invalid solution) the sketch
+  state; `IComponent2.GetConstrainedStatus()` floating components. Walking the tree with sub-features meets an absorbed
+  sketch twice (in the tree and under its feature). SOLIDWORKS lets a fillet overflow its faces (r200 on a 60 mm face
+  rebuilds without an error); a shell thicker than the part fails.
 - **Measure with arcs/circles** (VERIFIED). `IMeasure.Distance` follows `ArcOption`, default 0 = center: a hole's top circle
   to the Top Plane under it read 20.62 (center to the hole's bottom circle on that plane), 1 = minimum gave the true 20,
   2 = maximum 22.36. Set `ArcOption = 1` before `Calculate` for "the distance".

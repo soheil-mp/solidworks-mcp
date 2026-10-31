@@ -33,6 +33,24 @@ internal static class TestHooks
             return 0;
         });
 
+    /// <summary>
+    /// Sets a length dimension (mm) and rebuilds, without dimension_set's checks: a broken model on purpose. Returns
+    /// SetSystemValue3's status (swSetValueReturnStatus_e) and the value read back (mm).
+    /// </summary>
+    public static Task<(int Status, double Mm)> SetDimensionRawAsync(SwSession s, string doc, string name, double mm) =>
+        s.RunAsync("test_set_dimension_raw", ctx =>
+        {
+            var dim = (object?)ctx.Doc.Parameter(name) as SolidWorks.Interop.sldworks.IDimension
+                      ?? throw new SwException(ErrorCodes.EntityNotFound, $"No dimension '{name}'.");
+            int status = dim.SetSystemValue3(mm / 1000, (int)swSetValueInConfiguration_e.swSetValue_InThisConfiguration, ComArgs.Empty);
+            using (var prefs = ctx.SystemPrefs())
+            {
+                prefs.Toggle(SystemPrefIds.ShowErrorsEveryRebuild, false);
+                ctx.Doc.EditRebuild3();
+            }
+            return (status, dim.SystemValue * 1000);
+        }, RunOptions.Write(doc));
+
     /// <summary>The titles of all open documents.</summary>
     public static Task<List<string>> OpenTitlesAsync(SwSession s) =>
         s.RunAsync("test_titles", ctx => ctx.App.Documents().Select(ctx.Title).ToList());

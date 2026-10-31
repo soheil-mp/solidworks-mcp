@@ -55,6 +55,27 @@ public sealed class MeasureTools(SwSession session)
         CancellationToken cancellationToken = default) =>
         Output.Json(_svc.CheckAsync(doc, body, cancellationToken), progress, "model_check");
 
+    [McpServerTool(Name = "model_review", Title = "Design review", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("Health report of a part or assembly in one call, errors first: features with rebuild errors or warnings, over- and " +
+                 "under-defined sketches, suppressed features, a pending rebuild; parts: no material, faulty geometry, several bodies; " +
+                 "assemblies: missing, unloaded or suppressed components, floating ones and mate errors. Read-only.")]
+    public Task<string> ModelReview(
+        IProgress<ProgressNotificationValue> progress,
+        [Description(DocDescription)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(new ReviewService(session).ReviewAsync(doc, cancellationToken), progress, "model_review");
+
+    [McpServerTool(Name = "model_compare", Title = "Compare revisions", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("Compares two revisions of a part or assembly: volume, area, mass and size (this − other), the features only one of " +
+                 "them has (name and type) and every dimension whose value differs. 'other' is an open document (handle, title, path) " +
+                 "or a file, which is opened read-only and closed again. same=true when nothing differs.")]
+    public Task<string> ModelCompare(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("The document to compare with: handle, title or path of an open one, or a file path.")] string other,
+        [Description(DocDescription)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(new CompareService(session).CompareAsync(doc, other, cancellationToken), progress, "model_compare");
+
     [McpServerTool(Name = "model_section", Title = "Section properties", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Section properties of flat faces in one plane (a member's end face is its cross-section): area, centroid, the principal " +
                  "second moments of area with their axes, section moduli (I / farthest fibre), radii of gyration and the polar moment, all " +
@@ -65,6 +86,18 @@ public sealed class MeasureTools(SwSession session)
         [Description(DocDescription)] string? doc = null,
         CancellationToken cancellationToken = default) =>
         Output.Json(new SectionService(session).SectionAsync(doc, faces, cancellationToken), progress, "model_section");
+
+    [McpServerTool(Name = "model_cost", Title = "Cost estimate", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("SOLIDWORKS Costing estimate of a single-body part (machined, sheet metal or structural, by how Costing sees the body, " +
+                 "with its first template): material, manufacturing and setup cost, the totals to manufacture and to charge, lot size, " +
+                 "quantity and the cost items. Needs a material. Verified: the costs are positive and add up.")]
+    public Task<string> ModelCost(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("Lot size (parts per setup).")] int? lotSize = null,
+        [Description("Total quantity.")] int? quantity = null,
+        [Description(DocDescription)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(new CostService(session).CostAsync(doc, lotSize, quantity, cancellationToken), progress, "model_cost");
 
     [McpServerTool(Name = "model_cut_list", Title = "Cut list", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Cut list of a weldment or sheet-metal part, for fabrication: each item (identical bodies) with its quantity, type and " +

@@ -744,7 +744,7 @@ contacts and bolt/pin connectors join the Tier 2 backlog)
   error code of `CreateNewStudy3` for each type first, and refuse with NOT_SUPPORTED where a type isn't licensed. (The
   probe of 2026-10-24 was cut short by a SolidWorks crash, see Infrastructure below.)
 
-**WP6 · Engineering numbers and design reuse** (S–M each, ⏳; ✅ 2026-10-31: `model_section`, `doc_pack`, `material_add`)
+**WP6 · Engineering numbers and design reuse** (S–M each, ✅ 2026-10-31)
 - Scope:
   - section properties of a face or a planar section (area, centroid, second moments, section moduli);
   - cost estimates (machining, sheet metal, plastic, casting, 3D printing: material, manufacturing, setup and total, per
@@ -763,6 +763,11 @@ contacts and bolt/pin connectors join the Tier 2 backlog)
   `ICompareFeature`, `ICompareDocument`).
 - Oracle: a rectangle's and a tube's section against b·h³/12 and π(D⁴ − d⁴)/64; costs positive, material ≈ mass ×
   the template's price; Pack and Go copies open with references to the copies only; a compare finds a known change.
+- Done: `model_section`, `doc_pack`, `material_add`, `model_cost` (machining, sheet metal or structural, as Costing sees the
+  body; the costs add up and a smaller lot costs more per part), `model_review` (a broken shell, a suppressed cut, an
+  under-defined sketch, a missing material, a floating and a suppressed component), `model_compare` (a saved copy: same;
+  then the changed depth, the new fillet and the exact volume change). The SOLIDWORKS Utilities compare API wasn't needed:
+  the measures, the feature tree and the dimensions are read from both documents directly.
 
 **WP7 · Standard hardware** (S probe, then L; ⏳)
 - Scope: ISO screws, nuts, washers, pins and bearings in assemblies, fastened into holes (concentric and coincident

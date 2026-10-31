@@ -170,6 +170,13 @@ legsMm:[50,50]}` and `{kind:"bead", faces:[…], faces2:[…], sizeMm:4}` (a wel
    `drw_sheet_add {size:"a4"}` (it becomes current); `drw_sheet_setup {sheet:"Sheet1"}` goes back.
 6. `model_export {path:"bracket.pdf"}` (or .dwg/.dxf).
 
+**Checking a model.** `model_review {}` lists what's wrong in one call, errors first: features with rebuild errors,
+over- or under-defined sketches, suppressed features, a missing material, faulty geometry; in assemblies also missing or
+suppressed components, floating ones and mate errors. Run it before handing a model over. `model_compare {other:"bracket_rev1.sldprt"}`
+compares with another revision (an open document or a file, opened read-only): volume, area, mass and size differences,
+the features only one has and every changed dimension. `model_cost {lotSize:50}` gives a SOLIDWORKS Costing estimate of a
+single-body part with a material (material, manufacturing, setup and totals in the template's currency).
+
 **Materials.** `material_set {name:"6061 Alloy"}` (material_list shows the installed ones). A material that isn't installed (a
 supplier's grade): `material_add {name:"S355J2", densityKgM3:7850, elasticModulusGpa:210, poissonRatio:0.3, yieldMpa:355,
 tensileMpa:510}`, then `material_set {name:"S355J2", database:"solidworks-mcp"}`; simulations use its values.

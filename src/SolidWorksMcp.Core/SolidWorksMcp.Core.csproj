@@ -23,6 +23,10 @@
       <HintPath>$(SolidWorksInteropDir)SolidWorks.Interop.cosworks.dll</HintPath>
       <EmbedInteropTypes>true</EmbedInteropTypes>
     </Reference>
+    <Reference Include="SolidWorks.Interop.sldcostingapi">
+      <HintPath>$(SolidWorksInteropDir)SolidWorks.Interop.sldcostingapi.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+    </Reference>
   </ItemGroup>
 
   <!-- With embedded interop types the compiler imports every VARIANT as 'dynamic', which would silently turn typed
