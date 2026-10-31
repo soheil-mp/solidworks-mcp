@@ -147,7 +147,14 @@ legsMm:[50,50]}` and `{kind:"bead", faces:[…], faces2:[…], sizeMm:4}` (a wel
    but shows the assembly assembled again.
 7. Bill of materials without a drawing: `asm_bom {levels:"parts", path:"bom.csv"}` (`top`, `parts` with quantities through
    subassemblies, or `indented`; part numbers from the PartNo / Part Number property, else the file name).
-8. Screws: `asm_fastener {size:"M5", holes:[[20,10,0],[-20,10,0]], washer:true, nut:true}` puts an ISO 4762 socket head
+8. Top-down: `asm_part_new {name:"cover", face:{at:[10,10,5]}, depthMm:3}` makes a new part in context: the face's outline
+   (holes too) extruded 3 mm away from it (`reverse:true` into it), and it follows the face when that part changes.
+   Without a face, `asm_part_new {name:"bracket"}` adds an empty part fixed at the assembly origin and makes it the
+   target document: sketch and extrude in it with assembly coordinates, then `doc_rebuild` the assembly. A multibody
+   master becomes parts with `body_save {assembly:"frame_asm", names:["base","lid"]}` (names follow the bodies' name
+   order); `part_derive {kind:"mirror", plane:{name:"right"}}` makes the left-hand part, `{kind:"insert",
+   path:"casting.sldprt"}` a machined part from a casting.
+9. Screws: `asm_fastener {size:"M5", holes:[[20,10,0],[-20,10,0]], washer:true, nut:true}` puts an ISO 4762 socket head
    screw (`standard:"ISO 4017"` for hex head) in each hole, with washers and a nut on the far side, mated concentric and
    seated. Each point is the hole's centre on the face the head sits on (in a counterbore, its floor). With a nut,
    `lengthMm` can be left out (the shortest standard screw standing two threads past it); blind holes report the tip

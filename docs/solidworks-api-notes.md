@@ -360,6 +360,22 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   `ModifyDefinition`) moves the plate to the + side (y −2..0 → 0..2 mm).
 
 ## 8. Assembly
+- **In-context parts** (VERIFIED 2026-10-31). `IAssemblyDoc.InsertNewPart2(path, face)` returns 1 on success and leaves the
+  assembly editing the new part (`GetEditTargetComponent`) with its Front plane on the face; open a sketch on the face
+  if none is active. `SketchUseEdge3(chain, innerLoops)` with the face selected converts its outer loop only
+  (innerLoops false) or its inner loops only (true): select every edge of the face instead and call it with
+  (false, false). `FeatureExtrusion3` then works on the edited part; `EditAssembly` returns. The part follows the face:
+  a cover on a box moved from y 10 to 15 when the box grew. New parts made from the default template take its units
+  (here CGS): set the part's unit system before saving.
+- **Save Bodies** (VERIFIED). `IFeatureManager.CreateSaveBodyFeature(bodies, paths, assemblyPath, false, true)` writes the
+  parts (and the assembly) at once and leaves them open. When the default template's units differ from the part's, it
+  asks "The template used for making the derived part has different units of measurement than that of the base part"
+  (a task dialog, its text readable only through UI Automation) for each part: giving the master the template's units
+  for the call avoids it, and the new parts get the master's units after. Afterwards the master's bodies are named
+  "Save Bodies1[1]", "[2]"; the order of `IPartDoc.GetBodies2` changes between rebuilds.
+- **Derived parts** (VERIFIED). `IPartDoc.InsertPart3(path, ImportSolids | ImportSurfaces | ImportMaterial, "")` adds the
+  part's bodies at the origin as separate bodies. `IPartDoc.MirrorPart2(breakLink, ImportSolids, out result)` with a
+  plane selected opens a new, unsaved part: the mirror of a block at x 0..40 about the Right plane lies at x -40..0.
 - **Standard parts without Toolbox** (VERIFIED 2026-10-31). The Toolbox masters under `C:\SOLIDWORKS Data\browser\<standard>`
   are read-only files that the Toolbox add-in sizes from `swbrowser.sldedb` when it inserts them; there is no insertion API.
   Parts built with ordinary features from the ISO tables work in every edition: a screw on the Top plane with its head

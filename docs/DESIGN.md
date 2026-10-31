@@ -792,7 +792,7 @@ contacts and bolt/pin connectors join the Tier 2 backlog)
   interference, BOM 2 / 4 / 2), a screw in a blind tapped hole (3 mm tip clearance) and refused requests that change
   nothing.
 
-**WP8 · Top-down assembly design** (M–L, ⏳)
+**WP8 · Top-down assembly design** (M–L, ✅ 2026-10-31)
 - Scope: a new part designed in the assembly's context (a sketch on a component's face, references to other
   components); editing a part in place; a multibody part saved as parts or as an assembly; derived (inserted) and
   mirrored parts.
@@ -802,6 +802,14 @@ contacts and bolt/pin connectors join the Tier 2 backlog)
   (`ISaveBodyFeatureData`), `IPartDoc.InsertPart3`, `IPartDoc.MirrorPart2`.
 - Oracle: the new geometry, in assembly space, meets the referenced faces; its external references are listed; the
   saved bodies keep their volumes.
+- Done: `asm_part_new` (without a face: a new part file fixed at the assembly origin and open, so the part tools model it
+  in assembly coordinates; with a face: `InsertNewPart2`, the face's loops converted and extruded while the part is
+  edited in place, then `EditAssembly`), `body_save` (`CreateSaveBodyFeature`, optional assembly, file names from the
+  bodies or `names`), `part_derive` (`InsertPart3`; `MirrorPart2` into a saved, open new part). A separate
+  `asm_part_edit` wasn't needed: a component's part opens with `doc_open` and the assembly follows on rebuild. Live: an
+  in-context cover with the box's hole follows the box's top face from 10 to 15 mm; an empty part lands in assembly
+  coordinates; two bodies saved as parts and an assembly (volumes, MMGS units); a mirror reflects the box and the
+  centre of mass; an inserted part adds its volume.
 
 **WP9 · Everyday modelling gaps** (S–M each, ⏳)
 - Scope: DXF/DWG into a sketch (legacy 2D data); sketch text (engraving, part marks); split lines (load regions,
