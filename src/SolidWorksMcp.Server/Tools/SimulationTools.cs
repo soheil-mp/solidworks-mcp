@@ -34,16 +34,22 @@ public sealed class SimulationTools(SwSession session)
         [Description("Global element size in mm (default: SOLIDWORKS' default for the part).")] double? meshSizeMm = null,
         [Description("Keep the study and its results in the document (sim_delete removes it later).")] bool keepStudy = false,
         [Description("Study name (default \"MCP Static xxxx\").")] string? studyName = null,
+        [Description("Local contacts: [{kind:'no_penetration'|'bonded'|'free', source:[faces], target:[faces of another body]}] (default: touching bodies bonded).")]
+        SimContact[]? contacts = null,
+        [Description("Solve on 3 meshes, each element 1/1.5 the size, and report how max displacement and stress change.")] bool convergence = false,
+        [Description("Use the nonlinear static solver (large displacements; slower).")] bool nonlinear = false,
         [Description(DocArg)] string? doc = null,
         CancellationToken cancellationToken = default)
     {
         var heartbeat = progress is null ? null : new PhaseProgress(progress);
-        var task = _svc.StaticAsync(new SimStaticRequest
+        var q = new SimStaticRequest
         {
             Doc = doc, FixedFaces = fixedFaces, Fixtures = fixtures, Loads = loads, Material = material, MeshSizeMm = meshSizeMm, KeepStudy = keepStudy,
-            StudyName = studyName,
-        }, heartbeat is null ? null : heartbeat.Set, cancellationToken);
-        return Output.Json(task, heartbeat, "sim_static");
+            StudyName = studyName, Contacts = contacts, Nonlinear = nonlinear,
+        };
+        return convergence
+            ? Output.Json(_svc.ConvergenceAsync(q, 3, heartbeat is null ? null : heartbeat.Set, cancellationToken), heartbeat, "sim_static")
+            : Output.Json(_svc.StaticAsync(q, heartbeat is null ? null : heartbeat.Set, cancellationToken), heartbeat, "sim_static");
     }
 
     [McpServerTool(Name = "sim_run", Title = "Frequency, buckling or thermal analysis (FEA)", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]

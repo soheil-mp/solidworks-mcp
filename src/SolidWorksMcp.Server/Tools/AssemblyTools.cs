@@ -220,4 +220,18 @@ public sealed class AssemblyTools(SwSession session)
         Output.Json(_svc.ExplodeAsync(new AsmExplodeRequest { Doc = doc, Steps = steps, Collapse = collapse }, cancellationToken), progress, "asm_explode");
 
     private static async Task<string> Json<T>(Task<T> task) where T : ToolResult => ResultJson.Serialize(await task.ConfigureAwait(false));
+
+    [McpServerTool(Name = "asm_structure", Title = "Form or dissolve subassembly", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Restructures an assembly. form: moves top-level components into a new subassembly (virtual, or saved with saveTo). " +
+                 "dissolve: moves a subassembly's components up and removes it. Verified: the components are where expected and every " +
+                 "part's quantity in the tree is unchanged.")]
+    public Task<string> AsmStructure(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("form | dissolve")] string kind,
+        [Description("form: the components, e.g. ['bolt-1','nut-1']; dissolve: the subassembly.")] string[] components,
+        [Description("form: save the new subassembly to this .sldasm.")] string? saveTo = null,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_svc.StructureAsync(new AsmStructureRequest { Doc = doc, Kind = kind, Components = components, SaveTo = saveTo }, cancellationToken),
+            progress, "asm_structure");
 }

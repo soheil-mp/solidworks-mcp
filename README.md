@@ -4,7 +4,7 @@
 # solidworks-mcp
 
 An MCP server that lets AI agents (Claude Code, Claude Desktop and other MCP clients) drive a running SOLIDWORKS.
-With its 154 tools, agents can sketch and model parts (extrudes, revolves, sweeps, lofts, holes, patterns, shells,
+With its 161 tools, agents can sketch and model parts (extrudes, revolves, sweeps, lofts, holes, patterns, shells,
 surfaces, sheet metal, weldment frames), edit imported bodies directly (delete, offset and move faces), build assemblies with mates (also limit, symmetric, width, hinge, gear and rack mates) and component patterns, make drawings with views, dimensions, GD&T, balloons and tables, import and export
 (STEP, IGES, STL, Parasolid, PDF, DXF …), run static stress studies, and inspect, measure and screenshot the result. It
 is written in C# against SolidWorks' official COM API.
@@ -96,30 +96,30 @@ Integrity event 3077). When the exe is blocked, `tools\install.ps1` registers th
 again: it publishes a new binary, which gets a new verdict. Signed releases will avoid this.
 
 ## Tools
-154 tools in 15 toolsets. The full, current list with parameters is in [`docs/tools.md`](docs/tools.md), generated from
+161 tools in 15 toolsets. The full, current list with parameters is in [`docs/tools.md`](docs/tools.md), generated from
 the server.
 
 | Toolset | Tools |
 |---|---|
 | session (5) | `sw_status`, `sw_connect`, `sw_help`, `dialog_list`, `dialog_respond` |
 | documents (10) | `doc_new` (part, assembly, drawing), `doc_open` (also imports STEP/IGES/Parasolid/STL), `doc_save`, `doc_close`, `doc_activate`, `doc_list`, `doc_rebuild`, `doc_undo`, `doc_units_set`, `doc_pack` (Pack and Go) |
-| inspect (15) | `model_info`, `feature_list`, `face_list`, `edge_list`, `vertex_list`, `body_list`, `model_measure`, `model_mass`, `model_section` (section properties), `model_check`, `model_review` (health report), `model_compare` (two revisions), `model_cost` (Costing estimate), `model_cut_list` (weldment and sheet-metal cut lists), `view_screenshot` |
+| inspect (15) | `model_info`, `feature_list`, `face_list`, `edge_list`, `vertex_list`, `body_list`, `model_measure`, `model_mass`, `model_section` (section properties), `model_check` (also draft, undercut and wall thickness), `model_review` (health report), `model_compare` (two revisions), `model_cost` (Costing estimate), `model_cut_list` (weldment and sheet-metal cut lists), `view_screenshot` |
 | sketch (18) | `sketch_start`, `sketch_add` (lines, arcs, circles, rectangles, slots, polygons, ellipses, splines, points, text), `sketch_import` (DXF/DWG), `sketch_finish`, `sketch_edit`, `sketch_info`, dimensions, relations, trim, extend, offset, fillet, chamfer, pattern, mirror, convert, construction, delete |
-| features (27) | extrude, revolve, sweep, loft, fillets (constant, variable, face, full round), chamfer, shell, Hole Wizard holes, draft, rib, helix, cosmetic and modelled threads, split lines, linear/circular/curve-driven/fill patterns, mirror; feature info, delete, suppress, rename, rollback; dimension list/set, tolerances and fits |
-| reference (4) | `ref_plane`, `ref_axis`, `ref_point`, `ref_coordsys` |
-| bodies (13) | move/copy, delete, combine, split; direct face edits (`face_edit`: delete and heal, offset, move); surfaces: extrude, revolve, planar, offset, knit, thicken; bodies saved as parts (with an assembly), derived and mirrored parts |
+| features (30) | extrude, revolve, sweep, loft, fillets (constant, variable, face, full round), chamfer, shell, Hole Wizard holes, draft, rib, helix, cosmetic and modelled threads, split lines, linear/circular/curve-driven/fill patterns, mirror; feature info, delete, suppress, rename, rollback; dimension list/set, tolerances and fits; wrap, dome, indent; mold core and cavity (`mold_split`); feature recognition on imported bodies (`feature_recognize`) |
+| reference (5) | `ref_plane`, `ref_axis`, `ref_point`, `ref_coordsys`, `ref_curve` (projected, composite, XYZ curves) |
+| bodies (15) | move/copy, delete, combine, split; direct face edits (`face_edit`: delete and heal, offset, move); surfaces: extrude, revolve, planar, offset, knit, thicken, fill, trim/extend/untrim; bodies saved as parts (with an assembly), derived and mirrored parts |
 | sheetmetal (7) | base flange, edge flange, miter flange (around corners, closed trays), hem (closed, open, teardrop, rolled), sketched bend, flatten, flat-pattern DXF/DWG |
 | weldments (2) | `weldment_member`: structural members (tube, pipe, channel, angle, beam profiles) along 2D or 3D sketch lines, mitered or butt corners; `weldment_finish`: trim/extend, end caps, gussets, weld beads |
-| assembly (14) | new parts in an assembly (in its frame, or in context of a face), insert, mates (standard, limit, symmetric, width, hinge, gear, rack and pinion), mate list, component list/set/move, interference, replace, linear/circular patterns and mirror of components (also as new opposite-hand parts), exploded views, bill of materials as data or CSV, ISO standard parts (screws, nuts, washers, dowel pins, bearings) and screws fastened into holes with washers and nuts |
+| assembly (15) | new parts in an assembly (in its frame, or in context of a face), insert, mates (standard, limit, symmetric, width, hinge, gear, rack and pinion), mate list, component list/set/move, interference, replace, linear/circular patterns and mirror of components (also as new opposite-hand parts), exploded views, bill of materials as data or CSV, ISO standard parts (screws, nuts, washers, dowel pins, bearings) and screws fastened into holes with washers and nuts; subassemblies formed and dissolved (`asm_structure`) |
 | drawing (16) | sheets (setup, more sheets), standard/projected/section/detail/auxiliary/flat-pattern views, broken views and broken-out sections, model dimensions, dimensions, hole callouts, notes, BOM, center marks, datums, surface finish, tolerance frames, weld symbols, balloons, hole, cut-list and revision tables, info |
 | export (2) | `model_export`: STEP (AP203/214/242), IGES, Parasolid, STL, 3MF, images, eDrawings; PDF/DWG/DXF from drawings. `model_export_all`: a release package (a STEP per model, a PDF per drawing, a flat DXF per sheet-metal part, the BOM) |
 | properties (15) | materials (also custom ones), custom properties, equations, configurations (also design-table style tables and display states), appearance |
-| simulation (5) | `sim_static` (parts and assemblies; fixed, roller, symmetry and hinge fixtures; pressure, force and gravity loads; mesh, von Mises, displacement, safety factor, reactions), `sim_run` (natural frequencies, buckling load factors, steady-state thermal), `sim_plot` (result plots as images), `sim_list`, `sim_delete` |
+| simulation (5) | `sim_static` (parts and assemblies; local contacts; mesh convergence; nonlinear; fixed, roller, symmetry and hinge fixtures; pressure, force and gravity loads; mesh, von Mises, displacement, safety factor, reactions), `sim_run` (natural frequencies, buckling load factors, steady-state thermal), `sim_plot` (result plots as images), `sim_list`, `sim_delete` |
 | automation (1) | `vba_run` (off by default) |
 
 ### Live test status
 Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check the result against an exact answer
-(volumes, positions, angles, file headers, restored system options). All 405 pass:
+(volumes, positions, angles, file headers, restored system options). All 425 pass:
 
 | Area | Live tests |
 |---|---|
@@ -141,6 +141,9 @@ Every area has live tests that drive a real SOLIDWORKS (2025 SP1.2) and check th
 | Top-down design (in-context parts that follow their face, parts in the assembly's frame, saved bodies, derived and mirrored parts) | 4 |
 | Everyday modelling (engraved text, DXF import, split lines, variable/face/full-round fillets, curve and fill patterns, modelled threads) | 9 |
 | Configuration families (tables of sizes with their own volumes, component configurations and suppression, undo on failure, display states) | 4 |
+| Surfaces, curves and shape features (fills, trims, extends, untrims; projected, composite and XYZ curves; wraps, domes, indents) | 8 |
+| Moldability and molds (draft, undercuts, wall thickness; cavity and core split with shrinkage) | 4 |
+| Section views, subassemblies and SpeedPak, contacts, mesh convergence and nonlinear statics, feature recognition, templates | 8 |
 
 The golden scenarios in `tools/mcp_smoke.py` (drawing, plate, enclosure, edit, assembly, sheet metal) run through the
 real MCP protocol within their call budgets, each with an exact oracle (volumes, interference, inserted dimensions, a
@@ -158,7 +161,8 @@ PDF, a flat blank and its DXF).
   `NOT_SUPPORTED` instead of passing the file off as AP242.
 - **Tapped holes** are made as their tap-drill holes, without thread geometry, unless `SWMCP_EXPERIMENTAL=1`.
 - **Not available:** screw mates (SOLIDWORKS 2025 ignores their pitch set through the API, so `asm_mate_add` refuses
-  them) and sheet-metal jogs. Gear mates read their ratio back reversed; the tool accepts and reports that.
+  them), sheet-metal jogs, motion studies (their results can't be read back reliably through the API), photorealistic
+  renders (PhotoView 360 is gone from SOLIDWORKS 2025) and flex features. Gear mates read their ratio back reversed; the tool accepts and reports that.
 
 A typical modelling loop:
 

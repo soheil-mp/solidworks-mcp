@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using SolidWorksMcp.Core;
@@ -26,10 +27,14 @@ public sealed class ViewTools(SwSession session)
         [Description("Longest image edge in pixels (64-2048).")] int maxSizePx = 1024,
         [Description("Also save the PNG to this file (relative paths go under Documents\\solidworks-mcp).")] string? file = null,
         [Description("Replace an existing file.")] bool overwrite = false,
+        [Description("Cut a 3D section for the image: a plane or planar face, e.g. {name:'front'} (removed afterwards).")] EntityRef? section = null,
+        [Description("Section: offset from the plane, mm.")] double sectionOffsetMm = 0,
+        [Description("Section: keep the other side.")] bool sectionReverse = false,
         [Description("Document (handle, title or path); default: the target document.")] string? doc = null,
         CancellationToken cancellationToken = default)
     {
-        var r = await _svc.ScreenshotAsync(doc, view, zoomToFit, displayMode, hidePlanes, hideSketches, maxSizePx, file, overwrite, cancellationToken);
+        var r = await _svc.ScreenshotAsync(doc, view, zoomToFit, displayMode, hidePlanes, hideSketches, maxSizePx, file, overwrite,
+            section, sectionOffsetMm, sectionReverse, cancellationToken);
         return new CallToolResult
         {
             Content =

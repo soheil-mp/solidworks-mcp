@@ -276,7 +276,8 @@ public sealed partial class SimulationService(SwSession session)
     private SimStaticResult Static(SwContext ctx, SimStaticRequest q, IReadOnlyList<SimLoadSpec> loads, string study, string? material,
         Action<string>? phase)
     {
-        var r = Execute(ctx, q, loads, study, material, phase, swsAnalysisStudyType_e.swsAnalysisStudyTypeStatic,
+        var r = Execute(ctx, q, loads, study, material, phase,
+            q.Nonlinear ? swsAnalysisStudyType_e.swsAnalysisStudyTypeNonlinear : swsAnalysisStudyType_e.swsAnalysisStudyTypeStatic,
             (s, inputs, checks, total) => Run(ctx, s, inputs, loads, q.MeshSizeMm, checks, phase, total));
         var o = r.Outcome;
         return new SimStaticResult
@@ -307,7 +308,7 @@ public sealed partial class SimulationService(SwSession session)
 
     /// <summary>The geometry a study runs on, resolved before anything changes.</summary>
     private sealed record Inputs(List<(SimFixtureSpec Spec, List<Resolved> Faces)> Fixtures, List<List<Resolved>> LoadFaces, Vec3? LoadResultant,
-        double[]? Box, bool SeveralBodies = false)
+        double[]? Box, bool SeveralBodies = false, List<(string Kind, int Type, List<Resolved> Source, List<Resolved> Target)>? Contacts = null)
     {
         public int FixtureFaces => Fixtures.Sum(f => f.Faces.Count);
     }
@@ -357,7 +358,23 @@ public sealed partial class SimulationService(SwSession session)
         var loadFaces = loads.Select(l => l.Kind == SimLoadKind.Gravity ? [] : EntityResolver.ResolveAll(ctx, d, l.Faces, $"{l.Arg}.faces", EntityKind.Face)).ToList();
         var resolved = fixtures.SelectMany(f => f.Faces.Select(r => r.Info(f.f.Arg)))
             .Concat(loads.SelectMany((l, i) => loadFaces[i].Select(r => r.Info($"{l.Arg}.faces")))).ToList();
-        var inputs = new Inputs(fixtures, loadFaces, LoadResultant(loads, loadFaces), box, solids.Count > 1);
+        var contacts = (q.Contacts ?? []).Select((c, i) =>
+        {
+            string kind = (c?.Kind ?? "").Trim().ToLowerInvariant();
+            int t = kind switch
+            {
+                "no_penetration" => (int)swsContactSetTypeStaticNonLinear_e.swsContactSetTypeStaticNonLinearNoPenetration,
+                "bonded" => (int)swsContactSetTypeStaticNonLinear_e.swsContactSetTypeStaticNonLinearBonded,
+                "free" => (int)swsContactSetTypeStaticNonLinear_e.swsContactSetTypeStaticNonLinearFree,
+                _ => throw SwException.InvalidArgument($"contacts[{i}].kind must be no_penetration, bonded or free (got '{c?.Kind}')."),
+            };
+            if (type is not (swsAnalysisStudyType_e.swsAnalysisStudyTypeStatic or swsAnalysisStudyType_e.swsAnalysisStudyTypeNonlinear))
+                throw SwException.InvalidArgument("contacts are for static studies (sim_static).");
+            return (kind, t, EntityResolver.ResolveAll(ctx, d, c!.Source, $"contacts[{i}].source", EntityKind.Face),
+                EntityResolver.ResolveAll(ctx, d, c.Target, $"contacts[{i}].target", EntityKind.Face));
+        }).ToList();
+        if (contacts.Count > 0 && solids.Count < 2) throw SwException.InvalidArgument("contacts need at least two solid bodies (an assembly or a multibody part).");
+        var inputs = new Inputs(fixtures, loadFaces, LoadResultant(loads, loadFaces), box, solids.Count > 1, contacts);
         var checks = new List<string>();
 
         // The material must be explicit: the given one (through material_set's checked logic), else the part's own; an
@@ -467,25 +484,37 @@ public sealed partial class SimulationService(SwSession session)
     {
         var solved = Solve(ctx, s, inputs, loads, meshSizeMm, checks, phase, total, null);
         var res = s.Results ?? throw new SwException(ErrorCodes.VerifyFailed, "The solver reported success but the study has no results.");
-        var vm = SimulationMath.Range(res.StressRange((int)swsStressComponent_e.swsStressComponentVON, NPerMm2, out int vmErr));
+        // A nonlinear study ramps its load over solution steps: its results are the last step's (the ranges give step 1, VERIFIED).
+        bool nonlinear = s.AnalysisType == (int)swsAnalysisStudyType_e.swsAnalysisStudyTypeNonlinear;
+        int step = nonlinear ? Math.Max(1, res.GetMaximumAvailableSteps()) : 1;
+        int vmErr, uErr;
+        var vm = nonlinear
+            ? SimulationMath.Range(ComArgs.Doubles((object?)res.GetMinMaxStress((int)swsStressComponent_e.swsStressComponentVON, 0, step, null, NPerMm2, out vmErr)))
+            : SimulationMath.Range(res.StressRange((int)swsStressComponent_e.swsStressComponentVON, NPerMm2, out vmErr));
         if (vm is null || vmErr != 0)
             throw new SwException(ErrorCodes.VerifyFailed, $"The von Mises stresses could not be read ({Name<swsResultsError_e>(vmErr)}).");
-        var ures = SimulationMath.Range(res.DisplacementRange((int)swsDisplacementComponent_e.swsDisplacementComponentURES, Mm, out int uErr));
+        var ures = nonlinear
+            ? SimulationMath.Range(ComArgs.Doubles((object?)res.GetMinMaxDisplacement((int)swsDisplacementComponent_e.swsDisplacementComponentURES, step, null, Mm, out uErr)))
+            : SimulationMath.Range(res.DisplacementRange((int)swsDisplacementComponent_e.swsDisplacementComponentURES, Mm, out uErr));
         if (ures is null || uErr != 0)
             throw new SwException(ErrorCodes.VerifyFailed, $"The displacements could not be read ({Name<swsResultsError_e>(uErr)}).");
         if (vm.Max < 0 || vm.Min < -1e-9 || vm.Max < vm.Min || ures.Max < 0 || ures.Max < ures.Min)
             throw new SwException(ErrorCodes.VerifyFailed,
                 $"The results are inconsistent: von Mises {SimulationMath.F(vm.Min)}..{SimulationMath.F(vm.Max)} MPa, URES {SimulationMath.F(ures.Min)}..{SimulationMath.F(ures.Max)} mm.");
-        checks.Add("von Mises stress and resultant displacement read");
+        checks.Add(nonlinear
+            ? $"von Mises stress and resultant displacement read at the nonlinear solver's last step ({step})"
+            : "von Mises stress and resultant displacement read");
 
         var comps = new SimDisplacementRanges
         {
-            Ux = Component(res, swsDisplacementComponent_e.swsDisplacementComponentUX),
-            Uy = Component(res, swsDisplacementComponent_e.swsDisplacementComponentUY),
-            Uz = Component(res, swsDisplacementComponent_e.swsDisplacementComponentUZ),
+            Ux = Component(res, swsDisplacementComponent_e.swsDisplacementComponentUX, step, nonlinear),
+            Uy = Component(res, swsDisplacementComponent_e.swsDisplacementComponentUY, step, nonlinear),
+            Uz = Component(res, swsDisplacementComponent_e.swsDisplacementComponentUZ, step, nonlinear),
         };
         CheckForceDirection(ctx, loads, comps, ures.Max, checks);
-        var reactions = Reactions(ctx, res, solved.Mesh.Nodes, solved.FixObjs, solved.Flavor, loads, inputs.LoadResultant, checks);
+        // The reaction check reads the first step, which holds only part of a nonlinear study's load.
+        var reactions = nonlinear ? null : Reactions(ctx, res, solved.Mesh.Nodes, solved.FixObjs, solved.Flavor, loads, inputs.LoadResultant, checks);
+        if (nonlinear) checks.Add("reactions not read (nonlinear: they are per solution step)");
 
         var vmAt = NodeAt(solved.MeshObj, vm.MaxNode, solved.Box);
         var uAt = NodeAt(solved.MeshObj, ures.MaxNode, solved.Box);
@@ -537,6 +566,8 @@ public sealed partial class SimulationService(SwSession session)
         var applied = new List<SimLoadInfo>();
         for (int i = 0; i < loads.Count; i++)
             applied.Add(ApplyLoad(ctx, lr, loads[i], inputs.LoadFaces[i], flavor, checks));
+        foreach (var (kind, ctype, src, tgt) in inputs.Contacts ?? [])
+            AddContactSet(s, kind, ctype, src, tgt, checks);
         if (inputs.SeveralBodies) ReportContact(s, checks);
         double setupS = total.Elapsed.TotalSeconds;
 
@@ -990,6 +1021,34 @@ public sealed partial class SimulationService(SwSession session)
             Kind = "gravity", Faces = 0, Direction = SimulationMath.Vector(dir), AccelerationMs2 = SimulationMath.Sig(load.Value),
             ForceN = mass > 0 ? SimulationMath.Sig(mass * load.Value) : null,
         };
+    }
+
+    /// <summary>
+    /// A local contact set (ICWContactManager.CreateContactSet2, faces), trying the array flavours the loads use. Verified:
+    /// no error and one more contact set.
+    /// </summary>
+    private static void AddContactSet(CWStudy s, string kind, int type, List<Resolved> src, List<Resolved> tgt, List<string> checks)
+    {
+        var cm = s.ContactManager ?? throw new SwException(ErrorCodes.FeatureFailed, "The study has no contact manager.");
+        int before = cm.ContactSetCount;
+        int last = -1;
+        foreach (var fl in SwExt.SimFlavors(SwExt.SimArrayFlavor.Variant))
+        {
+            try
+            {
+                var set = (object?)cm.CreateContactSet2(type, (int)swsSelectionType_e.swsSelectionFaceEdgeVertexPoint,
+                    SwExt.SimEntityArray(src.Select(r => r.Obj).ToList(), fl), SwExt.SimEntityArray(tgt.Select(r => r.Obj).ToList(), fl), out int err);
+                last = err;
+                if (set is not null && err == 0 && cm.ContactSetCount == before + 1)
+                {
+                    checks.Add($"{kind} contact set between {src.Count} and {tgt.Count} face(s)");
+                    return;
+                }
+            }
+            catch (COMException ex) when (!ComArgs.IsDisconnect(ex) && !ComArgs.IsRejected(ex)) { last = -1; }
+        }
+        throw new SwException(ErrorCodes.FeatureFailed, $"Simulation did not accept the {kind} contact set ({Name<swsContactSetError_e>(last)}).",
+            "Source and target must be faces of different bodies; target faces only.");
     }
 
     /// <summary>
@@ -1620,11 +1679,14 @@ public sealed partial class SimulationService(SwSession session)
             : (plane, Vec3.UnitX, Vec3.UnitY, Vec3.UnitZ);
     }
 
-    private static double[]? Component(CWResults res, swsDisplacementComponent_e component)
+    private static double[]? Component(CWResults res, swsDisplacementComponent_e component, int step = 1, bool byStep = false)
     {
         try
         {
-            var r = SimulationMath.Range(res.DisplacementRange((int)component, Mm, out int e));
+            int e;
+            var r = byStep
+                ? SimulationMath.Range(ComArgs.Doubles((object?)res.GetMinMaxDisplacement((int)component, step, null, Mm, out e)))
+                : SimulationMath.Range(res.DisplacementRange((int)component, Mm, out e));
             return r is null || e != 0 ? null : [SimulationMath.Sig(r.Min), SimulationMath.Sig(r.Max)];
         }
         catch (COMException ex) when (!ComArgs.IsDisconnect(ex)) { return null; }

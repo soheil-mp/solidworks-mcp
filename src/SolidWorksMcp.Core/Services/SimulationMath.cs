@@ -67,6 +67,19 @@ public sealed class SimFixture
     public EntityRef[]? Faces { get; set; }
 }
 
+/// <summary>A contact set of sim_static between two groups of faces (local contact; overrides the global bonded one).</summary>
+public sealed class SimContact
+{
+    [Description("no_penetration | bonded | free.")]
+    public string? Kind { get; set; }
+
+    [Description("Source faces.")]
+    public EntityRef[]? Source { get; set; }
+
+    [Description("Target faces (of another body).")]
+    public EntityRef[]? Target { get; set; }
+}
+
 /// <summary>sim_static options (validated again by the service).</summary>
 public sealed record SimStaticRequest
 {
@@ -85,6 +98,10 @@ public sealed record SimStaticRequest
     public int? Modes { get; init; }
     /// <summary>sim_run thermal: temperatures, convection, heat power and heat flux on faces.</summary>
     public IReadOnlyList<SimThermalLoad>? Thermal { get; init; }
+    /// <summary>sim_static: local contact sets between faces of different bodies.</summary>
+    public IReadOnlyList<SimContact>? Contacts { get; init; }
+    /// <summary>sim_static: a nonlinear static study (the same loads and results, solved with the nonlinear solver).</summary>
+    public bool Nonlinear { get; init; }
 
     /// <summary>
     /// Live tests only (not reachable from the tool): run a study without a fixture, so the solver's own refusal and the

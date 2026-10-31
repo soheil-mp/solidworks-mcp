@@ -68,6 +68,26 @@ public sealed class ReferenceTools(SwSession session)
         CancellationToken cancellationToken = default) =>
         Output.Json(_svc.PointAsync(doc, kind, at, entities, name, cancellationToken), progress, "ref_point");
 
+    [McpServerTool(Name = "ref_curve", Title = "Reference curve", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("3D curve (sweep paths, wires). kind: projected {sketch, faces} (onto faces along the sketch normal) or {sketch, " +
+                 "ontoSketch} (where two sketches' extrusions meet); composite {entities: connected edges or sketch segments}; xyz {points}. " +
+                 "Verified: on the faces, the joined length, or through every point; else rolled back. Returns length and ends.")]
+    public Task<string> RefCurve(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("projected | composite | xyz")] string kind,
+        [Description("projected: the sketch to project.")] string? sketch = null,
+        [Description("projected: target faces.")] EntityRef[]? faces = null,
+        [Description("projected: the second sketch.")] string? ontoSketch = null,
+        [Description("composite: edges or sketch segments.")] EntityRef[]? entities = null,
+        [Description("xyz: points [[x,y,z],...] mm in order.")] double[][]? points = null,
+        [Description("Rename the new curve.")] string? name = null,
+        [Description(DocDescription)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_svc.CurveAsync(new RefCurveRequest
+        {
+            Doc = doc, Kind = kind, Sketch = sketch, Faces = faces, OntoSketch = ontoSketch, Entities = entities, Points = points, Name = name,
+        }, cancellationToken), progress, "ref_curve");
+
     [McpServerTool(Name = "ref_coordsys", Title = "Coordinate system", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Coordinate system at an origin ([x,y,z] mm, or a vertex/point), with optional x/y directions from straight edges or axes " +
                  "(default: the model axes). Verified: origin and axes as SOLIDWORKS reports them, else rolled back. Returns its name and " +

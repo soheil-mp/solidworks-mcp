@@ -142,18 +142,20 @@ public sealed class PropertiesTools(SwSession session)
         ResultJson.Serialize(await _svc.ConfigListAsync(doc, cancellationToken));
 
     [McpServerTool(Name = "config_add", Title = "Add configuration", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-    [Description("Adds a configuration and activates it (activate=false keeps the current one active), or with kind display_state a display " +
-                 "state of the active configuration. Verified by listing and by the active one; returns the previously active one.")]
+    [Description("Adds a configuration and activates it (activate=false keeps the current one active); kind display_state: a display " +
+                 "state of the active configuration; kind speedpak: a SpeedPak of the active assembly configuration (name not used). " +
+                 "Verified by listing and by the active one; returns the previously active one.")]
     public Task<string> ConfigAdd(
         IProgress<ProgressNotificationValue> progress,
         [Description("New configuration (or display state) name.")] string name,
         [Description("Make it the active one.")] bool activate = true,
-        [Description(KindArg)] string kind = "configuration",
+        [Description(KindArg + " Also speedpak.")] string kind = "configuration",
         [Description(DocArg)] string? doc = null,
         CancellationToken cancellationToken = default)
     {
-        async Task<ConfigChangeResult> Run() => DisplayState(kind)
-            ? await _svc.DisplayStateAsync(doc, "add", name, activate, cancellationToken)
+        async Task<ConfigChangeResult> Run() =>
+            (kind ?? "").Trim().Equals("speedpak", StringComparison.OrdinalIgnoreCase) ? await _svc.SpeedPakAsync(doc, cancellationToken)
+            : DisplayState(kind) ? await _svc.DisplayStateAsync(doc, "add", name, activate, cancellationToken)
             : await _svc.ConfigAddAsync(doc, name, activate, cancellationToken);
         return Output.Json(Run(), progress, "config_add");
     }

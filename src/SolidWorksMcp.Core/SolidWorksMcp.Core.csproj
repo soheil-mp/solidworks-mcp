@@ -23,6 +23,10 @@
       <HintPath>$(SolidWorksInteropDir)SolidWorks.Interop.cosworks.dll</HintPath>
       <EmbedInteropTypes>true</EmbedInteropTypes>
     </Reference>
+    <Reference Include="SolidWorks.Interop.fworks">
+      <HintPath>$(SolidWorksInteropDir)SolidWorks.Interop.fworks.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+    </Reference>
     <Reference Include="SolidWorks.Interop.sldcostingapi">
       <HintPath>$(SolidWorksInteropDir)SolidWorks.Interop.sldcostingapi.dll</HintPath>
       <EmbedInteropTypes>true</EmbedInteropTypes>

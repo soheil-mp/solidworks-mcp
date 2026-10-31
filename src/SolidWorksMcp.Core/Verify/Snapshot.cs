@@ -43,7 +43,8 @@ internal sealed class Snapshot
                 if (mp.Length >= 5)
                 {
                     if (solid) vol += mp[3];
-                    area += mp[4];
+                    // The mass properties' area is wrong for sheet bodies (320 000 mm² for a 100 × 60 sheet): sum their faces.
+                    area += solid ? mp[4] : b.Faces().Sum(f => f.GetArea());
                 }
                 faces += b.GetFaceCount();
                 edges += b.GetEdgeCount();

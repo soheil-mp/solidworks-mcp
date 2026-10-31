@@ -161,6 +161,9 @@ legsMm:[50,50]}` and `{kind:"bead", faces:[…], faces2:[…], sizeMm:4}` (a wel
    clearance. Other standard parts as files for `asm_insert`: `hardware_part {standard:"ISO 4032", size:"M8"}` (nuts,
    ISO 7089 washers, ISO 8734 dowel pins `{size:"6", lengthMm:20}`, ISO 15 bearings `{size:"6204"}` as envelopes). They
    go to Documents\solidworks-mcp\hardware and are reused; asm_bom lists them by their ISO designation.
+10. Structure: `asm_structure {kind:"form", components:["bolt-1","nut-1"], saveTo:"fastening.sldasm"}` groups components
+   into a subassembly; `{kind:"dissolve", components:["fastening-1"]}` undoes it. A light version for big assemblies:
+   `config_add {kind:"speedpak"}`. To look inside: `view_screenshot {section:{name:"front"}}` cuts the image (only).
 
 **Drawings.**
 1. Save the part or assembly.
@@ -208,11 +211,27 @@ values:{"D1@Boss-Extrude1":20, "$PRP@PartNo":"B-0820"}}, {name:"M8x40", values:{
 a failure leaves nothing behind. `config_table {}` reads the table back; in assemblies `$CONFIGURATION@bolt-1` picks a
 part's configuration and `$STATE@bolt-1` suppresses it.
 
+**Plastic parts and molds.** Check before tooling: `model_check {kind:"draft", pull:"+y", minDeg:1}` lists faces that
+need draft, `{kind:"undercut"}` faces that can't release, `{kind:"thickness", limitMm:1.5}` thin walls. Then
+`mold_split {pull:"+y", shrinkagePct:0.5, marginMm:15}` makes Cavity and Core bodies around the part (flat parting
+lines; the part stays).
+
+**Surfaces and curves.** Patch an opening: `surface_fill {edges:[…], merge:true}`; `surface_trim {kind:"trim",
+tool:{name:"right"}, keepAt:[[x,y,z]]}`, `{kind:"extend", edges:[…], distanceMm:10}`, `{kind:"untrim", faces:[…]}`.
+3D curves for sweeps: `ref_curve {kind:"projected", sketch:"Sketch2", faces:[…]}`, `{kind:"composite", entities:[…]}`,
+`{kind:"xyz", points:[[…],…]}`. Shape features: `feature_deform {kind:"wrap", sketch, faces, type:"deboss",
+depthMm:0.5}`, `{kind:"dome", faces:[top], depthMm:5}`, `{kind:"indent", body, tool, cut:true}`.
+
+**Imported parts.** After `doc_open` of a STEP, `feature_recognize {kinds:["extrude","holes","fillets"]}` turns the
+dumb body into features you can change with `dimension_set`.
+
 **Materials.** `material_set {name:"6061 Alloy"}` (material_list shows the installed ones). A material that isn't installed (a
 supplier's grade): `material_add {name:"S355J2", densityKgM3:7850, elasticModulusGpa:210, poissonRatio:0.3, yieldMpa:355,
 tensileMpa:510}`, then `material_set {name:"S355J2", database:"solidworks-mcp"}`; simulations use its values.
 
-**Stress check.** `sim_static {material:"AISI 1020", fixedFaces:[{at:[0,5,5]}],
+**Stress check.** Add `convergence:true` to check the mesh is fine enough (3 meshes; converged under 2 %), and
+`contacts:[{kind:"no_penetration", source:[faces], target:[faces]}]` where parts may slide or lift instead of being
+bonded; `nonlinear:true` for large deflections. `sim_static {material:"AISI 1020", fixedFaces:[{at:[0,5,5]}],
 loads:[{kind:"pressure", faces:[{at:[50,10,5]}], valueMpa:0.1}]}` meshes, solves and returns the maximum von Mises
 stress (MPa), displacement (mm) and factor of safety. It can take minutes; the study is deleted afterwards unless
 `keepStudy:true`. Explain to the user that this is a linear static estimate. Self-weight: `{kind:"gravity",

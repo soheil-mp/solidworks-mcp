@@ -72,10 +72,17 @@ public sealed class DocumentService(SwSession session)
                 : (object?)ctx.App.NewDocument(tpl, 0, 0, 0);
             var doc = made as IModelDoc2
                       ?? throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS could not create a {type} from '{tpl}'.");
+            if (doc.GetType() != (int)docType)
+            {
+                // The wrong kind of template: the new, empty document goes again before it is registered.
+                string made2 = doc.GetTitle() ?? "", madeType = SwContext.TypeName(doc.GetType());
+                try { ctx.App.CloseDoc(made2); }
+                catch (Exception ex) when (!ComArgs.IsDisconnect(ex)) { ctx.Warn($"'{made2}' could not be closed again ({ex.Message})."); }
+                throw new SwException(ErrorCodes.InvalidArgument, $"The template '{tpl}' makes a {madeType}, not a {type}.",
+                    "Pass a .prtdot for parts, .asmdot for assemblies, .drwdot for drawings.");
+            }
             ctx.Documents.SetClass(doc, DocClass.Owned, "created");
             ctx.Documents.Target = doc;
-            if (doc.GetType() != (int)docType)
-                throw new SwException(ErrorCodes.VerifyFailed, $"The template '{tpl}' produced a {SwContext.TypeName(doc.GetType())}, not a {type}.");
 
             if (unitSystem > 0)
             {

@@ -603,4 +603,33 @@ public sealed partial class PropertiesService
 
     private static SwException NoDisplayState(string name, string cfg, string[] have) =>
         new(ErrorCodes.EntityNotFound, $"No display state named '{name}' in '{cfg}'.", $"Display states: {string.Join(", ", have)}.");
+
+    // ------------------------------------------------------------------ SpeedPak
+
+    /// <summary>
+    /// config_add {kind:"speedpak"}: IConfigurationManager.AddSpeedPak2 on the active assembly configuration (geometry, all
+    /// faces, no whole bodies). Verified: the new configuration is listed and IConfiguration.IsSpeedPak.
+    /// </summary>
+    public Task<ConfigChangeResult> SpeedPakAsync(string? doc, CancellationToken ct = default) =>
+        session.RunAsync("config_add", ctx =>
+        {
+            var d = ctx.DocOfType(swDocumentTypes_e.swDocASSEMBLY);
+            NoOpenSketch(ctx, d, "config_add");
+            var names = ConfigNames(d);
+            string previous = ActiveConfig(d);
+            var made = (object?)d.ConfigurationManager.AddSpeedPak2(1, 1.0) as IConfiguration;
+            var after = ConfigNames(d);
+            var added = after.Where(x => !names.Contains(x, StringComparer.Ordinal)).ToList();
+            string name = made?.Name ?? added.FirstOrDefault()
+                          ?? throw new SwException(ErrorCodes.FeatureFailed, "SOLIDWORKS made no SpeedPak configuration.",
+                              "SpeedPak needs a saved assembly with resolved components.");
+            var conf = (object?)d.GetConfigurationByName(name) as IConfiguration;
+            if (conf is null || !conf.IsSpeedPak())
+                throw new SwException(ErrorCodes.VerifyFailed, $"'{name}' is not a SpeedPak configuration.");
+            return new ConfigChangeResult
+            {
+                Doc = ctx.Title(d), Configuration = name, Active = ActiveConfig(d), Previous = previous, Configurations = after,
+                Message = $"SpeedPak '{name}' (all faces, no whole bodies) for '{previous}'; activate it to work with the light version.",
+            };
+        }, RunOptions.Write(doc) with { Timeout = TimeSpan.FromSeconds(300) }, ct);
 }

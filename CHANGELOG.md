@@ -10,16 +10,17 @@
   - verified feature creation with automatic rollback;
   - entity references by id, point, query and name;
   - compact input schemas (the EntityRef fields are explained once, in the server instructions).
-- Tools (154):
+- Tools (161):
   - session: `sw_status`, `sw_connect`, `sw_help`, `dialog_list`, `dialog_respond`;
   - documents: `doc_new` (part, assembly, drawing), `doc_open` (native files and STEP/IGES/Parasolid/SAT/STL imports),
     `doc_list`, `doc_activate`, `doc_save`, `doc_close`, `doc_rebuild`, `doc_undo`, `doc_units_set`, `doc_pack` (Pack and Go,
     the copies referencing each other);
   - inspection: `model_info`, `feature_list`, `face_list`, `edge_list`, `vertex_list`, `body_list`, `model_measure`,
-    `model_mass`, `model_section` (area, centroid, principal second moments, section moduli), `model_check`, `model_review`
+    `model_mass`, `model_section` (area, centroid, principal second moments, section moduli), `model_check` (also draft,
+    undercut and wall thickness by ray casts), `model_review`
     (rebuild errors, sketch definition, suppressed features, material, components and mates in one report), `model_compare`
     (two revisions: measures, features, dimensions), `model_cost` (SOLIDWORKS Costing), `model_cut_list` (weldment and
-    sheet-metal cut lists), `view_screenshot`;
+    sheet-metal cut lists), `view_screenshot` (also with a 3D section);
   - sketch: `sketch_start`, `sketch_add` (also text), `sketch_import` (DXF/DWG into a sketch), `sketch_finish`, `sketch_edit`, `sketch_info`, `sketch_dimension_add`,
     `sketch_relation_add`, `sketch_trim`, `sketch_extend`, `sketch_offset`, `sketch_fillet`, `sketch_chamfer`,
     `sketch_pattern`, `sketch_mirror`, `sketch_convert`, `sketch_construction_set`, `sketch_delete`;
@@ -28,12 +29,15 @@
     `feature_pattern_fill`,
     `feature_chamfer`, `feature_shell`, `feature_hole`, `feature_draft`, `feature_rib`, `feature_helix`,
     `feature_thread_cosmetic`, `feature_pattern_linear`, `feature_pattern_circular`, `feature_mirror`,
+    `feature_deform` (wrap, dome, indent), `mold_split` (cavity and core with shrinkage), `feature_recognize`
+    (FeatureWorks on imported bodies),
     `feature_info`, `feature_delete`, `feature_suppress_set`, `feature_rename`, `feature_rollback`,
     `dimension_list`, `dimension_set`, `dimension_tolerance_set` (bilateral, limit, symmetric, basic, min/max, ISO fits);
-  - reference geometry: `ref_plane`, `ref_axis`, `ref_point`, `ref_coordsys`;
+  - reference geometry: `ref_plane`, `ref_axis`, `ref_point`, `ref_coordsys`, `ref_curve` (projected, composite, XYZ);
   - bodies and surfaces: `body_move`, `body_delete`, `body_combine`, `body_split`, `face_edit` (delete and heal, offset,
     move faces of any body, imported ones too), `surface_extrude`,
-    `surface_revolve`, `surface_planar`, `surface_offset`, `surface_knit`, `surface_thicken`, `body_save` (bodies as parts,
+    `surface_revolve`, `surface_planar`, `surface_offset`, `surface_knit`, `surface_thicken`, `surface_fill`, `surface_trim`
+    (trim, extend, untrim), `body_save` (bodies as parts,
     with an assembly of them), `part_derive` (insert a part; mirror into a new part);
   - sheet metal: `sheetmetal_base_flange`, `sheetmetal_edge_flange`, `sheetmetal_miter_flange` (around corners and
     closed trays), `sheetmetal_hem`, `sheetmetal_bend` (sketched bend), `sheetmetal_flatten`, `sheetmetal_export_flat`;
@@ -44,7 +48,8 @@
     `asm_component_move`, `asm_interference`, `asm_replace`, `asm_pattern` (linear, circular, mirror, opposite-hand parts),
     `asm_explode` (exploded views), `asm_bom` (bill of materials as data or CSV: top level, parts only, indented),
     `hardware_part` (ISO 4762, 4017, 4032, 7089, 8734 and ISO 15 parts from their tables, without Toolbox), `asm_fastener`
-    (screws into holes by their centres, with washers and nuts, mated and seated; the bolt length through a nut);
+    (screws into holes by their centres, with washers and nuts, mated and seated; the bolt length through a nut),
+    `asm_structure` (form and dissolve subassemblies);
   - drawing: `drw_sheet_setup`, `drw_sheet_add`, `drw_views_standard`, `drw_view_projected`, `drw_view_section`, `drw_view_detail`,
     `drw_view_add` (flat-pattern and auxiliary views), `drw_view_edit` (broken views, broken-out sections),
     `drw_dimensions_auto`, `drw_dimension_add` (also hole callouts), `drw_note_add`, `drw_annotation_add` (datum, surface finish, tolerance frame, weld symbol,
@@ -54,16 +59,16 @@
   - properties: `material_list`, `material_set`, `material_add` (custom materials), `prop_list`, `prop_set`, `prop_delete`, `equation_list`,
     `equation_set`, `equation_delete`, `config_list`, `config_add`, `config_activate`, `config_delete` (also display states),
     `config_table` (design-table style: dimensions, suppression, properties, material and component configurations per
-    configuration, each rebuilt and read back), `appearance_set`;
+    configuration, each rebuilt and read back), SpeedPak configurations, `appearance_set`;
   - simulation: `sim_static` (parts and assemblies; fixed, roller, symmetry, hinge fixtures; pressure, force, gravity
-    loads), `sim_run` (natural frequencies, buckling load factors, steady-state thermal), `sim_plot` (result plots as images),
+    loads; local contact sets; mesh convergence; the nonlinear solver), `sim_run` (natural frequencies, buckling load factors, steady-state thermal), `sim_plot` (result plots as images),
     `sim_list`, `sim_delete`;
   - automation: `vba_run` (off by default).
 - Tests: unit tests, offline contract tests, live tests per area with exact oracles, and `tools/mcp_smoke.py` with the
   golden scenarios (plate, enclosure, edit, assembly, drawing, sheet metal).
 - Install: `tools/install.ps1` publishes into a versioned folder and registers the server with Claude Code; when Smart
   App Control blocks the exe, it registers `dotnet solidworks-mcp.dll` instead.
-- Live-tested against SOLIDWORKS 2025 SP1.2: 405 live tests across all areas pass. Fixes found that way include:
+- Live-tested against SOLIDWORKS 2025 SP1.2: 425 live tests across all areas pass. Fixes found that way include:
   - coupled system options (STL quality with deviation and angle) are saved and restored as one group, also after a
     crash (an STL export had left a user's STL quality at coarse);
   - Hole Wizard holes are placed exactly (a model-space ray pick) and through-all holes work;
@@ -71,5 +76,10 @@
   - body_split goes through Intersect; surface_knit can close a surface into a solid; sheet-metal reverse works;
   - drawing views, sections, details, BOMs, model-edge dimensions and sheet scales work (an empty sheet that SOLIDWORKS
     rescales on its first view gets the planned scale back);
-  - measurements with arcs report the minimum distance; assembly mates report their real entity kinds.
+  - measurements with arcs report the minimum distance; assembly mates report their real entity kinds;
+  - surface bodies' areas (body_list, the verified area change) are summed from their faces: SOLIDWORKS' mass properties
+    give a wrong area for sheet bodies;
+  - doc_new refuses a template of the wrong kind and closes the document it made;
+  - optional parameters no longer list a "null" type in the tool schemas (leaving them out means the same), which keeps
+    tools/list within its size budget.
 

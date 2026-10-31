@@ -125,6 +125,49 @@ public sealed class BodyTools(SwSession session)
         CancellationToken cancellationToken = default) =>
         Output.Json(_surfaces.PlanarAsync(doc, sketch, edges, keepOnFailure, cancellationToken), progress, "surface_planar");
 
+    [McpServerTool(Name = "surface_fill", Title = "Filled surface", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Filled surface: a patch over a closed loop of edges (a hole in a surface, an open end), optionally merged with the " +
+                 "surfaces around it or closed into a solid. Verified: the patch touches every boundary edge, a planar loop's patch has its " +
+                 "area, solid:true makes a solid; else rolled back.")]
+    public Task<string> SurfaceFill(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("The boundary edges, e.g. [{where:{extreme:'+y'},expect:4}].")] EntityRef[] edges,
+        [Description("contact (default) or tangent to the faces along the edges.")] string? continuity = null,
+        [Description("Merge the patch with the adjacent surfaces.")] bool merge = false,
+        [Description("Form a solid when the surfaces enclose a volume.")] bool solid = false,
+        [Description(KeepDesc)] bool keepOnFailure = false,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_surfaces.FillAsync(new SurfaceFillRequest
+        {
+            Doc = doc, Edges = edges, Continuity = continuity, Merge = merge, Solid = solid, KeepOnFailure = keepOnFailure,
+        }, cancellationToken), progress, "surface_fill");
+
+    [McpServerTool(Name = "surface_trim", Title = "Trim, extend or untrim surfaces", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Surface editing. kind trim: cut surfaces with a tool (plane, sketch or surface) or each other (surfaces), keeping the " +
+                 "pieces at keepAt (or removing those at removeAt). extend: grow edges (or faces) by distanceMm, linear or natural. untrim: " +
+                 "fill a face's holes (edge holes|outer|all). Verified by the pieces and the area change; else rolled back.")]
+    public Task<string> SurfaceTrim(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("trim | extend | untrim")] string kind,
+        [Description("trim: the cutting plane, sketch or surface face, e.g. {name:'Right Plane'}.")] EntityRef? tool = null,
+        [Description("trim: surfaces trimming each other (instead of tool).")] EntityRef[]? surfaces = null,
+        [Description("trim: points [x,y,z] mm on pieces to keep.")] double[][]? keepAt = null,
+        [Description("trim: points on pieces to remove.")] double[][]? removeAt = null,
+        [Description("extend / untrim: edges of the surface.")] EntityRef[]? edges = null,
+        [Description("extend / untrim: faces.")] EntityRef[]? faces = null,
+        [Description("extend: distance in mm.")] double? distanceMm = null,
+        [Description("extend: linearly instead of along the surface.")] bool linear = false,
+        [Description("untrim a face: holes (default), outer or all.")] string? edge = null,
+        [Description(KeepDesc)] bool keepOnFailure = false,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_surfaces.TrimAsync(new SurfaceTrimRequest
+        {
+            Doc = doc, Kind = kind, Tool = tool, Surfaces = surfaces, KeepAt = keepAt, RemoveAt = removeAt, Edges = edges, Faces = faces,
+            DistanceMm = distanceMm, Linear = linear, Edge = edge, KeepOnFailure = keepOnFailure,
+        }, cancellationToken), progress, "surface_trim");
+
     [McpServerTool(Name = "surface_offset", Title = "Offset surface", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Offset surface: copies faces at a distance along their normals (0 = a copy; experimental). Verified: a new surface " +
                  "body with planar faces at the distance (same area), cylinders at r ± distance; else rolled back.")]

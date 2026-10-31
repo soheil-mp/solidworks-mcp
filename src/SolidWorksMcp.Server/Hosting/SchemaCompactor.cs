@@ -10,8 +10,9 @@ namespace SolidWorksMcp.Server.Hosting;
 /// Shrinks the generated input schemas once at startup (DESIGN §6.2 budget). The EntityRef object schema is inlined
 /// wherever a tool takes geometry (30+ times, about 40% of tools/list), so its field descriptions are dropped there:
 /// the server instructions (rule 4) and sw_help explain the fields once. "default": null is dropped too (an optional
-/// parameter is already "not required"). Field names, types and additionalProperties stay, so nothing a client
-/// validates against changes.
+/// parameter is already "not required"), and so is the "null" alternative of an optional property's type
+/// (["string", "null"] becomes "string"): leaving the property out means the same. Field names, the other types and
+/// additionalProperties stay.
 /// </summary>
 public static class SchemaCompactor
 {
@@ -39,6 +40,14 @@ public static class SchemaCompactor
         {
             case JsonObject o:
                 if (o.ContainsKey("default") && o["default"] is null) o.Remove("default");
+                if (o["properties"] is JsonObject props)
+                {
+                    var required = (o["required"] as JsonArray)?.Select(x => x?.GetValue<string>()).ToHashSet() ?? [];
+                    foreach (var p in props)
+                        if (!required.Contains(p.Key) && p.Value is JsonObject ps && ps["type"] is JsonArray types
+                            && types.Count == 2 && types.Any(t => t?.GetValue<string>() == "null"))
+                            ps["type"] = types.First(t => t?.GetValue<string>() != "null")!.GetValue<string>();
+                }
                 if (IsEntityRef(o))
                     foreach (var p in o["properties"]!.AsObject())
                         (p.Value as JsonObject)?.Remove("description");

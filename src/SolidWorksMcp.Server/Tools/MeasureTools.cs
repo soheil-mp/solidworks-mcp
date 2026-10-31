@@ -12,6 +12,7 @@ namespace SolidWorksMcp.Server.Tools;
 public sealed class MeasureTools(SwSession session)
 {
     private readonly MeasureService _svc = new(session);
+    private readonly MoldingService _mold = new(session);
 
     private const string DocDescription = "Document (handle, title or path); default: the target document.";
 
@@ -46,14 +47,27 @@ public sealed class MeasureTools(SwSession session)
         Output.Json(_svc.MassAsync(doc, body, cancellationToken), progress, "model_mass");
 
     [McpServerTool(Name = "model_check", Title = "Check geometry", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Geometry check (IBody2.Check3) of every body of the part, or one: the faults with their error names and the faulty " +
-                 "entity (id, point). valid=true with empty faults means the body is sound.")]
+    [Description("Checks. geometry (default): IBody2.Check3 faults of every body, or one. Moldability of the solid: draft (each face's " +
+                 "draft range against pull: positive, negative, needs_draft, straddle), undercut (faces that can't release along pull, by " +
+                 "ray casts), thickness (wall behind each face by ray casts; thin under limitMm).")]
     public Task<string> ModelCheck(
         IProgress<ProgressNotificationValue> progress,
-        [Description("One body: {id:'B1'} (body_list), {name:'Boss-Extrude1'} or {at:[x,y,z]} on one of its faces.")] EntityRef? body = null,
+        [Description("geometry | draft | undercut | thickness")] string kind = "geometry",
+        [Description("geometry: one body, e.g. {id:'B1'} or {at:[x,y,z]}.")] EntityRef? body = null,
+        [Description("draft / undercut: pull direction, +y (default), -z or 'x,y,z'.")] string? pull = null,
+        [Description("draft / undercut: the least draft that counts, degrees.")] double minDeg = 1,
+        [Description("thickness: walls thinner than this are listed as thin, mm.")] double? limitMm = null,
         [Description(DocDescription)] string? doc = null,
-        CancellationToken cancellationToken = default) =>
-        Output.Json(_svc.CheckAsync(doc, body, cancellationToken), progress, "model_check");
+        CancellationToken cancellationToken = default)
+    {
+        async Task<string> Run() => (kind ?? "").Trim().ToLowerInvariant() switch
+        {
+            "" or "geometry" => await Output.Json(_svc.CheckAsync(doc, body, cancellationToken), progress, "model_check"),
+            "draft" or "undercut" or "thickness" => await Output.Json(_mold.CheckAsync(doc, kind!.Trim().ToLowerInvariant(), pull, minDeg, limitMm, cancellationToken), progress, "model_check"),
+            _ => throw SwException.InvalidArgument($"kind must be geometry, draft, undercut or thickness (got '{kind}')."),
+        };
+        return Run();
+    }
 
     [McpServerTool(Name = "model_review", Title = "Design review", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Health report of a part or assembly in one call, errors first: features with rebuild errors or warnings, over- and " +

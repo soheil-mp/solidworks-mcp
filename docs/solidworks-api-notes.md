@@ -905,3 +905,57 @@ The plan that uses them is DESIGN §7.2.
   (103), `InsertMoldPartingLine`, `InsertMoldShutOffSurface`, `InsertFillSurface2`, `ISldWorks.GetRayTraceRenderer`,
   `IModelViewManager.CreateSectionViewData`, `InsertFamilyTableNew`, `IAssemblyDoc.DissolveSubAssembly`,
   `IHoleSeriesFeatureData`, `IConfigurationManager.AddSpeedPak2`.
+
+## 18. M9 recipes (2026-10-31)
+- **Sheet bodies' area.** `IBody2.MassOfBody()[4]` is wrong for surface bodies (320 000 mm² for a 100 × 60 sheet):
+  sum `IFace2.GetArea()` over their faces.
+- **Fill surface** (VERIFIED). Boundary edges selected with mark 1 (contact) or 513 (tangent), then
+  `IFeatureManager.InsertFillSurface2(2, options, null, null, null, null)`; `swMergeResult` 4 joins the patch to its
+  neighbours and `swTryToFormSolid` 2 closes a tube into a solid.
+- **Trim surface** (VERIFIED). Select the tool (plane, sketch or surface body) first, then
+  `PreTrimSurface(mutual, true, false, removePicked)`, pick the pieces with `SelectByID2("", "SURFACEBODY", x, y, z,
+  true, 0, null, 0)` at points on them, and `PostTrimSurface(true)`. A ray with `swSelFACES` as the piece made nothing.
+- **Extend / untrim** (VERIFIED). `IModelDoc2.InsertExtendSurface(linear, 0, distance)` on selected surface edges (void:
+  find the feature by the tree); `IFeatureManager.InsertUntrimSurface2(swFaceUntrimTypeInternalEdges, …, 0, true, false)`
+  on one face fills its holes (type `UnTrimRefSurf`).
+- **Curves** (VERIFIED). Projected: faces mark 1, sketch mark 2 (and a second sketch mark 4 for sketch on sketch), then
+  `CreateDefinition(swFmRefCurve = 14)` as `IProjectionCurveFeatureData` and `CreateFeature`; a line projected through
+  a cylinder lands on both sides. Composite: entities on mark 1, `IModelDoc2.InsertCompositeCurve()`. Through points:
+  `InsertCurveFileBegin`, `InsertCurveFilePoint(x, y, z)` in m, `InsertCurveFileEnd`. The curve's segments:
+  `IFeature.GetSpecificFeature2()` as `IReferenceCurve`, `GetSegments()` (edges, not selectable).
+- **Wrap, dome, indent** (VERIFIED). Wrap: faces mark 1, sketch mark 4, `InsertWrapFeature2(type, depth, reverse, 0, 5)`
+  (type name `Emboss` for every kind). Dome: the face on mark 1, `IModelDoc2.InsertDome(h, reverse, elliptic)` (void;
+  within 0.01 % of a spherical cap). Indent: target body mark 1, a face of the tool mark 4,
+  `InsertIndent(thickness, clearance, false, true, cut, false)` (type `Punch`); a zero thickness makes nothing even
+  for a cut, and a tool wholly inside the target makes nothing. The target body is renamed afterwards.
+- **Flex: not verifiable.** `InsertFlexFeature` makes a feature only with the body selected on mark 1; its twist (type 1)
+  of a 10 × 10 × 100 bar by 90° grew the volume by 20 % with a bulging section, whatever the triad's axis roles.
+- **Ray casts** (VERIFIED). `IModelDocExtension.RayIntersections(DispatchArray(bodies), points, directions, 0, 1e-7,
+  1e-7, true)` then `IModelDoc2.GetRayIntersectionsPoints()`: per hit body index, ray index, type, x, y, z (with
+  `swRayPtsOptsNORMALS` the normal after). Thousands of rays in one call are fine.
+- **Mold tools.** `InsertMoldPartingLine(flip)` (pull plane mark 1, edges mark 4) and `InsertMoldPartingSurface(4, …,
+  distance, 0, 1, 0, true)` work (and hide the part); `InsertMoldCoreCavitySolids(d1, d2, false, 0)` with the block sketch
+  selected made nothing, on or off the parting surface's plane. A block split by a plane after the part was subtracted
+  counts the void as a third piece; split the plain block first. `InsertMoveCopyBody2(0, …, 0, true, 1)` copies a body in
+  place (the body on mark 1).
+- **Section views** (VERIFIED). `IModelViewManager.CreateSectionViewData()` (cast to `SectionViewData`), `FirstPlane` = a
+  plane or planar face, `FirstOffset`, `ShowSectionCap`, `GraphicsOnlySection = false`, `CreateSectionView`; then
+  `RemoveSectionView()` restores the view exactly. With `GraphicsOnlySection = true` the section stays.
+- **Renders.** `ISldWorks.GetRayTraceRenderer(swPhotoView)` returns nothing in SOLIDWORKS 2025.
+- **Subassemblies** (VERIFIED). `IAssemblyDoc.InsertNewVirtualAssembly(out comp)`, then
+  `ReorganizeComponents(Component2[] components, comp)`: a typed array; object arrays and dispatch arrays return false.
+  Dissolve: select the subassembly, `DissolveSubAssembly()`. SpeedPak: `IConfigurationManager.AddSpeedPak2(1, 1.0)`,
+  checked with `IConfiguration.IsSpeedPak()`.
+- **Contact sets** (VERIFIED). `ICWContactManager.CreateContactSet2(swsContactSetTypeStaticNonLinearNoPenetration 0,
+  swsSelectionFaceEdgeVertexPoint 0, source faces, target faces, out error)` with the same array flavours the loads use;
+  `ContactSetCount` goes up by one. Two stacked bars bend 3–5 times as much as bonded ones.
+- **FeatureWorks** (VERIFIED). Load `<SOLIDWORKS>\fworks\fworks.dll`, `GetAddInObject("FeatureWorks.FeatureWorksApp")` as
+  `IFeatureWorksApp`, make the part the active document (otherwise it recognizes nothing), `RecognizeFeatureAutomatic(
+  (short)options)` returns the count, `CreateFeatures((short)options)`.
+- **Motion studies: results UNRESOLVED.** `GetMotionStudyManager().CreateMotionStudy()`, `StudyType` 4 or 2,
+  `SetDuration`, a motor from `CreateDefinition(swFmAEMRotationalMotor)` with `DirectionReference` and `Location` both the
+  face from `GetSelectedObject6` (direction alone moves nothing), `ConstantSpeedMotor(rpm)`, `CreateFeature`,
+  `Calculate()` all succeed and the component turns. But `SetTime` + transforms gave inconsistent angles,
+  `GetCMPosition` returns a `MathVector` (zeros for Basic Motion, the final position for Motion Analysis), and
+  `ICosmosMotionStudyResults.GetValues` (entities selected before `Calculate`, typed `IEntity[]`) gave a constant centre
+  of mass and a zero motor torque under gravity.

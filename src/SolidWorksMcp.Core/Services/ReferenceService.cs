@@ -77,7 +77,7 @@ public sealed record RefPlaneRequest
 /// reports it (IRefPlane.Transform and corner points, IRefAxis.GetRefAxisParams, IRefPoint.GetRefPoint, the
 /// coordinate-system transform); a mismatch rolls the call back (feature and helper sketch).
 /// </summary>
-public sealed class ReferenceService(SwSession session)
+public sealed partial class ReferenceService(SwSession session)
 {
     private const double LinTol = 1e-7;     // m: positions read back from SOLIDWORKS (0.1 µm)
     private const double AngTol = 1e-6;     // rad

@@ -40,7 +40,7 @@ public sealed record SurfaceRevolveRequest
 /// bodies (a new surface body; knit: fewer surface bodies or a solid; thicken: area x thickness for a flat sheet).
 /// Failures roll back. Verified recipes: the extruded surface and thicken; the others are best guesses.
 /// </summary>
-public sealed class SurfaceService(SwSession session)
+public sealed partial class SurfaceService(SwSession session)
 {
     private static readonly FeatureSpec ExtrudeSpec = new("surface_extrude", ["ExtruRefSurface"], VolumeRule.Any);
     private static readonly FeatureSpec RevolveSpec = new("surface_revolve", ["RevolvRefSurf", "RevolvedRefSurface", "RevolveRefSurface"], VolumeRule.Any);

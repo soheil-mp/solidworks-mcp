@@ -923,7 +923,8 @@ internal static class BodyKit
             Name = SafeName(b),
             Solid = solid,
             Volume = solid && mp.Length >= 4 ? mp[3] : 0,
-            Area = mp.Length >= 5 ? mp[4] : 0,
+            // MassOfBody's area is wrong for sheet bodies (320 000 mm² for a 100 × 60 sheet): sum the faces there.
+            Area = solid ? (mp.Length >= 5 ? mp[4] : 0) : b.Faces().Sum(f => f.GetArea()),
             Center = mp.Length >= 3 ? Vec3.From(mp) : Vec3.Zero,
             Box = b.Box(),
             Faces = b.GetFaceCount(),

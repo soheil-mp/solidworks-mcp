@@ -51,6 +51,18 @@ public sealed class FeatureManagementTools(SwSession session)
         CancellationToken cancellationToken = default) =>
         Output.Json(_svc.SuppressAsync(doc, features, suppressed, configs, cancellationToken), progress, "feature_suppress_set");
 
+    [McpServerTool(Name = "feature_recognize", Title = "Recognize features (FeatureWorks)", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Turns an imported body (STEP, IGES, Parasolid from doc_open) into editable features with FeatureWorks: extrudes, revolves, " +
+                 "holes, fillets and chamfers, volume features, ribs, sheet metal. Verified: new features, the same volume, no rebuild " +
+                 "errors; else undone. Then dimension_set and the feature tools work on them.")]
+    public Task<string> FeatureRecognize(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("Kinds: extrude, revolve, holes, fillets, volume, ribs, sheetmetal (default: the first five).")] string[]? kinds = null,
+        [Description("Fix the new sketches (fully defined) instead of leaving them under defined.")] bool constrainSketches = false,
+        [Description(DocArg)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(new RecognitionService(session).RecognizeAsync(doc, kinds, constrainSketches, cancellationToken), progress, "feature_recognize");
+
     [McpServerTool(Name = "feature_rename", Title = "Rename feature", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Renames a feature (names are unique). Verified by reading the name back; returns the previous name and the renamed " +
                  "dimensions (D1@NewName).")]

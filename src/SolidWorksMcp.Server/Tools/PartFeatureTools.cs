@@ -216,4 +216,51 @@ public sealed class PartFeatureTools(SwSession session)
         {
             Doc = doc, Features = features, Plane = plane, Name = name, KeepOnFailure = keepOnFailure,
         }, cancellationToken), progress, "feature_mirror");
+
+    [McpServerTool(Name = "feature_deform", Title = "Wrap, dome, indent", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Shape features. wrap {sketch, faces, type emboss|deboss|scribe, depthMm}: a closed sketch onto planar or curved faces. " +
+                 "dome {faces:[one planar face], depthMm, elliptical, reverse}. indent {body, tool: a point on the other body, cut, depthMm, " +
+                 "clearanceMm}. Verified by the volume change (a circular " +
+                 "face's dome = the spherical cap; an indent cut = the overlap); else rolled back.")]
+    public Task<string> FeatureDeform(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("wrap | dome | indent")] string kind,
+        [Description("wrap: the closed 2D sketch.")] string? sketch = null,
+        [Description("wrap: target faces; dome: the face.")] EntityRef[]? faces = null,
+        [Description("wrap: emboss|deboss|scribe.")] string? type = null,
+        [Description("wrap height/depth, dome height, indent wall, mm.")] double? depthMm = null,
+        [Description("Reverse the direction.")] bool reverse = false,
+        [Description("dome: elliptical.")] bool elliptical = false,
+        [Description("indent: the body, e.g. {at:[x,y,z]}.")] EntityRef? body = null,
+        [Description("indent: a point on the tool body, e.g. {at:[x,y,z]}.")] EntityRef? tool = null,
+        [Description("indent: gap in mm.")] double? clearanceMm = null,
+        [Description("indent: cut the tool's shape out.")] bool cut = false,
+        [Description(NameDesc)] string? name = null,
+        [Description(KeepDesc)] bool keepOnFailure = false,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(_svc.DeformAsync(new DeformRequest
+        {
+            Doc = doc, Kind = kind, Sketch = sketch, Faces = faces, Type = type, DepthMm = depthMm, Reverse = reverse, Elliptical = elliptical,
+            Body = body, Tool = tool, ClearanceMm = clearanceMm, Cut = cut, Name = name,
+            KeepOnFailure = keepOnFailure,
+        }, cancellationToken), progress, "feature_deform");
+
+    [McpServerTool(Name = "mold_split", Title = "Mold core and cavity", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Splits a molded part's tool into cavity and core: optional shrinkage scale, parting line at the edges between faces " +
+                 "drafted towards and against pull (flat parting lines), shut-off surfaces, parting surface, a block marginMm around the " +
+                 "part, tooling split. Verified: cavity + core = block − part, no overlaps, cavity on the pull side; else rolled back.")]
+    public Task<string> MoldSplit(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("Pull direction: +y (default), -y, +x, -x, +z or -z.")] string? pull = null,
+        [Description("Shrinkage allowance, % (0-10).")] double shrinkagePct = 0,
+        [Description("Steel around the part, mm.")] double marginMm = 10,
+        [Description("Least draft for a face to count as drafted, degrees.")] double minDraftDeg = 0.5,
+        [Description(KeepDesc)] bool keepOnFailure = false,
+        [Description(DocDesc)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(new MoldingService(session).SplitAsync(new MoldSplitRequest
+        {
+            Doc = doc, Pull = pull, ShrinkagePct = shrinkagePct, MarginMm = marginMm, MinDraftDeg = minDraftDeg, KeepOnFailure = keepOnFailure,
+        }, cancellationToken), progress, "mold_split");
 }
