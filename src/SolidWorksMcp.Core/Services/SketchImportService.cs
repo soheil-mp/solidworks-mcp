@@ -71,10 +71,11 @@ public sealed class SketchImportService(SwSession session)
             var feat = (object?)d.FeatureManager.InsertDwgOrDxfFile2(path, data) as IFeature;
             d.ClearSelection2(true);
             if (d.SketchManager.ActiveSketch is not null) d.SketchManager.InsertSketch(true);
-            feat ??= Tree.WalkAll(d).LastOrDefault(x => !featuresBefore.Contains(x.Name) && x.GetTypeName2() == "ProfileFeature");
-            var sketch = feat?.GetSpecificFeature2() as ISketch
-                         ?? throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS made no sketch from '{path}'.",
-                             "Check that the file has model-space entities (lines, arcs, circles, polylines, splines).");
+            feat ??= Tree.WalkAll(d).LastOrDefault(x => !featuresBefore.Contains(x.Name) && x.GetTypeName2() == "ProfileFeature")
+                     ?? throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS made no sketch from '{path}'.",
+                         "Check that the file has model-space entities (lines, arcs, circles, polylines, splines).");
+            var sketch = feat.GetSpecificFeature2() as ISketch
+                         ?? throw new SwException(ErrorCodes.FeatureFailed, $"'{feat.Name}' from '{path}' is not a sketch.");
             var segs = ComArgs.Objects<ISketchSegment>((object?)sketch.GetSketchSegments()).Where(s => !s.ConstructionGeometry).ToList();
             if (segs.Count == 0)
             {

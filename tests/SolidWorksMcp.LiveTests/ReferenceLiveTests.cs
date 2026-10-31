@@ -601,7 +601,7 @@ public class ReferenceLiveTests(LiveFixture fx) : LiveTest(fx)
         var review = new ReviewService(S);
         var clean = await review.ReviewAsync(doc);
         Assert.Equal("part", clean.Type);
-        Assert.Equal(0, clean.Errors);
+        Assert.Equal(0, clean.ErrorCount);
         Assert.Contains(clean.Issues, i => i is { Kind: "no_material", Severity: "warning" });
         // The block's rectangle has no dimensions: it is under defined.
         Assert.Contains(clean.Issues, i => i is { Kind: "sketch_under_defined", Where: "Sketch1" });
@@ -615,7 +615,7 @@ public class ReferenceLiveTests(LiveFixture fx) : LiveTest(fx)
         string wall = (await fm.DimensionListAsync(doc, shell)).Dimensions.Single(x => x.Unit == "mm").Name;
         Assert.Equal((0, 40.0), await TestHooks.SetDimensionRawAsync(S, doc, wall, 40));
         var broken = await review.ReviewAsync(doc);
-        Assert.True(broken.Errors >= 1, string.Join("; ", broken.Issues.Select(i => $"{i.Severity} {i.Kind} {i.Where}: {i.Message}")));
+        Assert.True(broken.ErrorCount >= 1, string.Join("; ", broken.Issues.Select(i => $"{i.Severity} {i.Kind} {i.Where}: {i.Message}")));
         Assert.Equal("error", broken.Issues[0].Severity); // errors first
         Assert.Contains(broken.Issues, i => i is { Kind: "rebuild_error", Severity: "error" } && i.Where == shell);
         Assert.Contains(broken.Issues, i => i is { Kind: "suppressed", Where: "Cut-Extrude1" });

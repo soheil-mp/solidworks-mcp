@@ -24,8 +24,8 @@ public sealed class ReviewResult : ToolResult
 {
     /// <summary>part | assembly.</summary>
     public required string Type { get; init; }
-    public int Errors { get; init; }
-    public int Warnings { get; init; }
+    public int ErrorCount { get; init; }
+    public int WarningCount { get; init; }
     public required IReadOnlyList<ReviewIssue> Issues { get; init; }
     /// <summary>What was looked at (features, sketches, bodies, components, mates), with counts.</summary>
     public required IReadOnlyList<string> Checked { get; init; }
@@ -135,8 +135,8 @@ public sealed class ReviewService(SwSession session)
             {
                 Doc = ctx.Title(d),
                 Type = assembly ? "assembly" : "part",
-                Errors = issues.Count(i => i.Severity == "error"),
-                Warnings = issues.Count(i => i.Severity == "warning"),
+                ErrorCount = issues.Count(i => i.Severity == "error"),
+                WarningCount = issues.Count(i => i.Severity == "warning"),
                 Issues = ordered.Take(MaxIssues).ToList(),
                 Checked = checkedList,
                 Truncated = ordered.Count > MaxIssues ? true : null,

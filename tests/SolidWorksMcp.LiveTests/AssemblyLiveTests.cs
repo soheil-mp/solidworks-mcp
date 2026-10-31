@@ -990,7 +990,7 @@ public class AssemblyLiveTests(LiveFixture fx) : LiveTest(fx)
         var review = new ReviewService(S);
         var r = await review.ReviewAsync(asm);
         Assert.Equal("assembly", r.Type);
-        Assert.Equal(0, r.Errors);
+        Assert.Equal(0, r.ErrorCount);
         Assert.StartsWith("1 component(s) not fully positioned", Assert.Single(r.Issues, i => i.Kind == "component_floating").Message, StringComparison.Ordinal);
         Assert.Contains(r.Checked, c => c.StartsWith("2 component(s)", StringComparison.Ordinal));
         await Set(new AsmComponentSetRequest { Doc = asm, Component = free, Suppressed = true });
