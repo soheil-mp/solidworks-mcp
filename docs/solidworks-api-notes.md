@@ -360,6 +360,13 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   `ModifyDefinition`) moves the plate to the + side (y −2..0 → 0..2 mm).
 
 ## 8. Assembly
+- **Standard parts without Toolbox** (VERIFIED 2026-10-31). The Toolbox masters under `C:\SOLIDWORKS Data\browser\<standard>`
+  are read-only files that the Toolbox add-in sizes from `swbrowser.sldedb` when it inserts them; there is no insertion API.
+  Parts built with ordinary features from the ISO tables work in every edition: a screw on the Top plane with its head
+  underside at the origin and the shank along -y mates with one concentric (shank, hole) and one coincident (head
+  underside, the face around the hole, anti-aligned) mate and lands exactly on the hole (origin within 1e-6 mm). A hole is
+  a cylinder whose face normal points to its axis (`IFace2.FaceInSurfaceSense`); its circular edges give its extent along
+  the axis, and the flat faces next to them its entry and exit.
 - **Interference** (VERIFIED). `IInterferenceDetectionMgr.GetInterferences` answers with the options the manager had when
   it was obtained: after setting `TreatCoincidenceAsInterference = true`, call `GetInterferenceCount()` first (it
   recomputes), then `GetInterferences`. Touching cubes: 0 listed before the count, 1 (volume 0) after it.

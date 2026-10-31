@@ -61,6 +61,7 @@
     <Compile Include="..\..\src\SolidWorksMcp.Core\Services\DimensionTolerance.cs" Link="Core\Services\DimensionTolerance.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Services\AssemblyBom.cs" Link="Core\Services\AssemblyBom.cs" />
     <Compile Include="..\..\src\SolidWorksMcp.Core\Services\MaterialXml.cs" Link="Core\Services\MaterialXml.cs" />
+    <Compile Include="..\..\src\SolidWorksMcp.Core\Services\HardwareCatalog.cs" Link="Core\Services\HardwareCatalog.cs" />
   </ItemGroup>
 
 </Project>

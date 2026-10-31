@@ -1534,7 +1534,7 @@ public sealed partial class AssemblyService(SwSession session)
     }
 
     /// <summary>Removes a component this call inserted (rollback of asm_insert).</summary>
-    private static string RemoveComponent(IModelDoc2 d, IAssemblyDoc asm, IComponent2 c, int countBefore)
+    internal static string RemoveComponent(IModelDoc2 d, IAssemblyDoc asm, IComponent2 c, int countBefore)
     {
         string name = Safe(() => c.Name2, "the component") ?? "the component";
         d.ClearSelection2(true);

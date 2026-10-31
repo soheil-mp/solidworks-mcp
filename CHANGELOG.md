@@ -10,7 +10,7 @@
   - verified feature creation with automatic rollback;
   - entity references by id, point, query and name;
   - compact input schemas (the EntityRef fields are explained once, in the server instructions).
-- Tools (143):
+- Tools (145):
   - session: `sw_status`, `sw_connect`, `sw_help`, `dialog_list`, `dialog_respond`;
   - documents: `doc_new` (part, assembly, drawing), `doc_open` (native files and STEP/IGES/Parasolid/SAT/STL imports),
     `doc_list`, `doc_activate`, `doc_save`, `doc_close`, `doc_rebuild`, `doc_undo`, `doc_units_set`, `doc_pack` (Pack and Go,
@@ -39,7 +39,9 @@
   - assembly: `asm_insert`, `asm_mate_add` (also limit distance/angle, symmetric, width, hinge, gear and rack-and-pinion
     mates), `asm_mate_list`, `asm_component_list`, `asm_component_set`,
     `asm_component_move`, `asm_interference`, `asm_replace`, `asm_pattern` (linear, circular, mirror, opposite-hand parts),
-    `asm_explode` (exploded views), `asm_bom` (bill of materials as data or CSV: top level, parts only, indented);
+    `asm_explode` (exploded views), `asm_bom` (bill of materials as data or CSV: top level, parts only, indented),
+    `hardware_part` (ISO 4762, 4017, 4032, 7089, 8734 and ISO 15 parts from their tables, without Toolbox), `asm_fastener`
+    (screws into holes by their centres, with washers and nuts, mated and seated; the bolt length through a nut);
   - drawing: `drw_sheet_setup`, `drw_sheet_add`, `drw_views_standard`, `drw_view_projected`, `drw_view_section`, `drw_view_detail`,
     `drw_view_add` (flat-pattern and auxiliary views), `drw_view_edit` (broken views, broken-out sections),
     `drw_dimensions_auto`, `drw_dimension_add` (also hole callouts), `drw_note_add`, `drw_annotation_add` (datum, surface finish, tolerance frame, weld symbol,
@@ -57,7 +59,7 @@
   golden scenarios (plate, enclosure, edit, assembly, drawing, sheet metal).
 - Install: `tools/install.ps1` publishes into a versioned folder and registers the server with Claude Code; when Smart
   App Control blocks the exe, it registers `dotnet solidworks-mcp.dll` instead.
-- Live-tested against SOLIDWORKS 2025 SP1.2: 385 live tests across all areas pass. Fixes found that way include:
+- Live-tested against SOLIDWORKS 2025 SP1.2: 388 live tests across all areas pass. Fixes found that way include:
   - coupled system options (STL quality with deviation and angle) are saved and restored as one group, also after a
     crash (an STL export had left a user's STL quality at coarse);
   - Hole Wizard holes are placed exactly (a model-space ray pick) and through-all holes work;

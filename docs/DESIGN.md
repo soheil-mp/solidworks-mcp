@@ -769,7 +769,7 @@ contacts and bolt/pin connectors join the Tier 2 backlog)
   then the changed depth, the new fillet and the exact volume change). The SOLIDWORKS Utilities compare API wasn't needed:
   the measures, the feature tree and the dimensions are read from both documents directly.
 
-**WP7 · Standard hardware** (S probe, then L; ⏳)
+**WP7 · Standard hardware** (S probe, then L; ✅ 2026-10-31)
 - Scope: ISO screws, nuts, washers, pins and bearings in assemblies, fastened into holes (concentric and coincident
   mates, many holes in one call).
 - **Probe first.** There is no Toolbox insertion API: the Toolbox Browser interop has only PDM events, `toolboxapi` is
@@ -780,6 +780,17 @@ contacts and bolt/pin connectors join the Tier 2 backlog)
   4032, 7089, 8734, …) into a library folder, with custom properties for the BOM and cosmetic threads, and reuse them.
 - Tools: `asm_fastener {standard, size, lengthMm, holes:[…]}` inserts and mates them.
 - Oracle: dimensions against the table; each fastener concentric with its hole and seated on its face; BOM quantities.
+- Done, with the fallback: the Toolbox masters are sized by the Toolbox add-in from its database when it inserts them, and
+  Toolbox only comes with SOLIDWORKS Professional and Premium, so `hardware_part` builds the parts with this server's own
+  verified features from tables in `HardwareCatalog` (ISO 4762 M2–M24, ISO 4017 M3–M24, ISO 4032, ISO 7089, ISO 8734
+  d1–d20, ISO 15 60xx/62xx/63xx bearings as envelopes; preferred lengths only), with a cosmetic thread, Alloy Steel and
+  PartNo/Description, into a library folder, and reuses them (a marker property; a changed file is refused).
+  `asm_fastener` takes hole centres on the face the head sits on, finds the hole (a concave cylinder on that axis opening
+  onto a flat face), follows coaxial holes through stacked parts for the grip and the exit face, and places screw, washers
+  and nut with concentric and coincident mates, checking each origin and axis after mating. Live: six parts against their
+  tables (and reused), two M5 screws with washers and nuts through a 10 mm plate (auto length 20, 3.3 mm protrusion, no
+  interference, BOM 2 / 4 / 2), a screw in a blind tapped hole (3 mm tip clearance) and refused requests that change
+  nothing.
 
 **WP8 · Top-down assembly design** (M–L, ⏳)
 - Scope: a new part designed in the assembly's context (a sketch on a component's face, references to other
