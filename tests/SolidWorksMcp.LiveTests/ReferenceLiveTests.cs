@@ -572,4 +572,30 @@ public class ReferenceLiveTests(LiveFixture fx) : LiveTest(fx)
         string doc = await BlockAsync("check_unknown");
         await Fails(ErrorCodes.EntityNotFound, () => Measure.CheckAsync(doc, new EntityRef { Name = "NoSuchBody" }));
     }
+
+    [Fact]
+    public async Task Section_of_the_block_and_of_it_with_a_hole_match_the_formulas_and_faces_off_one_plane_are_refused()
+    {
+        // The block's top face (y = 20), 100 along x by 60 along z: A = 6000 mm², I = b h³/12 about each centroidal axis.
+        var sec = new SectionService(S);
+        string doc = await BlockAsync("sec_block");
+        var r = await sec.SectionAsync(doc, [Face(0, 20, 0)]);
+        Assert.Equal(6000, r.AreaMm2, 1e-6);
+        Assert.Equal([0, 20, 0], r.CentroidMm);
+        Assert.Equal(60 * Math.Pow(100, 3) / 12, r.Principal[0].InertiaMm4, 0.01); // about z: 5 000 000 mm⁴
+        Assert.Equal(1, Math.Abs(r.Principal[0].Direction[2]), 1e-9);
+        Assert.Equal(100 * Math.Pow(60, 3) / 12, r.Principal[1].InertiaMm4, 0.01); // about x: 1 800 000 mm⁴
+        Assert.Equal(60 * 100 * 100 / 6.0, r.Principal[0].ModulusMm3, 0.01); // b h²/6 = I/50
+        Assert.Equal(r.Principal[0].InertiaMm4 + r.Principal[1].InertiaMm4, r.PolarMm4, 0.01);
+        Assert.Equal(Math.Sqrt(5e6 / 6000), r.Principal[0].RadiusOfGyrationMm, 1e-6);
+        // With the Ø10 hole through its centre: π·10⁴/64 less about both axes.
+        string holed = await BlockWithHoleAsync("sec_hole");
+        var h = await sec.SectionAsync(holed, [Face(30, 20, 0)]);
+        Assert.Equal(6000 - Math.PI * 25, h.AreaMm2, 1e-3);
+        Assert.Equal(5e6 - Math.PI * 1e4 / 64, h.Principal[0].InertiaMm4, 0.05);
+        Assert.Equal(1.8e6 - Math.PI * 1e4 / 64, h.Principal[1].InertiaMm4, 0.05);
+        // The top and the bottom are parallel but not one plane; a side face isn't parallel at all.
+        await Fails(ErrorCodes.InvalidArgument, () => sec.SectionAsync(doc, [Face(0, 20, 0), Face(0, 0, 0)]));
+        await Fails(ErrorCodes.InvalidArgument, () => sec.SectionAsync(doc, [Face(0, 20, 0), Face(50, 10, 0)]));
+    }
 }

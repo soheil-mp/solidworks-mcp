@@ -926,6 +926,75 @@ public class AssemblyLiveTests(LiveFixture fx) : LiveTest(fx)
     }
 
     [Fact]
+    public async Task Pack_and_go_copies_the_assembly_its_parts_and_drawing_and_the_copies_reference_each_other()
+    {
+        // Pack and Go leaves out files under the Windows temp folder, so this assembly lives in Documents\solidworks-mcp.
+        string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "solidworks-mcp", $"swmcp_pack_{_tag}");
+        Directory.CreateDirectory(dir);
+        var open = new List<string>();
+        try
+        {
+            async Task<string> BlockAt(string name, double w)
+            {
+                string p = await NewPartAsync(name);
+                open.Add(p);
+                await Sk.StartAsync(p, new EntityRef { Name = "top" }, false);
+                await Sk.AddAsync(p, [new SketchEntity { Kind = "rectangle", Center = [0, 0], WidthMm = w, HeightMm = 20 }]);
+                await Fs.ExtrudeAsync(new ExtrudeRequest { Doc = p, DepthMm = 10 });
+                return (await Docs.SaveAsync(p, "as", Path.Combine(dir, name + ".sldprt"), false)).SavedTo!;
+            }
+            string a = await BlockAt("pk_a", 40), b = await BlockAt("pk_b", 20);
+            string asm = await NewAssemblyAsync("pk_asm");
+            open.Insert(0, asm);
+            await InsertAsync(asm, a, [0, 0, 0]);
+            await InsertAsync(asm, b, [0, 10, 0], fixedState: false);
+            string asmPath = (await Docs.SaveAsync(asm, "as", Path.Combine(dir, "pk_asm.sldasm"), false)).SavedTo!;
+            var dr = await Docs.NewAsync("drawing", "mmgs", null, $"pk_drw_{_tag}");
+            open.Insert(0, dr.Document.Handle);
+            await new DrawingService(S).ViewsStandardAsync(asmPath, ["front"], null, dr.Document.Handle);
+            await Docs.SaveAsync(dr.Document.Handle, "as", Path.ChangeExtension(asmPath, ".slddrw"), false);
+
+            var pack = new PackService(S);
+            string to = Path.Combine(dir, "packed");
+            var r = await pack.PackAsync(new DocPackRequest { Doc = asm, Folder = to, Prefix = "P_" });
+            Assert.Equal(["P_PK_A.SLDPRT", "P_PK_ASM.SLDASM", "P_PK_ASM.SLDDRW", "P_PK_B.SLDPRT"],
+                r.Files.Select(f => Path.GetFileName(f.To).ToUpperInvariant()).Order(StringComparer.Ordinal).ToArray());
+            Assert.All(r.Files, f => Assert.True(File.Exists(f.To), f.To));
+            Assert.Contains(r.Checks, c => c.StartsWith("the 2 copied assembl(ies)/drawing(s) reference the copies only", StringComparison.Ordinal));
+            Assert.Contains(r.Checks, c => c == "the open document still has its own file");
+            // Again: the copies exist, so nothing is written without overwrite.
+            Assert.Equal(ErrorCodes.IoError, (await Assert.ThrowsAsync<SwException>(() => pack.PackAsync(new DocPackRequest { Doc = asm, Folder = to, Prefix = "P_" }))).Code);
+            // One part, renamed with a suffix, no drawings.
+            var one = await pack.PackAsync(new DocPackRequest { Doc = a, Folder = Path.Combine(dir, "one"), Suffix = "_rev2", IncludeDrawings = false });
+            Assert.Equal("pk_a_rev2.SLDPRT", Path.GetFileName(Assert.Single(one.Files).To), ignoreCase: true);
+        }
+        finally
+        {
+            foreach (var h in open)
+            {
+                try { await Docs.CloseAsync(h, save: false, discard: true); }
+                catch (SwException) { /* closed already */ }
+            }
+            try { Directory.Delete(dir, recursive: true); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* best effort */ }
+        }
+    }
+
+    [Fact]
+    public async Task Pack_and_go_is_refused_for_files_in_the_temp_folder_that_it_would_leave_out()
+    {
+        // This class saves its files under %TEMP%, which Pack and Go skips: the copies would still point at the originals.
+        var cube = await CubeAsync("pk_tmp");
+        string asm = await NewAssemblyAsync("pk_tmp_asm");
+        await InsertAsync(asm, cube.Path, [0, 0, 0]);
+        await Docs.SaveAsync(asm, "as", Path.Combine(_dir, $"pk_tmp_asm_{_tag}.sldasm"), false);
+        var refused = await Assert.ThrowsAsync<SwException>(() => new PackService(S).PackAsync(new DocPackRequest { Doc = asm, Folder = Path.Combine(_dir, "packed") }));
+        Assert.Equal(ErrorCodes.InvalidArgument, refused.Code);
+        Assert.Contains("would leave out", refused.Message, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(_dir, "packed")) && Directory.EnumerateFiles(Path.Combine(_dir, "packed")).Any(), "nothing written");
+    }
+
+    [Fact]
     public async Task Pattern_requests_that_cant_work_are_refused_before_anything_changes()
     {
         var cube = await CubeAsync("bad");

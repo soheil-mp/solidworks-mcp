@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using SolidWorksMcp.Core;
 using SolidWorksMcp.Core.Model;
@@ -50,6 +51,25 @@ public sealed class DocumentTools(SwSession session)
         [Description("Document (handle, title or path); default: the target document.")] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ResultJson.Serialize(await _svc.SaveAsync(doc, mode, path, overwrite, cancellationToken));
+
+    [McpServerTool(Name = "doc_pack", Title = "Pack and Go", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
+    [Description("Pack and Go: copies a saved part, assembly or drawing with every file it references (and the models' drawings) into one " +
+                 "folder, optionally renamed with a prefix or suffix, the copies referencing each other. The open document stays as it is. " +
+                 "Verified: every copy written; the copied assemblies and drawings reference the copies only.")]
+    public Task<string> DocPack(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("Target folder (relative paths go under Documents\\solidworks-mcp); default <name>_pack.")] string? folder = null,
+        [Description("Put this before every copied file's name.")] string? prefix = null,
+        [Description("Put this after every copied file's name.")] string? suffix = null,
+        [Description("Also copy the drawings of the models.")] bool includeDrawings = true,
+        [Description("All copies in one folder (else the original folder structure).")] bool flatten = true,
+        [Description("Replace files that exist (backed up unless this server wrote them).")] bool overwrite = false,
+        [Description("Document (handle, title or path); default: the target document.")] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(new PackService(session).PackAsync(new DocPackRequest
+        {
+            Doc = doc, Folder = folder, Prefix = prefix, Suffix = suffix, IncludeDrawings = includeDrawings, Flatten = flatten, Overwrite = overwrite,
+        }, cancellationToken), progress, "doc_pack");
 
     [McpServerTool(Name = "doc_close", Title = "Close document", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
     [Description("Closes a document this server owns (or the user allowed). A document with unsaved changes needs save=true or discard=true " +

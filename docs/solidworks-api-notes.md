@@ -27,6 +27,14 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   - The linear unit is preference 47 (`swUnitsLinear`): 0 mm, 1 cm, 2 m, 3 in.
   - These are *document* preferences and need no restore.
 - **Activate.** `ISldWorks.ActivateDoc3(title, false, 0, ref errors)` takes the title without an extension. VERIFIED.
+- **Pack and Go** (VERIFIED 2026-10-31). `IModelDocExtension.GetPackAndGo()` → `IPackAndGo`: as SOLIDWORKS' example does it,
+  set `IncludeDrawings`, read `GetDocumentNames` and `GetDocumentSaveToNames`, then `SetSaveToName(true, folder)`,
+  `FlattenToSingleFolder`, `AddPrefix`/`AddSuffix`, read the targets again, and `SavePackAndGo(pg)` (0 = success per file).
+  Two traps: **it works on the active document** (called through an assembly while its drawing was active, it packed the
+  drawing alone), and **it leaves out files under the Windows temp folder** (an assembly there listed only itself, the
+  same files under Documents listed both parts). `ISldWorks.GetDocumentDependencies2(path, true, false, false)` (pairs of
+  name and full path as last saved) shows what the file needs, so compare before saving; on the copies it confirms they
+  reference each other. `ISldWorks.CopyDocument` would rename references too, but needs every document closed.
 - **Close.** `ISldWorks.CloseDoc(title)` closes without prompting; unsaved changes are discarded.
   - Closing a document that has **Simulation studies** shows a modal "Do you want to save Simulation data?" (Yes/No)
     dialog.
@@ -640,6 +648,12 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   `[point xyz, axis xyz, r]`; `IFace2.Normal` gives the plane normal. `IEdge.GetCurve()` returns an `ICurve`:
   `IsLine`/`IsCircle`, `CircleParams` (`[center xyz, axis xyz, r]`), `GetLength3(t0, t1)`.
 - **Geometry check.** `IBody2.Check3` returns faults. The old server's check was fake.
+- **Section properties** (VERIFIED 2026-10-31). `IModelDocExtension.GetSectionProperties2(faces)` (an array of flat faces in
+  one plane; it clears the selection) returns 24 numbers in SI: status (0 = ok), area, centroid xyz, six moments about the
+  model axes, the polar moment and the principal moments about the centroid, the principal angle and the three principal
+  axes. A 100 x 60 face: 6000 mm², 5 000 000 and 1 800 000 mm⁴ (b·h³/12); with a Ø10 hole through its centre each less
+  π·d⁴/64. Two parallel faces at different levels come back with moments that don't add up: refuse them. Section moduli
+  aren't returned: I over the farthest tessellation vertex from each principal axis gave b·h²/6.
 
 - **Measure with arcs/circles** (VERIFIED). `IMeasure.Distance` follows `ArcOption`, default 0 = center: a hole's top circle
   to the Top Plane under it read 20.62 (center to the hole's bottom circle on that plane), 1 = minimum gave the true 20,

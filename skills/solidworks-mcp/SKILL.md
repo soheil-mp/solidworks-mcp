@@ -84,6 +84,8 @@ view_screenshot
 **Exporting.** Save native files with `doc_save {mode:"as", path:"bracket.sldprt"}`. Relative paths go under
 Documents\solidworks-mcp. Export with `model_export {path:"bracket.step"}` (STEP AP214 by default; also IGES, STL, 3MF,
 Parasolid and more). Existing files need `overwrite:true`. `doc_open` imports STEP/IGES/Parasolid/STL as a new part.
+To hand a design over or branch it, `doc_pack {folder:"bracket_rev2", suffix:"_rev2"}` copies the saved document with every file
+it references (and their drawings), the copies pointing at each other (files under the Windows temp folder can't be packed).
 A release in one call: `model_export_all {}` on the saved assembly or part writes a STEP of every model, a PDF of each
 drawing saved next to its model under the same name, a flat DXF of each sheet-metal part and the BOM (CSV) into
 `<name>_release`; what it couldn't make is listed with the reason.

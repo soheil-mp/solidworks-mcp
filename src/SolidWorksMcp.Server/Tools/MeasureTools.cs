@@ -55,6 +55,17 @@ public sealed class MeasureTools(SwSession session)
         CancellationToken cancellationToken = default) =>
         Output.Json(_svc.CheckAsync(doc, body, cancellationToken), progress, "model_check");
 
+    [McpServerTool(Name = "model_section", Title = "Section properties", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("Section properties of flat faces in one plane (a member's end face is its cross-section): area, centroid, the principal " +
+                 "second moments of area with their axes, section moduli (I / farthest fibre), radii of gyration and the polar moment, all " +
+                 "about the centroid. Verified: the area is the faces' own, the polar moment the sum of the principal ones.")]
+    public Task<string> ModelSection(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("Flat faces in one plane, e.g. [{at:[x,y,z]}] on a member's end.")] EntityRef[] faces,
+        [Description(DocDescription)] string? doc = null,
+        CancellationToken cancellationToken = default) =>
+        Output.Json(new SectionService(session).SectionAsync(doc, faces, cancellationToken), progress, "model_section");
+
     [McpServerTool(Name = "model_cut_list", Title = "Cut list", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Cut list of a weldment or sheet-metal part, for fabrication: each item (identical bodies) with its quantity, type and " +
                  "properties as SOLIDWORKS resolves them (LENGTH, ANGLE1/2 of members; bounding box, thickness and bends of blanks; " +

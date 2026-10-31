@@ -10,12 +10,14 @@
   - verified feature creation with automatic rollback;
   - entity references by id, point, query and name;
   - compact input schemas (the EntityRef fields are explained once, in the server instructions).
-- Tools (137):
+- Tools (139):
   - session: `sw_status`, `sw_connect`, `sw_help`, `dialog_list`, `dialog_respond`;
   - documents: `doc_new` (part, assembly, drawing), `doc_open` (native files and STEP/IGES/Parasolid/SAT/STL imports),
-    `doc_list`, `doc_activate`, `doc_save`, `doc_close`, `doc_rebuild`, `doc_undo`, `doc_units_set`;
+    `doc_list`, `doc_activate`, `doc_save`, `doc_close`, `doc_rebuild`, `doc_undo`, `doc_units_set`, `doc_pack` (Pack and Go,
+    the copies referencing each other);
   - inspection: `model_info`, `feature_list`, `face_list`, `edge_list`, `vertex_list`, `body_list`, `model_measure`,
-    `model_mass`, `model_check`, `model_cut_list` (weldment and sheet-metal cut lists), `view_screenshot`;
+    `model_mass`, `model_section` (area, centroid, principal second moments, section moduli), `model_check`, `model_cut_list`
+    (weldment and sheet-metal cut lists), `view_screenshot`;
   - sketch: `sketch_start`, `sketch_add`, `sketch_finish`, `sketch_edit`, `sketch_info`, `sketch_dimension_add`,
     `sketch_relation_add`, `sketch_trim`, `sketch_extend`, `sketch_offset`, `sketch_fillet`, `sketch_chamfer`,
     `sketch_pattern`, `sketch_mirror`, `sketch_convert`, `sketch_construction_set`, `sketch_delete`;
@@ -53,7 +55,7 @@
   golden scenarios (plate, enclosure, edit, assembly, drawing, sheet metal).
 - Install: `tools/install.ps1` publishes into a versioned folder and registers the server with Claude Code; when Smart
   App Control blocks the exe, it registers `dotnet solidworks-mcp.dll` instead.
-- Live-tested against SOLIDWORKS 2025 SP1.2: 377 live tests across all areas pass. Fixes found that way include:
+- Live-tested against SOLIDWORKS 2025 SP1.2: 380 live tests across all areas pass. Fixes found that way include:
   - coupled system options (STL quality with deviation and angle) are saved and restored as one group, also after a
     crash (an STL export had left a user's STL quality at coarse);
   - Hole Wizard holes are placed exactly (a model-space ray pick) and through-all holes work;
