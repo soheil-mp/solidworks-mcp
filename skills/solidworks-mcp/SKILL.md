@@ -231,7 +231,7 @@ tensileMpa:510}`, then `material_set {name:"S355J2", database:"solidworks-mcp"}`
 
 **Stress check.** Add `convergence:true` to check the mesh is fine enough (3 meshes; converged under 2 %), and
 `contacts:[{kind:"no_penetration", source:[faces], target:[faces]}]` where parts may slide or lift instead of being
-bonded; `nonlinear:true` for large deflections. `sim_static {material:"AISI 1020", fixedFaces:[{at:[0,5,5]}],
+bonded; `nonlinear:true` for large deflections; `reportPath:"bracket_report"` writes SOLIDWORKS' Word report. `sim_static {material:"AISI 1020", fixedFaces:[{at:[0,5,5]}],
 loads:[{kind:"pressure", faces:[{at:[50,10,5]}], valueMpa:0.1}]}` meshes, solves and returns the maximum von Mises
 stress (MPa), displacement (mm) and factor of safety. It can take minutes; the study is deleted afterwards unless
 `keepStudy:true`. Explain to the user that this is a linear static estimate. Self-weight: `{kind:"gravity",

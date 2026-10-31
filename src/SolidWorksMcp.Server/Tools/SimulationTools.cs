@@ -17,16 +17,13 @@ public sealed class SimulationTools(SwSession session)
     private readonly SimulationService _svc = new(session);
 
     [McpServerTool(Name = "sim_static", Title = "Static stress analysis (FEA)", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-    [Description("FEA / linear static stress analysis of a part or assembly with SOLIDWORKS Simulation: fixed faces (also roller, symmetry, hinge " +
-                 "fixtures), pressure, force and gravity loads, high-quality mesh, solve. Returns max von Mises stress (MPa) and where, max " +
-                 "displacement (mm) and where, displacement ranges per axis, factor of safety (yield / max von Mises), fixture reactions " +
-                 "against the loads (gravity: the weight), mesh counts and timings. Verified: fixtures and loads read back, mesh current, " +
-                 "solver status 0. The study is deleted afterwards unless keepStudy; the add-in is loaded if needed and unloaded again. " +
-                 "Needs a material (the part's, or 'material'; an assembly's parts their own). Blocks SOLIDWORKS while it solves.")]
+    [Description("FEA static stress analysis of a part or assembly (SOLIDWORKS Simulation): fixtures, pressure, force and gravity loads, " +
+                 "mesh, solve. Returns max von Mises stress (MPa) and where, max displacement (mm) and where, per-axis ranges, factor of " +
+                 "safety, fixture reactions against the loads, mesh and timings. Verified: fixtures and loads read back, solver status 0. " +
+                 "The study is deleted unless keepStudy. Needs a material (the part's, or 'material'). Blocks SOLIDWORKS while solving.")]
     public Task<string> SimStatic(
         IProgress<ProgressNotificationValue> progress,
-        [Description("Loads, e.g. [{kind:'pressure',faces:[{at:[50,10,5]}],valueMpa:0.1}], [{kind:'force',faces:[...],valueN:100,direction:[0,-1,0]}] " +
-                     "or [{kind:'gravity',direction:'-y'}] (valueG, default 1).")]
+        [Description("[{kind:'pressure',faces:[…],valueMpa:0.1}], [{kind:'force',faces:[…],valueN:100,direction:[0,-1,0]}], [{kind:'gravity',direction:'-y'}].")]
         SimLoad[] loads,
         [Description("Faces held fixed (all degrees of freedom), e.g. [{at:[0,5,5]}].")] EntityRef[]? fixedFaces = null,
         [Description("More fixtures: [{kind:'roller'|'symmetry' (flat faces) |'hinge' (cylindrical faces)|'fixed', faces:[…]}].")] SimFixture[]? fixtures = null,
@@ -34,10 +31,11 @@ public sealed class SimulationTools(SwSession session)
         [Description("Global element size in mm (default: SOLIDWORKS' default for the part).")] double? meshSizeMm = null,
         [Description("Keep the study and its results in the document (sim_delete removes it later).")] bool keepStudy = false,
         [Description("Study name (default \"MCP Static xxxx\").")] string? studyName = null,
-        [Description("Local contacts: [{kind:'no_penetration'|'bonded'|'free', source:[faces], target:[faces of another body]}] (default: touching bodies bonded).")]
+        [Description("Local contacts: [{kind:'no_penetration'|'bonded'|'free', source:[faces], target:[faces]}] (default: bonded).")]
         SimContact[]? contacts = null,
         [Description("Solve on 3 meshes, each element 1/1.5 the size, and report how max displacement and stress change.")] bool convergence = false,
         [Description("Use the nonlinear static solver (large displacements; slower).")] bool nonlinear = false,
+        [Description("Write the study report (Word) here.")] string? reportPath = null,
         [Description(DocArg)] string? doc = null,
         CancellationToken cancellationToken = default)
     {
@@ -45,7 +43,7 @@ public sealed class SimulationTools(SwSession session)
         var q = new SimStaticRequest
         {
             Doc = doc, FixedFaces = fixedFaces, Fixtures = fixtures, Loads = loads, Material = material, MeshSizeMm = meshSizeMm, KeepStudy = keepStudy,
-            StudyName = studyName, Contacts = contacts, Nonlinear = nonlinear,
+            StudyName = studyName, Contacts = contacts, Nonlinear = nonlinear, ReportPath = reportPath,
         };
         return convergence
             ? Output.Json(_svc.ConvergenceAsync(q, 3, heartbeat is null ? null : heartbeat.Set, cancellationToken), heartbeat, "sim_static")

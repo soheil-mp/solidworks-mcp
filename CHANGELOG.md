@@ -61,7 +61,7 @@
     `config_table` (design-table style: dimensions, suppression, properties, material and component configurations per
     configuration, each rebuilt and read back), SpeedPak configurations, `appearance_set`;
   - simulation: `sim_static` (parts and assemblies; fixed, roller, symmetry, hinge fixtures; pressure, force, gravity
-    loads; local contact sets; mesh convergence; the nonlinear solver), `sim_run` (natural frequencies, buckling load factors, steady-state thermal), `sim_plot` (result plots as images),
+    loads; local contact sets; mesh convergence; the nonlinear solver; Word reports), `sim_run` (natural frequencies, buckling load factors, steady-state thermal), `sim_plot` (result plots as images),
     `sim_list`, `sim_delete`;
   - automation: `vba_run` (off by default).
 - Tests: unit tests, offline contract tests, live tests per area with exact oracles, and `tools/mcp_smoke.py` with the

@@ -949,6 +949,11 @@ The plan that uses them is DESIGN §7.2.
 - **Contact sets** (VERIFIED). `ICWContactManager.CreateContactSet2(swsContactSetTypeStaticNonLinearNoPenetration 0,
   swsSelectionFaceEdgeVertexPoint 0, source faces, target faces, out error)` with the same array flavours the loads use;
   `ContactSetCount` goes up by one. Two stacked bars bend 3–5 times as much as bonded ones.
+- **Nonlinear statics and reports** (VERIFIED). A nonlinear study (type 5) takes the static fixtures and loads; its
+  `StressRange` / `DisplacementRange` are step 1 (1 % of the load): read `GetMinMaxStress(VON, 0, n, null, units, out e)` and
+  `GetMinMaxDisplacement(URES, n, null, units, out e)` at `n = GetMaximumAvailableSteps()`. `ICWStudy.GenerateReport(folder,
+  name, false)` returns 0 on success (1 is a wrong path, despite SOLIDWORKS' example testing for 1) and writes
+  `<folder>/<document>-<name>.docx`.
 - **FeatureWorks** (VERIFIED). Load `<SOLIDWORKS>\fworks\fworks.dll`, `GetAddInObject("FeatureWorks.FeatureWorksApp")` as
   `IFeatureWorksApp`, make the part the active document (otherwise it recognizes nothing), `RecognizeFeatureAutomatic(
   (short)options)` returns the count, `CreateFeatures((short)options)`.

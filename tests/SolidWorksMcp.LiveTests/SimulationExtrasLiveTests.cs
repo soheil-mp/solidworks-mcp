@@ -56,7 +56,11 @@ public class SimulationExtrasLiveTests(LiveFixture fx) : LiveTest(fx)
             Loads = [new SimLoad { Kind = "force", Faces = [new EntityRef { At = [200, 10, 0] }], ValueN = 100, Direction = Json("[0,-1,0]") }],
             MeshSizeMm = 6,
         };
-        var linear = await Sim.StaticAsync(q);
+        string report = Path.Combine(Path.GetTempPath(), $"swmcp_report_{Guid.NewGuid():N}", "cantilever");
+        var linear = await Sim.StaticAsync(q with { ReportPath = report });
+        Assert.NotNull(linear.Report);
+        Assert.True(File.Exists(linear.Report) && linear.ReportBytes > 1000, linear.Report);
+        Directory.Delete(Path.GetDirectoryName(linear.Report)!, recursive: true);
         var nonlinear = await Sim.StaticAsync(q with { Nonlinear = true });
         Assert.Contains(nonlinear.Checks, c => c.Contains("nonlinear solver", StringComparison.Ordinal));
         // 0.1 mm on a 200 mm beam is a small displacement: both solvers agree.

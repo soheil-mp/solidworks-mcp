@@ -114,7 +114,7 @@ the server.
 | drawing (16) | sheets (setup, more sheets), standard/projected/section/detail/auxiliary/flat-pattern views, broken views and broken-out sections, model dimensions, dimensions, hole callouts, notes, BOM, center marks, datums, surface finish, tolerance frames, weld symbols, balloons, hole, cut-list and revision tables, info |
 | export (2) | `model_export`: STEP (AP203/214/242), IGES, Parasolid, STL, 3MF, images, eDrawings; PDF/DWG/DXF from drawings. `model_export_all`: a release package (a STEP per model, a PDF per drawing, a flat DXF per sheet-metal part, the BOM) |
 | properties (15) | materials (also custom ones), custom properties, equations, configurations (also design-table style tables and display states), appearance |
-| simulation (5) | `sim_static` (parts and assemblies; local contacts; mesh convergence; nonlinear; fixed, roller, symmetry and hinge fixtures; pressure, force and gravity loads; mesh, von Mises, displacement, safety factor, reactions), `sim_run` (natural frequencies, buckling load factors, steady-state thermal), `sim_plot` (result plots as images), `sim_list`, `sim_delete` |
+| simulation (5) | `sim_static` (parts and assemblies; local contacts; mesh convergence; nonlinear; Word reports; fixed, roller, symmetry and hinge fixtures; pressure, force and gravity loads; mesh, von Mises, displacement, safety factor, reactions), `sim_run` (natural frequencies, buckling load factors, steady-state thermal), `sim_plot` (result plots as images), `sim_list`, `sim_delete` |
 | automation (1) | `vba_run` (off by default) |
 
 ### Live test status

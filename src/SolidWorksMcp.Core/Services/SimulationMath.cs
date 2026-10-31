@@ -102,6 +102,8 @@ public sealed record SimStaticRequest
     public IReadOnlyList<SimContact>? Contacts { get; init; }
     /// <summary>sim_static: a nonlinear static study (the same loads and results, solved with the nonlinear solver).</summary>
     public bool Nonlinear { get; init; }
+    /// <summary>sim_static: write SOLIDWORKS' study report (a Word document) to this path.</summary>
+    public string? ReportPath { get; init; }
 
     /// <summary>
     /// Live tests only (not reachable from the tool): run a study without a fixture, so the solver's own refusal and the

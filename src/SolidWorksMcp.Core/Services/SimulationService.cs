@@ -114,6 +114,9 @@ public sealed class SimStaticResult : ToolResult
     public required IReadOnlyList<SimLoadInfo> Loads { get; init; }
     public required SimAddinInfo Addin { get; init; }
     public required IReadOnlyList<string> Checks { get; init; }
+    /// <summary>The study report written (reportPath), with its size.</summary>
+    public string? Report { get; init; }
+    public long? ReportBytes { get; init; }
     public IReadOnlyList<ResolvedInfo>? Resolved { get; init; }
 }
 
@@ -276,12 +279,20 @@ public sealed partial class SimulationService(SwSession session)
     private SimStaticResult Static(SwContext ctx, SimStaticRequest q, IReadOnlyList<SimLoadSpec> loads, string study, string? material,
         Action<string>? phase)
     {
+        (string Path, long Bytes)? report = null;
         var r = Execute(ctx, q, loads, study, material, phase,
             q.Nonlinear ? swsAnalysisStudyType_e.swsAnalysisStudyTypeNonlinear : swsAnalysisStudyType_e.swsAnalysisStudyTypeStatic,
-            (s, inputs, checks, total) => Run(ctx, s, inputs, loads, q.MeshSizeMm, checks, phase, total));
+            (s, inputs, checks, total) =>
+            {
+                var run = Run(ctx, s, inputs, loads, q.MeshSizeMm, checks, phase, total);
+                if (!string.IsNullOrWhiteSpace(q.ReportPath)) report = Report(ctx, s, q.ReportPath!, phase, checks);
+                return run;
+            });
         var o = r.Outcome;
         return new SimStaticResult
         {
+            Report = report?.Path,
+            ReportBytes = report?.Bytes,
             Doc = r.Title,
             Study = study,
             StudyKept = r.Clean.Kept,
@@ -1021,6 +1032,37 @@ public sealed partial class SimulationService(SwSession session)
             Kind = "gravity", Faces = 0, Direction = SimulationMath.Vector(dir), AccelerationMs2 = SimulationMath.Sig(load.Value),
             ForceN = mass > 0 ? SimulationMath.Sig(mass * load.Value) : null,
         };
+    }
+
+    /// <summary>
+    /// SOLIDWORKS' report of the solved study (ICWStudy.GenerateReport(folder, name, false); 0 = success, 1 = wrong path): the folder and name
+    /// from <paramref name="path"/>, checked as a new file of that name.
+    /// </summary>
+    private static (string Path, long Bytes) Report(SwContext ctx, CWStudy s, string path, Action<string>? phase, List<string> checks)
+    {
+        phase?.Invoke("writing the report");
+        string target = ctx.Paths.ForWrite(path, false, out _, "reportPath");
+        string dir = Path.GetDirectoryName(target) ?? throw SwException.InvalidArgument("reportPath needs a folder.");
+        string name = Path.GetFileNameWithoutExtension(target);
+        Directory.CreateDirectory(dir);
+        var started = DateTime.Now.AddSeconds(-2);
+        int err = s.GenerateReport(dir, name, false);
+        // Named "<document>-<name>.docx" (VERIFIED), and it may come a moment later (Word writes it).
+        FileInfo? made = null;
+        for (int i = 0; i < 60 && made is null; i++)
+        {
+            made = new DirectoryInfo(dir).GetFiles("*", SearchOption.AllDirectories)
+                .Where(f => f.LastWriteTime >= started && Path.GetFileNameWithoutExtension(f.Name).EndsWith(name, StringComparison.OrdinalIgnoreCase) && f.Length > 0)
+                .OrderByDescending(f => f.Length).FirstOrDefault();
+            if (made is null) Thread.Sleep(500);
+        }
+        if (err != 0 || made is null || made.Length == 0)
+            throw new SwException(ErrorCodes.IoError, $"The study report was not written to '{dir}' (GenerateReport returned {err}; " +
+                $"the folder holds: {string.Join(", ", new DirectoryInfo(dir).GetFiles("*", SearchOption.AllDirectories).Take(8).Select(f => f.FullName[(dir.Length)..]))}).",
+                "The report needs Microsoft Word; check that the folder is writable.");
+        ctx.Paths.RecordWritten(made.FullName);
+        checks.Add($"report written: {made.Name} ({made.Length} bytes)");
+        return (made.FullName, made.Length);
     }
 
     /// <summary>

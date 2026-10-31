@@ -2003,20 +2003,21 @@ FEA beyond static stress (sim_static). frequency: natural frequencies (Hz), lowe
 
 ### `sim_static` — Static stress analysis (FEA)
 
-FEA / linear static stress analysis of a part or assembly with SOLIDWORKS Simulation: fixed faces (also roller, symmetry, hinge fixtures), pressure, force and gravity loads, high-quality mesh, solve. Returns max von Mises stress (MPa) and where, max displacement (mm) and where, displacement ranges per axis, factor of safety (yield / max von Mises), fixture reactions against the loads (gravity: the weight), mesh counts and timings. Verified: fixtures and loads read back, mesh current, solver status 0. The study is deleted afterwards unless keepStudy; the add-in is loaded if needed and unloaded again. Needs a material (the part's, or 'material'; an assembly's parts their own). Blocks SOLIDWORKS while it solves.
+FEA static stress analysis of a part or assembly (SOLIDWORKS Simulation): fixtures, pressure, force and gravity loads, mesh, solve. Returns max von Mises stress (MPa) and where, max displacement (mm) and where, per-axis ranges, factor of safety, fixture reactions against the loads, mesh and timings. Verified: fixtures and loads read back, solver status 0. The study is deleted unless keepStudy. Needs a material (the part's, or 'material'). Blocks SOLIDWORKS while solving.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `loads` | array | yes | Loads, e.g. [{kind:'pressure',faces:[{at:[50,10,5]}],valueMpa:0.1}], [{kind:'force',faces:[...],valueN:100,direction:[0,-1,0]}] or [{kind:'gravity',direction:'-y'}] (valueG, default 1). |
+| `loads` | array | yes | [{kind:'pressure',faces:[…],valueMpa:0.1}], [{kind:'force',faces:[…],valueN:100,direction:[0,-1,0]}], [{kind:'gravity',direction:'-y'}]. |
 | `fixedFaces` | array |  | Faces held fixed (all degrees of freedom), e.g. [{at:[0,5,5]}]. |
 | `fixtures` | array |  | More fixtures: [{kind:'roller'\|'symmetry' (flat faces) \|'hinge' (cylindrical faces)\|'fixed', faces:[…]}]. |
 | `material` | string |  | Material to assign first, as material_list names it (e.g. "AISI 1020"); default: the part's own. |
 | `meshSizeMm` | number |  | Global element size in mm (default: SOLIDWORKS' default for the part). |
 | `keepStudy` | boolean |  | Keep the study and its results in the document (sim_delete removes it later). Default: `false`. |
 | `studyName` | string |  | Study name (default "MCP Static xxxx"). |
-| `contacts` | array |  | Local contacts: [{kind:'no_penetration'\|'bonded'\|'free', source:[faces], target:[faces of another body]}] (default: touching bodies bonded). |
+| `contacts` | array |  | Local contacts: [{kind:'no_penetration'\|'bonded'\|'free', source:[faces], target:[faces]}] (default: bonded). |
 | `convergence` | boolean |  | Solve on 3 meshes, each element 1/1.5 the size, and report how max displacement and stress change. Default: `false`. |
 | `nonlinear` | boolean |  | Use the nonlinear static solver (large displacements; slower). Default: `false`. |
+| `reportPath` | string |  | Write the study report (Word) here. |
 | `doc` | string |  | Document (handle, title or path); default: the target document. |
 
 ## automation

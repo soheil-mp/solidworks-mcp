@@ -651,7 +651,7 @@ ergonomics. Each finding is verified before it is fixed.
 | **M6 Release** | README (safety, quickstart, clients, configuration, compatibility, troubleshooting, migration), CONTRIBUTING, SECURITY, THIRD-PARTY-NOTICES, the skill (written fresh), `install.ps1`, CI, the GitHub repository, tag v0.1.0. | A clean clone builds; CI is green; smoke tests pass. |
 | **M7 Breadth** | Done: `asm_pattern` (linear, circular, mirror, opposite-hand parts), `asm_mate_add` limit/symmetric/width/hinge/gear/rack mates, `asm_explode`, `face_edit` (delete and heal, offset, move; imported bodies too), `drw_annotation_add` (datums, surface finish, tolerance frames, balloons), `drw_table_add` (hole and revision tables), `weldment_member`, `sheetmetal_hem`, `sheetmetal_bend`, `sheetmetal_miter_flange`. Open: screw mates and jogs (unresolved in the API), more simulation types. New tools stay few (several kinds per tool) to keep the catalog small. | Each tool meets §6.6; all live tests green. |
 | **M8 Engineering projects** | Done 2026-10-31 (§7.2, from the audit of 2026-10-24): tolerances and fits; production drawings (more sheets, flat-pattern, broken, auxiliary and broken-out views, cut-list tables, weld symbols); BOM as data and a one-call release package; fabrication data (cut lists, weldment trims, end caps, gussets, beads); simulation breadth (assemblies, contacts and connectors, more fixtures and loads, frequency, buckling, thermal, plots); section properties, costing, custom materials, Pack and Go, revision compare, a health report; standard hardware; top-down design; everyday modelling gaps. | Each work package meets §6.6 with live tests; all live tests and golden scenarios green, plus new scenarios for a toleranced drawing and a release package. |
-| **M9 Tier 2** | Mostly done 2026-10-31 (§7.3): configuration tables and display states; fill, trim, extend and untrim surfaces; projected, composite and XYZ curves; wrap, dome, indent; draft, undercut and wall-thickness checks; cavity and core split; section views in screenshots; subassemblies formed and dissolved, SpeedPak; local contacts, mesh convergence and nonlinear statics; feature recognition; templates per call. Unresolved: motion study results, flex, renders (no PhotoView 360 in 2025), jogs, hole series, bolt and pin connectors, the factor of safety plot, fatigue, reports. | Each work package meets §6.6 with live tests; all live tests and golden scenarios green. |
+| **M9 Tier 2** | Mostly done 2026-10-31 (§7.3): configuration tables and display states; fill, trim, extend and untrim surfaces; projected, composite and XYZ curves; wrap, dome, indent; draft, undercut and wall-thickness checks; cavity and core split; section views in screenshots; subassemblies formed and dissolved, SpeedPak; local contacts, mesh convergence, nonlinear statics and study reports; feature recognition; templates per call. Unresolved: motion study results, flex, renders (no PhotoView 360 in 2025), jogs, hole series, bolt and pin connectors, the factor of safety plot, fatigue. | Each work package meets §6.6 with live tests; all live tests and golden scenarios green. |
 
 ### 7.1 Parallel work breakdown
 M0 fixes the conventions. After that, each area owns its own files and needs no shared registration:
@@ -1012,7 +1012,7 @@ What changes the plan:
   quantities unchanged, and a SpeedPak of a saved assembly. Left: hole series (no API creates one) and screw mates
   (unchanged: `RevolutionVal` keeps its default).
 
-**M9 WP7 · Simulation extras** (L, ✅ 2026-10-31 for contacts, convergence and nonlinear statics)
+**M9 WP7 · Simulation extras** (L, ✅ 2026-10-31 for contacts, convergence, nonlinear statics and reports)
 - Scope: local contacts (no penetration, bonded) and bolt and pin connectors in assemblies, the factor of safety plot
   (again), mesh convergence, fatigue and nonlinear studies, a report.
 - Tools: new parameters on `sim_static` and `sim_run` (`contacts`, `connectors`, `convergence`), `sim_plot {kind:"fos"}`,
@@ -1026,8 +1026,9 @@ What changes the plan:
   stress, converged under 2 %). Live: a 200 mm cantilever under 100 N converges to beam theory's 0.1 mm (plus shear),
   and two stacked bars with a no-penetration contact bend 3–5 times as much as bonded ones (one 20 mm beam against two
   10 mm ones); `sim_static {nonlinear:true}` (study type 5, the same fixtures, loads and results) agrees with the linear
-  study within 2 % for a small deflection. Open: bolt and pin connectors, the factor of safety plot, fatigue studies,
-  reports.
+  study within 2 % for a small deflection (read at its last solution step: the ranges give step 1, 1 % of the load);
+  `sim_static {reportPath}` writes SOLIDWORKS' Word report (`GenerateReport(folder, name, false)`: 0 means success, the
+  file is `<document>-<name>.docx`). Open: bolt and pin connectors, the factor of safety plot, fatigue studies.
 
 **M9 WP8 · Feature recognition** (S–M, ✅ 2026-10-31)
 - Scope: imported STEP/IGES bodies turned into editable features (extrudes, revolves, holes, fillets, chamfers).
