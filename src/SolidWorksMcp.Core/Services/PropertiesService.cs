@@ -131,6 +131,8 @@ public sealed class ConfigListResult : ToolResult
 {
     public required IReadOnlyList<string> Configurations { get; init; }
     public required string Active { get; init; }
+    /// <summary>The active configuration's display states, the active one first.</summary>
+    public IReadOnlyList<string>? DisplayStates { get; init; }
 }
 
 public sealed class ConfigChangeResult : ToolResult
@@ -141,6 +143,12 @@ public sealed class ConfigChangeResult : ToolResult
     /// <summary>The configuration that was active before the call.</summary>
     public string? Previous { get; init; }
     public required IReadOnlyList<string> Configurations { get; init; }
+    /// <summary>For kind display_state: the display state the call created, activated or deleted.</summary>
+    public string? DisplayState { get; init; }
+    public string? ActiveDisplayState { get; init; }
+    public string? PreviousDisplayState { get; init; }
+    /// <summary>The active configuration's display states (kind display_state), the active one first.</summary>
+    public IReadOnlyList<string>? DisplayStates { get; init; }
     public string? Message { get; init; }
 }
 
@@ -821,7 +829,11 @@ public sealed partial class PropertiesService(SwSession session)
         session.RunAsync("config_list", ctx =>
         {
             var d = ctx.DocOfType(swDocumentTypes_e.swDocPART, swDocumentTypes_e.swDocASSEMBLY);
-            return new ConfigListResult { Doc = ctx.Title(d), Configurations = ConfigNames(d), Active = ActiveConfig(d) };
+            return new ConfigListResult
+            {
+                Doc = ctx.Title(d), Configurations = ConfigNames(d), Active = ActiveConfig(d),
+                DisplayStates = DisplayStates(d) is { Length: > 0 } ds ? ds : null,
+            };
         }, RunOptions.Read(doc), ct);
 
     public Task<ConfigChangeResult> ConfigAddAsync(string? doc, string name, bool activate = true, CancellationToken ct = default) =>

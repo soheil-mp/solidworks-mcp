@@ -63,7 +63,7 @@ internal static partial class SwExt
     }
 
     /// <summary>A VARIANT of booleans → bool[] (empty when null).</summary>
-    private static bool[] Bools(object? v) => v switch
+    internal static bool[] Bools(object? v) => v switch
     {
         null => [],
         bool b => [b],

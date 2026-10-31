@@ -894,7 +894,7 @@ What changes the plan:
 
 **Work packages, in order** (sizes and status as in §7.2):
 
-**M9 WP1 · Configuration families** (S–M)
+**M9 WP1 · Configuration families** (S–M, ✅ 2026-10-31)
 - Scope: many configurations in one call, as a design table does: per configuration, dimension values, feature
   suppression, custom properties and material; the same table read back. Display states (list, add, activate,
   delete). Existing sensors, with values and alerts, in `model_review`.
@@ -907,6 +907,15 @@ What changes the plan:
   `DeleteDisplayState` / `GetDisplayStates`, `ISensor`.
 - Oracle: each configuration activated, its dimensions, suppression, properties and mass read back.
 - Probe: a real design table (`InsertFamilyTableNew`), only if it runs without UI.
+- Done: `config_table` (rows set in each configuration while it is active, rebuilt, read back with volume and mass, then
+  every value read again per configuration without activating it; new configurations start from the one active at the
+  start; a failure deletes the new configurations and restores the changed values), read mode (the columns that differ),
+  components in assemblies (`$STATE@bolt-1` or `bolt<1>`, `$CONFIGURATION@`), display states as `kind` on the config
+  tools. Left out: a real design table (`InsertFamilyTableNew` edits Excel in place, in the SOLIDWORKS window, which an
+  unattended server shouldn't drive; the table does the same job), and sensors (no API creates one, so they can't be
+  made or tested). Live: three sizes with their volumes and a material per configuration, an update that leaves the
+  others alone, a broken shell undone completely, display states, and an assembly picking part configurations and
+  suppressing a component.
 
 **M9 WP2 · Surfaces, curves and shape features** (M)
 - Scope: filled surfaces (a boundary of edges; merged, or a solid); trim (by a surface, plane or sketch, keeping chosen

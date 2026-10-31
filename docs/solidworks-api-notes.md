@@ -687,6 +687,17 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   - always write units, since bare numbers are document units.
 - **Configurations.** `IConfigurationManager.AddConfiguration2(...)` / `IModelDoc2.AddConfiguration3(name, "", "", 0)`
   creates **and activates** one. `ShowConfiguration2(name)` activates; `GetConfigurationNames()` lists them.
+- **Configuration tables** (VERIFIED, config_table). Per configuration, with it active:
+  `IDimension.SetSystemValue3(v, swSetValue_InThisConfiguration = 1, null)`, `IFeature.SetSuppression2(action,
+  swThisConfiguration = 1, null)`, `IComponent2.SetSuppression2` / `ReferencedConfiguration`, a per-configuration
+  `CustomPropertyManager[name]`, `IPartDoc.SetMaterialPropertyName2(name, db, material)`; the other configurations keep
+  their values. Read without activating: `IDimension.GetSystemValue3(swSpecifyConfiguration = 3, string[] names)` gives one
+  value per name, `IFeature.IsSuppressed2(3, names)` one flag per name, and a component as a configuration has it comes
+  from `IConfiguration.GetRootComponent3(true).GetChildren()` (suppression and referenced configuration both read
+  correctly). A fillet too big for its faces doesn't fail (it overflows); a shell wall thicker than the part does.
+- **Display states.** `IConfiguration.GetDisplayStates()` lists the active configuration's, the active one first;
+  `CreateDisplayState(name)`, `ApplyDisplayState(name)`, `DeleteDisplayState(name)` (VERIFIED; the active one can't be
+  deleted). No API creates sensors: `ISensor` only reads and edits existing ones.
 - **Appearance.** `IModelDoc2.MaterialPropertyValues = double[9] {r, g, b (0–1), ambient, diffuse, specular, shininess,
   transparency, emission}`, followed by `GraphicsRedraw2()`. VERIFIED red.
   - `IModelDocExtension.SetMaterialPropertyValues(v, 2, null)` threw "object disconnected".

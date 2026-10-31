@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using SolidWorksMcp.Core;
@@ -134,39 +135,84 @@ public sealed class PropertiesTools(SwSession session)
     // ------------------------------------------------------------------ configurations
 
     [McpServerTool(Name = "config_list", Title = "List configurations", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Configurations of the part or assembly and the active one.")]
+    [Description("Configurations of the part or assembly, the active one, and the active configuration's display states (active first).")]
     public async Task<string> ConfigList(
         [Description(DocArg)] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ResultJson.Serialize(await _svc.ConfigListAsync(doc, cancellationToken));
 
     [McpServerTool(Name = "config_add", Title = "Add configuration", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-    [Description("Adds a configuration and activates it (activate=false keeps the current one active). Verified by listing and by the " +
-                 "active configuration; returns the previously active one.")]
+    [Description("Adds a configuration and activates it (activate=false keeps the current one active), or with kind display_state a display " +
+                 "state of the active configuration. Verified by listing and by the active one; returns the previously active one.")]
     public Task<string> ConfigAdd(
         IProgress<ProgressNotificationValue> progress,
-        [Description("New configuration name.")] string name,
-        [Description("Make it the active configuration.")] bool activate = true,
+        [Description("New configuration (or display state) name.")] string name,
+        [Description("Make it the active one.")] bool activate = true,
+        [Description(KindArg)] string kind = "configuration",
         [Description(DocArg)] string? doc = null,
-        CancellationToken cancellationToken = default) =>
-        Output.Json(_svc.ConfigAddAsync(doc, name, activate, cancellationToken), progress, "config_add");
+        CancellationToken cancellationToken = default)
+    {
+        async Task<ConfigChangeResult> Run() => DisplayState(kind)
+            ? await _svc.DisplayStateAsync(doc, "add", name, activate, cancellationToken)
+            : await _svc.ConfigAddAsync(doc, name, activate, cancellationToken);
+        return Output.Json(Run(), progress, "config_add");
+    }
 
     [McpServerTool(Name = "config_activate", Title = "Activate configuration", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Makes a configuration active (the model rebuilds in it). Verified; returns the previously active one.")]
+    [Description("Makes a configuration active (the model rebuilds in it), or with kind display_state a display state of the active " +
+                 "configuration. Verified; returns the previously active one.")]
     public Task<string> ConfigActivate(
         IProgress<ProgressNotificationValue> progress,
-        [Description("Configuration name (config_list shows them).")] string name,
+        [Description("Configuration (or display state) name; config_list shows them.")] string name,
+        [Description(KindArg)] string kind = "configuration",
         [Description(DocArg)] string? doc = null,
-        CancellationToken cancellationToken = default) =>
-        Output.Json(_svc.ConfigActivateAsync(doc, name, cancellationToken), progress, "config_activate");
+        CancellationToken cancellationToken = default)
+    {
+        async Task<ConfigChangeResult> Run() => DisplayState(kind)
+            ? await _svc.DisplayStateAsync(doc, "activate", name, true, cancellationToken)
+            : await _svc.ConfigActivateAsync(doc, name, cancellationToken);
+        return Output.Json(Run(), progress, "config_activate");
+    }
 
     [McpServerTool(Name = "config_delete", Title = "Delete configuration", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
-    [Description("Deletes a configuration that is not active (activate another first). Verified by listing.")]
+    [Description("Deletes a configuration (or with kind display_state a display state) that is not active (activate another first). " +
+                 "Verified by listing.")]
     public async Task<string> ConfigDelete(
-        [Description("Configuration name.")] string name,
+        [Description("Configuration (or display state) name.")] string name,
+        [Description(KindArg)] string kind = "configuration",
         [Description(DocArg)] string? doc = null,
         CancellationToken cancellationToken = default) =>
-        ResultJson.Serialize(await _svc.ConfigDeleteAsync(doc, name, cancellationToken));
+        ResultJson.Serialize(DisplayState(kind)
+            ? await _svc.DisplayStateAsync(doc, "delete", name, false, cancellationToken)
+            : await _svc.ConfigDeleteAsync(doc, name, cancellationToken));
+
+    [McpServerTool(Name = "config_table", Title = "Configuration table", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("Design table without Excel: each row names a configuration (created from the active one when missing) and its values. " +
+                 "Columns: a dimension 'D1@Boss-Extrude1' (mm or deg), '$STATE@Fillet1' or a component ('suppressed'/'unsuppressed'), " +
+                 "'$PRP@PartNo' (text), '$MATERIAL' (parts), '$CONFIGURATION@bolt-1' (assemblies). Each configuration is activated, rebuilt " +
+                 "and read back with its volume and mass; a failure undoes the call. Without rows it reads the table: the given columns, or " +
+                 "those that differ between configurations.")]
+    public Task<string> ConfigTable(
+        IProgress<ProgressNotificationValue> progress,
+        [Description("[{name:'Long', values:{'D1@Boss-Extrude1':40, '$STATE@Fillet1':'suppressed', '$PRP@PartNo':'P-40'}}]; omit to read.")]
+        ConfigTableRowArg[]? rows = null,
+        [Description("Columns to read when rows are omitted.")] string[]? columns = null,
+        [Description(DocArg)] string? doc = null,
+        CancellationToken cancellationToken = default)
+    {
+        async Task<ConfigTableResult> Run() =>
+            await _svc.ConfigTableAsync(doc, rows?.Select(r => r.ToRow()).ToList(), columns, cancellationToken);
+        return Output.Json(Run(), progress, "config_table");
+    }
+
+    private const string KindArg = "\"configuration\" (default) or \"display_state\" (of the active configuration).";
+
+    private static bool DisplayState(string? kind) => (kind ?? "").Trim().ToLowerInvariant() switch
+    {
+        "" or "configuration" => false,
+        "display_state" => true,
+        _ => throw SwException.InvalidArgument($"kind must be \"configuration\" or \"display_state\" (got '{kind}')."),
+    };
 
     // ------------------------------------------------------------------ appearance
 
@@ -180,4 +226,25 @@ public sealed class PropertiesTools(SwSession session)
         [Description(DocArg)] string? doc = null,
         CancellationToken cancellationToken = default) =>
         ResultJson.Serialize(await _svc.AppearanceSetAsync(doc, colorRgb, transparency, target, cancellationToken));
+}
+
+/// <summary>A config_table row as the tool receives it.</summary>
+public sealed class ConfigTableRowArg
+{
+    [Description("Configuration name.")]
+    public string Name { get; set; } = "";
+
+    [Description("Column → value: a number for dimensions (mm or deg), text for the $ columns.")]
+    public Dictionary<string, JsonElement> Values { get; set; } = [];
+
+    internal ConfigTableRow ToRow() => new()
+    {
+        Name = Name,
+        Values = Values.ToDictionary(kv => kv.Key, kv => kv.Value.ValueKind switch
+        {
+            JsonValueKind.Number => new ConfigCell(kv.Value.GetDouble(), null),
+            JsonValueKind.String => new ConfigCell(null, kv.Value.GetString()),
+            _ => throw SwException.InvalidArgument($"'{kv.Key}' in row '{Name}': give a number or a string (got {kv.Value.ValueKind})."),
+        }),
+    };
 }

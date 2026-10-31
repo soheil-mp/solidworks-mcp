@@ -202,6 +202,12 @@ count:8}`; vent holes: `feature_pattern_fill {face:{at:[…]}, holeDiameterMm:4,
 `feature_thread {edge:{type:"edge", at:[3,20,0]}, size:"M6", depthMm:12}` on a shaft's end or a tap-drilled hole's rim;
 drawings and BOMs only need `feature_thread_cosmetic`.
 
+**Sizes as configurations.** One call makes a family like a design table: `config_table {rows:[{name:"M8x20",
+values:{"D1@Boss-Extrude1":20, "$PRP@PartNo":"B-0820"}}, {name:"M8x40", values:{"D1@Boss-Extrude1":40,
+"$STATE@Chamfer1":"suppressed", "$MATERIAL":"AISI 304"}}]}`. Each configuration is rebuilt and read back with its volume;
+a failure leaves nothing behind. `config_table {}` reads the table back; in assemblies `$CONFIGURATION@bolt-1` picks a
+part's configuration and `$STATE@bolt-1` suppresses it.
+
 **Materials.** `material_set {name:"6061 Alloy"}` (material_list shows the installed ones). A material that isn't installed (a
 supplier's grade): `material_add {name:"S355J2", densityKgM3:7850, elasticModulusGpa:210, poissonRatio:0.3, yieldMpa:355,
 tensileMpa:510}`, then `material_set {name:"S355J2", database:"solidworks-mcp"}`; simulations use its values.
