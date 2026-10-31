@@ -117,7 +117,12 @@ thickness and number of bends.
 then `weldment_member {type:"square tube", size:"40 x 40 x 4"}` (ISO by default; a wrong type or size lists the real
 ones). One call per group of contiguous or parallel lines: e.g. a table's top rectangle (corners mitered), then its legs
 with `segments:["Line5",…], corner:"none"`. The result lists each member's body and length; `model_cut_list
-{update:true}` gives the cut list (each length with its quantity and end angles).
+{update:true}` gives the cut list (each length with its quantity and end angles). Finish with `weldment_finish`:
+`{kind:"trim", bodies:[{name:"<post body>"}], boundary:[{name:"<beam body>"}], gapMm:0}` (a trimmed body is renamed after
+the trim; the result gives the new name), `{kind:"end_cap", faces:[{at:[…on the tube's end…]}], thicknessMm:5}` (direction
+`inward` or `internal` with `insetMm`), `{kind:"gusset", faces:[{at:…beam top…},{at:…post side…}], thicknessMm:5,
+legsMm:[50,50]}` and `{kind:"bead", faces:[…], faces2:[…], sizeMm:4}` (a weld bead; `side:"all_around"`, or
+`lengthMm`+`pitchMm` for an intermittent weld).
 
 **Assemblies.**
 1. Save each part first (`doc_save {mode:"as", path:"cube.sldprt"}`): components must be files.

@@ -279,6 +279,33 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   of 2 bodies, LENGTH 440 and 340, ANGLE1/ANGLE2 45°, TOTAL LENGTH 1560. A sheet with one sketched bend: 1 sheet-metal
   item with `Bounding Box Length`/`Width` (the blank), `Sheet Metal Thickness`, `Bends`, `Bend Radius`. The values carry
   no unit (the parts were in mm).
+- **Weldment finishing** (VERIFIED 2026-10-31 on a T: a 400 mm beam and a 300 mm post of ISO square tube 40 x 40 x 4).
+  - **Body names are feature names**: a member's body is called like its feature ("square tube 40 x 40 x 4(2)"), so a
+    name resolves to the feature first; resolve it as a body.
+  - **Trim/extend**: `InsertWeldmentTrimFeature2(corner, options, gap, bodies, boundaries)` with corner 4 (trim; 1 miter,
+    2 butt1, 3 butt2) and options AllowTrimmedExtension (1) | WeldGap (8, else the gap is the UI's last value). It works
+    with the bodies to trim **selected on mark 1 and the boundaries on mark 2 and passed as `DispatchWrapper` arrays**;
+    plain arrays, with or without the selection, return a `Trim/Extend<n>` feature with error 1 that never reaches the
+    tree (and uses up the name). The post's foot ended exactly on the beam's top (y = 20, 280/300 of its volume), or 2 mm
+    above with gap 2. **The trimmed body is renamed after the feature** (`Trim/Extend1`): find it again by position.
+  - **End cap**: the end faces on mark 0, then `InsertEndCapFeature3(t, true /*offset*/, false, offset, 0.5, 0, false,
+    inset, false, direction)`. **direction is 0 outward, 1 inward, 2 internal**, not `swEndCapThicknessDirection_e`'s 1..3
+    (1 made an inward cap, 2 one in the bore). The cap is a plain rectangle, not the profile's rounded outline: 40 x 40
+    beyond the end (the member keeps its length); inward the member gets t shorter and the cap (offset from the outer
+    edges) fills that; internal it sits in the 32 mm bore, offset from the bore's walls and inset from the end.
+  - **Gusset**: the two faces on mark 1, then `InsertGussetFeature3(t, side, location, false /*triangle*/, d1, d2, …)`:
+    a triangular plate, d1 along the first face and d2 along the second (6250 mm³ for 50, 50, 5 mm), centred on the
+    joint by default; location start put it at the joint's +z end, thickened inwards with side inner. **The chamfer (D5,
+    D6, BNeedChamferInGusset) is ignored** by lengths and by angle: UNRESOLVED.
+  - **Weld beads**: `InsertFilletBeadFeature3` (the solid fillet bead) made only an empty `DetailFolder` with every
+    argument form tried (object, IDispatch and typed face arrays; all edges or one), and the rollback can't delete the
+    folder: UNRESOLVED. `InsertCosmeticWeldBead2(0 /*weld geometry*/, from, to, size)` with the weld-from faces on mark 4
+    and the weld-to faces on mark 8 as `Face2` arrays works: a `CosmeticWeldBead` ("Weld Bead1") plus a `Weld Folder`
+    (`CosmeticWeldCutList`), `Detail Folder1` and `Weld Sub Folder1`. `ICosmeticWeldBeadFeatureData.GetReferenceEdges`
+    gives the weld's edges (24 mm where the post's flat side meets the beam's top); `Side` (1 selection, 2 both,
+    3 all around; only without tangent propagation), `TangentPropagation`, `IntermittentWeld` + `GapOrPitch` false +
+    `IntermittentWeldLength` + `Pitch` go through `ModifyDefinition` (after `AccessSelections`) and read back. 5 mm every
+    10 mm over 24 mm gave three edges, 14 mm in all.
 
 ## 7. Sheet metal
 - **Base flange** (VERIFIED, exact volume).

@@ -55,7 +55,7 @@ public sealed class WeldmentResult : ToolResult
 /// wrappers, as SOLIDWORKS' own example passes them). Tier A is the usual feature check; Tier B finds one new solid body
 /// per segment, lying along it.
 /// </summary>
-public sealed class WeldmentService(SwSession session)
+public sealed partial class WeldmentService(SwSession session)
 {
     private static readonly FeatureSpec MemberSpec = new("weldment_member", ["WeldMemberFeat", "StructuralMember"], VolumeRule.Increase);
 

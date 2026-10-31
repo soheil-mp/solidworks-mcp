@@ -710,7 +710,9 @@ UTF-8 mark instead of XLSX, since Excel opens it; every column is always written
 - Oracle: quantities against `asm_component_list`; every file written by this call, its header checked as
   `model_export` does; nothing overwritten.
 
-**WP4 · Fabrication data** (M, ⏳; `model_cut_list` ✅ 2026-10-31 for weldment and sheet-metal items)
+**WP4 · Fabrication data** (M, ✅ 2026-10-31: `model_cut_list` for weldment and sheet-metal items; `weldment_finish`
+{trim, end_cap, gusset, bead}. Beads are cosmetic weld beads: the solid fillet bead (`InsertFilletBeadFeature3`) makes only an
+empty Detail Folder in 2025. The gusset chamfer is left out: SOLIDWORKS ignored it both ways)
 - Scope: the weldment cut list (profile, length, end angles, quantity per member); trim/extend, end caps, gussets and
   fillet beads; the sheet-metal cut list (thickness, blank size, bend count).
 - Tools: a `weldment_finish {kind: trim | end_cap | gusset | bead}`; a read-only `model_cut_list`.
