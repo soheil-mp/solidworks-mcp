@@ -721,9 +721,11 @@ empty Detail Folder in 2025. The gusset chamfer is left out: SOLIDWORKS ignored 
   `InsertFilletBeadFeature3`.
 - Oracle: member lengths against the sketch segments plus the miters; the volumes caps, gussets and beads add.
 
-**WP5 · Simulation breadth** (M–L, ⏳; ✅ 2026-10-31: `sim_run {frequency, buckling}`, gravity loads, roller/symmetry/hinge fixtures.
-Frequency and buckling studies run with this installation's licence (Premium 2025 SP1.2). Next: thermal, plots, assemblies and
-contacts)
+**WP5 · Simulation breadth** (M–L, ✅ 2026-10-31: `sim_run {frequency, buckling, thermal}`, gravity loads, roller/symmetry/hinge
+fixtures, `sim_plot`, assemblies (each part keeps its own material; touching bodies bonded). Frequency, buckling and thermal studies
+run with this installation's licence (Premium 2025 SP1.2). Left out: the factor of safety plot (`CreatePlot` gave a range of ±1.5
+million) and other global contacts (`SetGlobalContact` read back free and no-penetration, but the results stayed bonded); local
+contacts and bolt/pin connectors join the Tier 2 backlog)
 - Scope: assemblies and multibody parts (global and local contacts: bonded, no penetration; bolt and pin connectors);
   fixtures roller, hinge and symmetry; loads gravity, torque, bearing, remote and centrifugal; frequency (natural
   frequencies, mode shapes), buckling (load factors) and thermal studies; result plots as images (stress, displacement,
@@ -810,7 +812,8 @@ contacts)
 - configurations: design tables (`InsertFamilyTableNew`, which needs Excel installed), display states, sensors;
 - assembly structure: `IAssemblyDoc.DissolveSubAssembly`, forming subassemblies, hole series
   (`IHoleSeriesFeatureData`; no Smart Fasteners API found);
-- simulation extras: fatigue, nonlinear, reports, mesh convergence;
+- simulation extras: fatigue, nonlinear, reports, mesh convergence; local contacts (no penetration, contact sets) and bolt
+  and pin connectors in assemblies; a factor of safety plot;
 - company templates and sheet formats chosen per call.
 
 **Tier 3** (separate products on the test machine; non-goals until a user asks): CAM toolpaths, Flow Simulation,

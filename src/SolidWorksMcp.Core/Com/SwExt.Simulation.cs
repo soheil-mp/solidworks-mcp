@@ -31,6 +31,10 @@ internal static partial class SwExt
     public static double[] DisplacementRange(this CWResults results, int component, int units, out int error) =>
         ComArgs.Doubles((object?)results.GetMinMaxDisplacement(component, 1, null, units, out error));
 
+    /// <summary><c>ICWResults.GetMinMaxThermal(component, step 1, no plane, units)</c>: [nodeMin, min, nodeMax, max].</summary>
+    public static double[] ThermalRange(this CWResults results, int component, int units, out int error) =>
+        ComArgs.Doubles((object?)results.GetMinMaxThermal(component, 1, null, units, out error));
+
     /// <summary>
     /// <c>ICWResults.GetReactionForcesAndMomentsWithSelections(step 1, no plane, units, selection, …)</c>: the 16-value
     /// summary (sums of forces and moments over the selection, then over the entire model). The per-node return value is

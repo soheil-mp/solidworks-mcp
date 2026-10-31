@@ -316,6 +316,33 @@ public class SimulationMathTests
     }
 
     [Fact]
+    public void Thermal_loads_are_taken_in_si_and_need_somewhere_for_the_heat_to_go()
+    {
+        EntityRef[] f = [new EntityRef { At = [0, 5, 5] }];
+        var t = SimulationMath.ParseThermal([
+            new SimThermalLoad { Kind = "temperature", Faces = f, TemperatureC = 100 },
+            new SimThermalLoad { Kind = "convection", Faces = f, CoefficientWm2K = 25, AmbientC = 20 },
+            new SimThermalLoad { Kind = "heat power", Faces = f, PowerW = 3 },
+            new SimThermalLoad { Kind = "heat_flux", Faces = f, FluxWm2 = 500 },
+        ]);
+        Assert.Equal([SimThermalKind.Temperature, SimThermalKind.Convection, SimThermalKind.HeatPower, SimThermalKind.HeatFlux], t.Select(x => x.Kind));
+        Assert.Equal(373.15, t[0].Value, 1e-9); // °C in, K out
+        Assert.Equal((25.0, 293.15), (t[1].Value, Math.Round(t[1].Ambient, 9)));
+        Assert.Equal("thermal[2]", t[2].Arg);
+        foreach (var bad in new SimThermalLoad[][]
+                 {
+                     [new SimThermalLoad { Kind = "heat_power", Faces = f, PowerW = 3 }], // no sink: the heat has nowhere to go
+                     [new SimThermalLoad { Kind = "temperature", Faces = f }],
+                     [new SimThermalLoad { Kind = "temperature", Faces = f, TemperatureC = -300 }],
+                     [new SimThermalLoad { Kind = "convection", Faces = f, CoefficientWm2K = 0, AmbientC = 20 }],
+                     [new SimThermalLoad { Kind = "radiation", Faces = f }],
+                     [new SimThermalLoad { Kind = "temperature", TemperatureC = 20 }],
+                 })
+            Assert.Equal(ErrorCodes.InvalidArgument, Assert.Throws<SwException>(() => SimulationMath.ParseThermal(bad)).Code);
+        Assert.Equal(ErrorCodes.InvalidArgument, Assert.Throws<SwException>(() => SimulationMath.ParseThermal(null)).Code);
+    }
+
+    [Fact]
     public void Modal_study_types_and_their_default_names()
     {
         Assert.Equal("frequency", SimulationMath.ModalType("Modal"));

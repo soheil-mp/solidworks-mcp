@@ -176,7 +176,13 @@ direction:"-y"}` (valueG, default 1); supports that only stop motion normal to a
 faces:[…]}]`, a cut model's symmetry plane `{kind:"symmetry"}`, a pin hole `{kind:"hinge"}` (cylindrical faces).
 Vibration: `sim_run {type:"frequency", fixedFaces:[…], modes:5}` gives the natural frequencies (Hz; without fixtures six
 rigid-body modes come first). Buckling: `sim_run {type:"buckling", fixedFaces:[…], loads:[…the compressive load…]}`
-gives the load factor: the load times it buckles the part (below 1, the load already does).
+gives the load factor: the load times it buckles the part (below 1, the load already does). Heat: `sim_run
+{type:"thermal", thermal:[{kind:"temperature", faces:[…], temperatureC:80}, {kind:"convection", faces:[…],
+coefficientWm2K:25, ambientC:20}]}` (also heat_power, heat_flux) gives the steady-state temperatures and heat flux. To show
+a result, run with `keepStudy:true`, then `sim_plot {result:"von_mises"}` (or displacement, mode with `mode`, temperature)
+returns the plot as an image; `sim_delete` removes the kept studies. Assemblies work the same way, with faces given per
+component (`{component:"bracket-1", at:[…]}` in the part's own coordinates); each part needs its own material (set with
+material_set on the part), and touching parts are bonded.
 
 ## More help
 - `sw_help` explains the conventions and gives step-by-step recipes for common parts.

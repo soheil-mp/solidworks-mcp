@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using SolidWorksMcp.Core;
 using SolidWorksMcp.Core.Model;
@@ -8,7 +9,7 @@ using SolidWorksMcp.Server.Hosting;
 
 namespace SolidWorksMcp.Server.Tools;
 
-/// <summary>SOLIDWORKS Simulation: linear static, frequency and buckling studies; listing and deleting studies.</summary>
+/// <summary>SOLIDWORKS Simulation: static, frequency, buckling and thermal studies, result plots, listing and deleting studies.</summary>
 [McpServerToolType, Toolset("simulation")]
 public sealed class SimulationTools(SwSession session)
 {
@@ -16,12 +17,12 @@ public sealed class SimulationTools(SwSession session)
     private readonly SimulationService _svc = new(session);
 
     [McpServerTool(Name = "sim_static", Title = "Static stress analysis (FEA)", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-    [Description("FEA / linear static stress analysis of a part with SOLIDWORKS Simulation: fixed faces (also roller, symmetry, hinge " +
+    [Description("FEA / linear static stress analysis of a part or assembly with SOLIDWORKS Simulation: fixed faces (also roller, symmetry, hinge " +
                  "fixtures), pressure, force and gravity loads, high-quality mesh, solve. Returns max von Mises stress (MPa) and where, max " +
                  "displacement (mm) and where, displacement ranges per axis, factor of safety (yield / max von Mises), fixture reactions " +
                  "against the loads (gravity: the weight), mesh counts and timings. Verified: fixtures and loads read back, mesh current, " +
                  "solver status 0. The study is deleted afterwards unless keepStudy; the add-in is loaded if needed and unloaded again. " +
-                 "Needs a material (the part's, or 'material'). Blocks SOLIDWORKS while it solves (progress is reported).")]
+                 "Needs a material (the part's, or 'material'; an assembly's parts their own). Blocks SOLIDWORKS while it solves.")]
     public Task<string> SimStatic(
         IProgress<ProgressNotificationValue> progress,
         [Description("Loads, e.g. [{kind:'pressure',faces:[{at:[50,10,5]}],valueMpa:0.1}], [{kind:'force',faces:[...],valueN:100,direction:[0,-1,0]}] " +
@@ -45,33 +46,60 @@ public sealed class SimulationTools(SwSession session)
         return Output.Json(task, heartbeat, "sim_static");
     }
 
-    [McpServerTool(Name = "sim_run", Title = "Frequency or buckling analysis (FEA)", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-    [Description("FEA beyond static stress with SOLIDWORKS Simulation. frequency: the part's natural frequencies (Hz), lowest first, with " +
-                 "fixed faces (none = free-free: six rigid-body modes near 0 Hz). buckling: the load factors of the given compressive loads " +
-                 "(the loads times the first factor buckle the part; below 1 they already do). Same fixtures, loads, material and mesh as " +
-                 "sim_static (which does static stress); verified: inputs read back, mesh current, solver status 0, results consistent. " +
-                 "The study is deleted afterwards unless keepStudy. Blocks SOLIDWORKS while it solves (progress is reported).")]
+    [McpServerTool(Name = "sim_run", Title = "Frequency, buckling or thermal analysis (FEA)", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("FEA beyond static stress (sim_static). frequency: natural frequencies (Hz), lowest first (no fixtures: six rigid-body " +
+                 "modes at 0 Hz). buckling: load factors (the loads times the first one buckle the part). thermal: steady-state " +
+                 "temperatures (°C) and heat flux. Verified: inputs read back, mesh current, solver status 0, results consistent.")]
     public Task<string> SimRun(
         IProgress<ProgressNotificationValue> progress,
-        [Description("frequency | buckling")] string type,
-        [Description("Faces held fixed, e.g. [{at:[0,5,5]}] (frequency: may be left out).")] EntityRef[]? fixedFaces = null,
-        [Description("More fixtures, as for sim_static: roller, symmetry, hinge.")] SimFixture[]? fixtures = null,
-        [Description("buckling: the loads, e.g. [{kind:'force',faces:[{at:…}],valueN:1000,direction:[0,-1,0]}].")] SimLoad[]? loads = null,
-        [Description("How many modes (default: 5 frequencies, 1 buckling mode).")] int? modes = null,
-        [Description("Material to assign first, as material_list names it; default: the part's own.")] string? material = null,
-        [Description("Global element size in mm (default: SOLIDWORKS' default).")] double? meshSizeMm = null,
-        [Description("Keep the study in the document (sim_delete removes it later).")] bool keepStudy = false,
-        [Description("Study name (default \"MCP Frequency xxxx\" / \"MCP Buckling xxxx\").")] string? studyName = null,
+        [Description("frequency | buckling | thermal")] string type,
+        [Description("Faces held fixed (frequency: optional).")] EntityRef[]? fixedFaces = null,
+        [Description("More fixtures, as for sim_static.")] SimFixture[]? fixtures = null,
+        [Description("buckling: the loads, as for sim_static.")] SimLoad[]? loads = null,
+        [Description("Modes (default 5 frequencies, 1 buckling mode).")] int? modes = null,
+        [Description("thermal: boundary conditions on faces.")] SimThermalLoad[]? thermal = null,
+        [Description("Material to assign first (material_list).")] string? material = null,
+        [Description("Element size in mm (default: SOLIDWORKS').")] double? meshSizeMm = null,
+        [Description("Keep the study (sim_delete removes it).")] bool keepStudy = false,
+        [Description("Study name.")] string? studyName = null,
         [Description(DocArg)] string? doc = null,
         CancellationToken cancellationToken = default)
     {
         var heartbeat = progress is null ? null : new PhaseProgress(progress);
-        var task = _svc.ModesAsync(new SimStaticRequest
+        var q = new SimStaticRequest
         {
             Doc = doc, FixedFaces = fixedFaces, Fixtures = fixtures, Loads = loads, Material = material, MeshSizeMm = meshSizeMm, KeepStudy = keepStudy,
-            StudyName = studyName, Modes = modes,
-        }, type, heartbeat is null ? null : heartbeat.Set, cancellationToken);
-        return Output.Json(task, heartbeat, "sim_run");
+            StudyName = studyName, Modes = modes, Thermal = thermal,
+        };
+        if (string.Equals(type?.Trim(), "thermal", StringComparison.OrdinalIgnoreCase))
+            return Output.Json(_svc.ThermalAsync(q, heartbeat is null ? null : heartbeat.Set, cancellationToken), heartbeat, "sim_run");
+        return Output.Json(_svc.ModesAsync(q, type, heartbeat is null ? null : heartbeat.Set, cancellationToken), heartbeat, "sim_run");
+    }
+
+    [McpServerTool(Name = "sim_plot", Title = "Simulation result plot (image)", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Image of a result plot of a study kept with keepStudy (sim_static / sim_run): von_mises or displacement (static), " +
+                 "mode (frequency, buckling: pass mode), temperature or heat_flux (thermal); deformed shape by default. Verified: the range " +
+                 "the plot shows equals the study's results. Returns the plot's range and the PNG.")]
+    public async Task<CallToolResult> SimPlot(
+        [Description("Study name (default: the one this server kept).")] string? study = null,
+        [Description("von_mises | displacement | mode | temperature | heat_flux (default by the study's type).")] string? result = null,
+        [Description("frequency / buckling: the mode (default 1).")] int? mode = null,
+        [Description("Show the deformed shape.")] bool? deformed = null,
+        [Description("iso | front | top | right | … | current")] string? view = null,
+        [Description("Longest image edge in pixels (64-2048).")] int maxSizePx = 1024,
+        [Description("Also save the PNG here (relative paths go under Documents\\solidworks-mcp).")] string? file = null,
+        [Description("Replace an existing file.")] bool overwrite = false,
+        [Description(DocArg)] string? doc = null,
+        CancellationToken cancellationToken = default)
+    {
+        var r = await _svc.PlotAsync(new SimPlotRequest
+        {
+            Doc = doc, Study = study, Result = result, Mode = mode, Deformed = deformed, View = view, MaxSizePx = maxSizePx, File = file, Overwrite = overwrite,
+        }, cancellationToken);
+        return new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = ResultJson.Serialize(r) }, ImageContentBlock.FromBytes(r.Png, "image/png")],
+        };
     }
 
     [McpServerTool(Name = "sim_list", Title = "List simulation studies", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]

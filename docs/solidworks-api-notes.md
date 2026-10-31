@@ -691,7 +691,30 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   normal), 2 symmetric (flat), 4 fixed hinge (cylindrical); `RestraintType` reads back. On a solid's end face roller and
   symmetry hold the same: the 100 mm cantilever with its end on either bent 0.2562 mm under 500 N (free: 1.0034 mm), the
   guided cantilever's PL³/(12EI) = 0.25 mm plus shear.
-- **Beyond these** (thermal, connectors, contacts, plots): the API survey in §17.
+- **Thermal** (VERIFIED 2026-10-31). `CreateNewStudy3(name, 3, 0, …)`, `ThermalStudyOptions.SolutionType = 1` (steady
+  state). `AddTemperature`, `AddConvection`, `AddHeatPower`, `AddHeatFlux` take faces as for pressures; set the values
+  inside their Begin/EndEdit with `Unit = 0` (Kelvin, and SI for the rest): `TemperatureValue` (K),
+  `ConvectionCoefficient` (W/(m²·K)) and `BulkAmbientTemperature` (K), `HPValue` (W), `HFValue` (W/m²); all read back.
+  SOLIDWORKS' own example uses `Unit = 1`, which makes them °F and English units. `GetMinMaxThermal(0 TEMP, 1, null,
+  2 °C, …)` and `(8 HFLUXN, 1, null, 0, …)` return [node, min, node, max], but the node numbers aren't usable for a
+  location. The 100 x 10 x 10 AISI 1020 bar (k 47): 100 °C to 20 °C gave a flux of exactly 37 600 W/m² (kΔT/L); with h
+  100 to 20 °C off its end, that end reached 85.9649 °C (series resistance: 85.965); 1 W in and h 50 out gave 220 and
+  241.277 °C (theory 220, 241.28).
+- **Plots** (VERIFIED). `ICWResults.CreatePlot(type, component, units, false, out err)` with `swsPlotResultTypes_e` 2
+  stress (component 9 von Mises), 1 displacement or amplitude (3 URES), 5 thermal (0 TEMP, 8 HFLUXN); `ICWPlot.SetModeShape(n)`
+  picks a frequency or buckling mode, `ShowDeformedPlot(true, 0, 0, true)`, `ActivatePlot()` shows it in the graphics
+  area, and a viewport capture then has the plot, legend and title. **CreatePlot ignores its unit**: a displacement plot
+  came in ångström (swsLinearUnit_e 6, 10⁷ x mm). `SetComponentUnitAndValueByElem(component, unit, false)` afterwards
+  sets it. `GetMinMaxResultValues` returns [node, min, node, max] in that unit, equal to the study's results. A factor
+  of safety plot (type 4, criterion 0) gave -1.53 x 10⁶ … 1.48 x 10⁶: UNRESOLVED.
+- **Assemblies** (VERIFIED). The same study flow on an assembly: the solids are the components' bodies (boxes from
+  `IComponent2.GetBox`), fixtures and loads on component faces in assembly context, the materials each part's own
+  (Simulation takes them from the parts). Two 50 mm AISI 1020 halves end to end bent 0.200681 mm under 100 N, the
+  one-piece 100 mm bar 0.200669: touching parts are bonded by default (`GetGlobalContact` reads 0).
+- **Global contact: UNRESOLVED.** `ICWContactManager.SetGlobalContact(1 free | 2 no penetration, 0)` reads back, but the
+  two halves still gave 0.200681 mm (a free half would leave the load unsupported). Component contact
+  (`CreateContactComponent`) and contact sets (`CreateContactSet2`) are untried.
+- **Beyond these** (connectors, local contacts): the API survey in §17.
 
 ## 15. VBA engine facts (for `vba_run`)
 - **Format and runner.** `RunMacro2(path, module, proc, 0, out err)` runs plain-text `.swb` files written in SolidWorks

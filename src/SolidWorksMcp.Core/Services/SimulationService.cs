@@ -140,6 +140,41 @@ public sealed class SimModesResult : ToolResult
     public IReadOnlyList<ResolvedInfo>? Resolved { get; init; }
 }
 
+/// <summary>A thermal boundary condition as sim_run applied it.</summary>
+public sealed class SimThermalLoadInfo
+{
+    /// <summary>temperature | convection | heat_power | heat_flux.</summary>
+    public required string Kind { get; init; }
+    public int Faces { get; init; }
+    public double? TemperatureC { get; init; }
+    public double? CoefficientWm2K { get; init; }
+    public double? AmbientC { get; init; }
+    public double? PowerW { get; init; }
+    public double? FluxWm2 { get; init; }
+    /// <summary>The faces' total area (mm²).</summary>
+    public double AreaMm2 { get; init; }
+}
+
+/// <summary>sim_run thermal: the steady-state temperatures and heat flux.</summary>
+public sealed class SimThermalResult : ToolResult
+{
+    public required string Study { get; init; }
+    public bool StudyKept { get; init; }
+    public required string Material { get; init; }
+    public bool? MaterialAssigned { get; init; }
+    public string? PreviousMaterial { get; init; }
+    public double MinTemperatureC { get; init; }
+    public double MaxTemperatureC { get; init; }
+    /// <summary>The range of the heat flux's magnitude (W/m²).</summary>
+    public double[]? HeatFluxWm2 { get; init; }
+    public required IReadOnlyList<SimThermalLoadInfo> Loads { get; init; }
+    public required SimMeshInfo Mesh { get; init; }
+    public required SimTimes Time { get; init; }
+    public required SimAddinInfo Addin { get; init; }
+    public required IReadOnlyList<string> Checks { get; init; }
+    public IReadOnlyList<ResolvedInfo>? Resolved { get; init; }
+}
+
 /// <summary>One Simulation study of a document.</summary>
 public sealed class SimStudyRow
 {
@@ -185,7 +220,7 @@ public sealed class SimDeleteResult : ToolResult
 /// loaded it. Every step's status is checked and the loads are read back; on failure the study is removed and the
 /// error says what was cleaned up.
 /// </summary>
-public sealed class SimulationService(SwSession session)
+public sealed partial class SimulationService(SwSession session)
 {
     private const int Mm = (int)swsLinearUnit_e.swsLinearUnitMillimeters;           // 0: mesh sizes, displacements
     private const int NPerM2 = (int)swsPressureUnit_e.swsPressureUnit_NewtonsPerMeterSquared; // 0: pressure (Pa)
@@ -272,7 +307,7 @@ public sealed class SimulationService(SwSession session)
 
     /// <summary>The geometry a study runs on, resolved before anything changes.</summary>
     private sealed record Inputs(List<(SimFixtureSpec Spec, List<Resolved> Faces)> Fixtures, List<List<Resolved>> LoadFaces, Vec3? LoadResultant,
-        double[]? Box)
+        double[]? Box, bool SeveralBodies = false)
     {
         public int FixtureFaces => Fixtures.Sum(f => f.Faces.Count);
     }
@@ -299,17 +334,22 @@ public sealed class SimulationService(SwSession session)
         Action<string>? phase, swsAnalysisStudyType_e type, Func<CWStudy, Inputs, List<string>, Stopwatch, T> run)
     {
         var total = Stopwatch.StartNew();
-        var d = ctx.Doc;
-        var part = ctx.Part();
+        var d = ctx.DocOfType(swDocumentTypes_e.swDocPART, swDocumentTypes_e.swDocASSEMBLY);
+        bool assembly = d.GetType() == (int)swDocumentTypes_e.swDocASSEMBLY;
         var entry = ctx.DocEntry;
         string title = ctx.Title(d);
         if (d.SketchManager.ActiveSketch is ISketch open)
             throw new SwException(ErrorCodes.SketchState, $"Sketch '{((IFeature)open).Name}' is open.", "Finish it with sketch_finish first.");
 
-        var solids = part.Bodies(swBodyType_e.swSolidBody, visibleOnly: false);
+        // An assembly's solids are its unsuppressed components' bodies; their boxes come in assembly space from the components.
+        var comps = assembly
+            ? ((IAssemblyDoc)d).Components(false).Where(c => SafeSuppression(c) != (int)swComponentSuppressionState_e.swComponentSuppressed).ToList()
+            : [];
+        var solids = assembly ? comps.SelectMany(c => c.Bodies(swBodyType_e.swSolidBody)).ToList() : ctx.Part().Bodies(swBodyType_e.swSolidBody, visibleOnly: false);
         if (solids.Count == 0)
             throw SwException.InvalidArgument($"'{title}' has no solid body to analyze.", "Model a solid first (feature_extrude, …).");
         var (volume, box) = VolumeAndBox(solids);
+        if (assembly) box = UnionBox(comps.Select(c => c.AsmCompBox()));
         SimulationMath.CheckMeshSize(q.MeshSizeMm, volume);
 
         // Geometry first: a bad reference fails before anything changes.
@@ -317,27 +357,31 @@ public sealed class SimulationService(SwSession session)
         var loadFaces = loads.Select(l => l.Kind == SimLoadKind.Gravity ? [] : EntityResolver.ResolveAll(ctx, d, l.Faces, $"{l.Arg}.faces", EntityKind.Face)).ToList();
         var resolved = fixtures.SelectMany(f => f.Faces.Select(r => r.Info(f.f.Arg)))
             .Concat(loads.SelectMany((l, i) => loadFaces[i].Select(r => r.Info($"{l.Arg}.faces")))).ToList();
-        var inputs = new Inputs(fixtures, loadFaces, LoadResultant(loads, loadFaces), box);
+        var inputs = new Inputs(fixtures, loadFaces, LoadResultant(loads, loadFaces), box, solids.Count > 1);
         var checks = new List<string>();
 
-        // The material must be explicit: the given one (through material_set's checked logic), else the part's own.
-        string currentMaterial = part.GetMaterialPropertyName2("", out _) ?? "";
+        // The material must be explicit: the given one (through material_set's checked logic), else the part's own; an
+        // assembly's parts each keep their own.
+        string currentMaterial = assembly ? ComponentMaterials(comps, material, checks) : ctx.Part().GetMaterialPropertyName2("", out _) ?? "";
         string? previousMaterial = null;
         bool assigned = false;
-        if (material is not null)
+        if (!assembly)
         {
-            phase?.Invoke("assigning the material");
-            // Runs inline on this STA thread (the dispatcher is re-entrant), so the task is already complete.
-            var set = new PropertiesService(session).MaterialSetAsync(entry.Handle, material).GetAwaiter().GetResult();
-            previousMaterial = set.Previous;
-            currentMaterial = set.Material;
-            assigned = true;
-            checks.Add($"material '{set.Material}' assigned and read back (was {(set.Previous is null ? "none" : $"'{set.Previous}'")})");
+            if (material is not null)
+            {
+                phase?.Invoke("assigning the material");
+                // Runs inline on this STA thread (the dispatcher is re-entrant), so the task is already complete.
+                var set = new PropertiesService(session).MaterialSetAsync(entry.Handle, material).GetAwaiter().GetResult();
+                previousMaterial = set.Previous;
+                currentMaterial = set.Material;
+                assigned = true;
+                checks.Add($"material '{set.Material}' assigned and read back (was {(set.Previous is null ? "none" : $"'{set.Previous}'")})");
+            }
+            else if (currentMaterial.Length == 0)
+                throw SwException.InvalidArgument($"'{title}' has no material, so its stiffness and strength are unknown.",
+                    "Pass material (e.g. \"AISI 1020\", \"6061 Alloy\"; material_list shows the names), or call material_set first.");
+            else checks.Add($"part material '{currentMaterial}'");
         }
-        else if (currentMaterial.Length == 0)
-            throw SwException.InvalidArgument($"'{title}' has no material, so its stiffness and strength are unknown.",
-                "Pass material (e.g. \"AISI 1020\", \"6061 Alloy\"; material_list shows the names), or call material_set first.");
-        else checks.Add($"part material '{currentMaterial}'");
 
         // Gravity pulls with the part's weight: known once the material (its density) is.
         if (loads.Any(l => l.Kind == SimLoadKind.Gravity) && inputs.LoadResultant is Vec3 sum)
@@ -487,11 +531,13 @@ public sealed class SimulationService(SwSession session)
         }
         if (fixObjs.Count == 0 && s.AnalysisType == (int)swsAnalysisStudyType_e.swsAnalysisStudyTypeFrequency)
             checks.Add("no fixtures: free-free, so the first six modes are rigid-body modes near 0 Hz");
-        else if (fixObjs.Count == 0) ctx.Warn("No fixture was applied (test mode).");
+        else if (fixObjs.Count == 0 && s.AnalysisType != (int)swsAnalysisStudyType_e.swsAnalysisStudyTypeThermal)
+            ctx.Warn("No fixture was applied (test mode).");
 
         var applied = new List<SimLoadInfo>();
         for (int i = 0; i < loads.Count; i++)
             applied.Add(ApplyLoad(ctx, lr, loads[i], inputs.LoadFaces[i], flavor, checks));
+        if (inputs.SeveralBodies) ReportContact(s, checks);
         double setupS = total.Elapsed.TotalSeconds;
 
         // Mesh: high quality (second order), SOLIDWORKS' default size unless the caller gave one. Lengths in mm (unit 0).
@@ -533,6 +579,164 @@ public sealed class SimulationService(SwSession session)
         checks.Add("solver status 0");
         phase?.Invoke("reading results");
         return new Solved(lr, flavor, fixObjs, applied, meshInfo, mesh, inputs.Box, setupS, meshClock.Elapsed.TotalSeconds, solveClock.Elapsed.TotalSeconds);
+    }
+
+    // ------------------------------------------------------------------ sim_run: thermal
+
+    private const int Kelvin = (int)swsTemperatureUnit_e.swsTemperatureUnitKelvin; // 0: with SI for h, W and W/m²
+    private const int Celsius = (int)swsTemperatureUnit_e.swsTemperatureUnitCelsius;
+
+    /// <summary>A steady-state thermal study: temperatures, convection, heat power and heat flux on faces; the temperatures and heat flux.</summary>
+    public Task<SimThermalResult> ThermalAsync(SimStaticRequest q, Action<string>? phase = null, CancellationToken ct = default)
+    {
+        var thermal = SimulationMath.ParseThermal(q.Thermal);
+        if (q.Loads is { Count: > 0 } || SimulationMath.ParseFixtures(q.FixedFaces, q.Fixtures).Count > 0)
+            throw SwException.InvalidArgument("A thermal study takes 'thermal' loads only, no fixtures or structural loads.",
+                "Temperatures and convection hold it thermally; use sim_static for stresses.");
+        if (q.MeshSizeMm is double ms && (!double.IsFinite(ms) || ms <= 0))
+            throw SwException.InvalidArgument($"'meshSizeMm' must be a positive length in mm (got {ms}).", "Omit it for SOLIDWORKS' default size.");
+        string study = SimulationMath.StudyName(q.StudyName, "MCP Thermal");
+        string? material = string.IsNullOrWhiteSpace(q.Material) ? null : q.Material.Trim();
+        var timeout = TimeSpan.FromSeconds(Math.Max(SimulationMath.TimeoutS, session.Options.DefaultTimeout.TotalSeconds));
+        return session.RunAsync("sim_run", ctx => Thermal(ctx, q with { AllowNoFixtures = true }, thermal, study, material, phase),
+            RunOptions.Write(q.Doc) with { Timeout = timeout, DialogRules = DialogRules.SimulationRun(study) }, ct);
+    }
+
+    private SimThermalResult Thermal(SwContext ctx, SimStaticRequest q, IReadOnlyList<SimThermalSpec> thermal, string study, string? material,
+        Action<string>? phase)
+    {
+        // Geometry first: a bad reference fails before anything changes.
+        var faces = thermal.Select(t => EntityResolver.ResolveAll(ctx, ctx.Doc, t.Faces, $"{t.Arg}.faces", EntityKind.Face)).ToList();
+        var r = Execute(ctx, q, [], study, material, phase, swsAnalysisStudyType_e.swsAnalysisStudyTypeThermal, (s, inputs, checks, total) =>
+        {
+            var lr = s.LoadsAndRestraintsManager ?? throw new SwException(ErrorCodes.FeatureFailed, "The new study has no loads-and-restraints manager.");
+            var flavor = new Flavor();
+            phase?.Invoke("applying thermal loads");
+            var applied = thermal.Select((t, i) => ApplyThermal(lr, t, faces[i], flavor, checks)).ToList();
+            var solved = Solve(ctx, s, inputs, [], q.MeshSizeMm, checks, phase, total, () =>
+            {
+                var to = s.ThermalStudyOptions ?? throw new SwException(ErrorCodes.FeatureFailed, "The thermal study has no options object.");
+                to.SolutionType = (int)swsThermalSolutionType_e.swsThermalSolutionTypeSteadyState;
+                if (to.SolutionType != (int)swsThermalSolutionType_e.swsThermalSolutionTypeSteadyState)
+                    throw new SwException(ErrorCodes.VerifyFailed, $"The thermal study reads back solution type {to.SolutionType}, not steady state.");
+                checks.Add("steady-state solution (read back)");
+            });
+            var res = s.Results ?? throw new SwException(ErrorCodes.VerifyFailed, "The solver reported success but the study has no results.");
+            var temp = SimulationMath.Range(res.ThermalRange((int)swsThermalComponent_e.swsThermalComponentTEMP, Celsius, out int te));
+            if (temp is null || te != 0)
+                throw new SwException(ErrorCodes.VerifyFailed, $"The temperatures could not be read ({Name<swsResultsError_e>(te)}).");
+            var flux = SimulationMath.Range(res.ThermalRange((int)swsThermalComponent_e.swsThermalComponentHFLUXN, 0, out int fe));
+            if (flux is null || fe != 0) ctx.Warn($"The heat flux could not be read ({Name<swsResultsError_e>(fe)}).");
+            // Without heat put in, no point gets hotter than the hottest boundary or colder than the coldest (maximum principle).
+            var bounds = thermal.Where(t => t.Kind is SimThermalKind.Temperature or SimThermalKind.Convection)
+                .Select(t => t.Kind == SimThermalKind.Temperature ? t.Value : t.Ambient).Select(k => k - SimulationMath.KelvinOffset).ToList();
+            double lo = bounds.Min(), hi = bounds.Max(), tol = Math.Max(1e-3, 1e-4 * (hi - lo));
+            bool heated = thermal.Any(t => t.Kind is SimThermalKind.HeatPower or SimThermalKind.HeatFlux);
+            if (!heated)
+            {
+                if (temp.Min < lo - tol || temp.Max > hi + tol)
+                    throw new SwException(ErrorCodes.VerifyFailed,
+                        $"The temperatures {SimulationMath.F(temp.Min)}..{SimulationMath.F(temp.Max)} °C leave the boundary range {SimulationMath.F(lo)}..{SimulationMath.F(hi)} °C with no heat put in.");
+                checks.Add($"temperatures {SimulationMath.F(SimulationMath.Sig(temp.Min, 6))}..{SimulationMath.F(SimulationMath.Sig(temp.Max, 6))} °C, within the boundaries' {SimulationMath.F(lo)}..{SimulationMath.F(hi)} °C");
+            }
+            else checks.Add($"temperatures {SimulationMath.F(SimulationMath.Sig(temp.Min, 6))}..{SimulationMath.F(SimulationMath.Sig(temp.Max, 6))} °C");
+            return (solved, temp, flux, applied);
+        });
+        var (sv, tr, fr, loads) = r.Outcome;
+        var resolved = r.Resolved.Concat(thermal.SelectMany((t, i) => faces[i].Select(x => x.Info($"{t.Arg}.faces")))).ToList();
+        return new SimThermalResult
+        {
+            Doc = r.Title,
+            Study = study,
+            StudyKept = r.Clean.Kept,
+            Material = r.Material,
+            MaterialAssigned = r.Assigned ? true : null,
+            PreviousMaterial = r.PreviousMaterial,
+            MinTemperatureC = SimulationMath.Sig(tr.Min),
+            MaxTemperatureC = SimulationMath.Sig(tr.Max),
+            HeatFluxWm2 = fr is null ? null : [SimulationMath.Sig(fr.Min), SimulationMath.Sig(fr.Max)],
+            Loads = loads,
+            Mesh = sv.Mesh,
+            Time = r.Times(sv),
+            Addin = r.AddinInfo,
+            Checks = r.Checks,
+            Resolved = resolved,
+        };
+    }
+
+    /// <summary>One thermal load: added on its faces, its value set in SI inside Begin/EndEdit, and read back.</summary>
+    private static SimThermalLoadInfo ApplyThermal(CWLoadsAndRestraintsManager lr, SimThermalSpec t, List<Resolved> faces, Flavor flavor, List<string> checks)
+    {
+        var objs = faces.Select(r => r.Obj).ToList();
+        double area = faces.Sum(f => f.Obj is IFace2 face ? face.GetArea() : 0);
+        string on = $"on {objs.Count} face(s)";
+        SwException Refused(int err, string how, string what) =>
+            new(ErrorCodes.FeatureFailed, $"Simulation did not accept the {what} of {t.Arg} (code {err}{how}).", $"{t.Arg}.faces must be faces of the part's solid body.");
+        void Back(bool ok, string what)
+        {
+            if (!ok) throw new SwException(ErrorCodes.VerifyFailed, $"{t.Arg}: the {what} reads back differently from what was set.");
+        }
+        double c = t.Value - SimulationMath.KelvinOffset;
+        switch (t.Kind)
+        {
+            case SimThermalKind.Temperature:
+            {
+                var (x, err, how) = AddOnEntities(lr, objs, flavor, a => (lr.AddTemperature(a, out int e), e));
+                if (x is null) throw Refused(err, how, "temperature");
+                x.TemperatureBeginEdit();
+                x.Unit = Kelvin;
+                x.TemperatureValue = t.Value;
+                int end = x.TemperatureEndEdit();
+                if (end != 0) throw new SwException(ErrorCodes.FeatureFailed, $"Simulation refused the temperature of {t.Arg} (code {end}).");
+                Back(x.Unit == Kelvin && Math.Abs(x.TemperatureValue - t.Value) < 1e-9, "temperature");
+                checks.Add($"{t.Arg}: temperature {SimulationMath.F(SimulationMath.Sig(c, 6))} °C {on} read back{how}");
+                return new SimThermalLoadInfo { Kind = "temperature", Faces = objs.Count, TemperatureC = SimulationMath.Sig(c), AreaMm2 = Units.Mm2(area) };
+            }
+            case SimThermalKind.Convection:
+            {
+                var (x, err, how) = AddOnEntities(lr, objs, flavor, a => (lr.AddConvection(a, out int e), e));
+                if (x is null) throw Refused(err, how, "convection");
+                x.ConvectionBeginEdit();
+                x.Unit = Kelvin;
+                x.ConvectionCoefficient = t.Value;
+                x.BulkAmbientTemperature = t.Ambient;
+                int end = x.ConvectionEndEdit();
+                if (end != 0) throw new SwException(ErrorCodes.FeatureFailed, $"Simulation refused the convection of {t.Arg} (code {end}).");
+                Back(x.Unit == Kelvin && Math.Abs(x.ConvectionCoefficient - t.Value) < 1e-9 * t.Value && Math.Abs(x.BulkAmbientTemperature - t.Ambient) < 1e-9, "convection");
+                double amb = t.Ambient - SimulationMath.KelvinOffset;
+                checks.Add($"{t.Arg}: convection {SimulationMath.F(t.Value)} W/(m²·K) to {SimulationMath.F(SimulationMath.Sig(amb, 6))} °C {on} read back{how}");
+                return new SimThermalLoadInfo
+                {
+                    Kind = "convection", Faces = objs.Count, CoefficientWm2K = t.Value, AmbientC = SimulationMath.Sig(amb), AreaMm2 = Units.Mm2(area),
+                };
+            }
+            case SimThermalKind.HeatPower:
+            {
+                var (x, err, how) = AddOnEntities(lr, objs, flavor, a => (lr.AddHeatPower(a, out int e), e));
+                if (x is null) throw Refused(err, how, "heat power");
+                x.HeatPowerBeginEdit();
+                x.Unit = 0; // W
+                x.HPValue = t.Value;
+                int end = x.HeatPowerEndEdit();
+                if (end != 0) throw new SwException(ErrorCodes.FeatureFailed, $"Simulation refused the heat power of {t.Arg} (code {end}).");
+                Back(Math.Abs(x.HPValue - t.Value) < 1e-9 * t.Value, "heat power");
+                checks.Add($"{t.Arg}: heat power {SimulationMath.F(t.Value)} W {on} read back{how}");
+                return new SimThermalLoadInfo { Kind = "heat_power", Faces = objs.Count, PowerW = t.Value, AreaMm2 = Units.Mm2(area) };
+            }
+            default:
+            {
+                var (x, err, how) = AddOnEntities(lr, objs, flavor, a => (lr.AddHeatFlux(a, out int e), e));
+                if (x is null) throw Refused(err, how, "heat flux");
+                x.HeatFluxBeginEdit();
+                x.Unit = 0; // W/m²
+                x.HFValue = t.Value;
+                int end = x.HeatFluxEndEdit();
+                if (end != 0) throw new SwException(ErrorCodes.FeatureFailed, $"Simulation refused the heat flux of {t.Arg} (code {end}).");
+                Back(Math.Abs(x.HFValue - t.Value) < 1e-9 * t.Value, "heat flux");
+                checks.Add($"{t.Arg}: heat flux {SimulationMath.F(t.Value)} W/m² {on} read back{how}");
+                return new SimThermalLoadInfo { Kind = "heat_flux", Faces = objs.Count, FluxWm2 = t.Value, AreaMm2 = Units.Mm2(area) };
+            }
+        }
     }
 
     // ------------------------------------------------------------------ sim_run: frequency and buckling
@@ -786,6 +990,67 @@ public sealed class SimulationService(SwSession session)
             Kind = "gravity", Faces = 0, Direction = SimulationMath.Vector(dir), AccelerationMs2 = SimulationMath.Sig(load.Value),
             ForceN = mass > 0 ? SimulationMath.Sig(mass * load.Value) : null,
         };
+    }
+
+    /// <summary>
+    /// The global contact between bodies, reported (SOLIDWORKS bonds touching bodies by default). Setting another one is not
+    /// offered: SetGlobalContact read back free and no_penetration, yet the results stayed the bonded ones (UNRESOLVED).
+    /// </summary>
+    private static void ReportContact(CWStudy s, List<string> checks)
+    {
+        try
+        {
+            if (s.ContactManager is not { } cm) return;
+            cm.GetGlobalContact(out int type, out _);
+            checks.Add($"global contact between the bodies: {SimulationMath.ContactName(type)} (SOLIDWORKS' default)");
+        }
+        catch (COMException e) when (!ComArgs.IsDisconnect(e)) { /* reported only */ }
+    }
+
+    /// <summary>
+    /// The materials of an assembly's parts, which Simulation takes from each part: every part needs one, and 'material'
+    /// (which would change the part files) is refused.
+    /// </summary>
+    private static string ComponentMaterials(List<IComponent2> comps, string? material, List<string> checks)
+    {
+        if (material is not null)
+            throw SwException.InvalidArgument("'material' sets a part's material; in an assembly each part keeps its own.",
+                "Set each part's material with material_set on the part, then run the study on the assembly.");
+        var missing = new List<string>();
+        var names = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var c in comps)
+        {
+            string name = c.Name2 ?? "?";
+            if ((object?)c.GetModelDoc2() is not IModelDoc2 m)
+            {
+                missing.Add(name + " (not loaded)");
+                continue;
+            }
+            if (m is not IPartDoc p) continue; // a subassembly: its parts are in the list too
+            string mat = p.GetMaterialPropertyName2(c.ReferencedConfiguration ?? "", out _) ?? "";
+            if (mat.Length == 0) missing.Add(name);
+            else names.Add(mat);
+        }
+        if (missing.Count > 0)
+            throw SwException.InvalidArgument($"{Quote(missing.Take(8))} {(missing.Count == 1 ? "has" : "have")} no material, so {(missing.Count == 1 ? "its" : "their")} stiffness is unknown.",
+                "Set each part's material with material_set on the part, then run the study on the assembly.");
+        checks.Add($"the parts' materials: {Quote(names)}");
+        return string.Join(", ", names);
+    }
+
+    private static int SafeSuppression(IComponent2 c)
+    {
+        try { return c.GetSuppression2(); }
+        catch (COMException e) when (!ComArgs.IsDisconnect(e)) { return -1; }
+    }
+
+    private static double[]? UnionBox(IEnumerable<double[]> boxes)
+    {
+        double[]? box = null;
+        foreach (var bb in boxes.Where(b => b.Length == 6))
+            box = box is null ? bb : [Math.Min(box[0], bb[0]), Math.Min(box[1], bb[1]), Math.Min(box[2], bb[2]),
+                Math.Max(box[3], bb[3]), Math.Max(box[4], bb[4]), Math.Max(box[5], bb[5])];
+        return box;
     }
 
     /// <summary>A fixture's faces, checked against the surface its kind needs (roller and symmetry: flat; hinge: cylindrical).</summary>

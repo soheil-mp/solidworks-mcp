@@ -239,10 +239,134 @@ public class SimulationLiveTests(LiveFixture fx) : LiveTest(fx)
                      (new SimStaticRequest { Doc = doc, FixedFaces = [Foot] }, "buckling"),
                      (new SimStaticRequest { Doc = doc, Loads = loads }, "buckling"),
                      (new SimStaticRequest { Doc = doc, FixedFaces = [Foot], Modes = 0 }, "frequency"),
-                     (new SimStaticRequest { Doc = doc, FixedFaces = [Foot] }, "thermal"),
+                     (new SimStaticRequest { Doc = doc, FixedFaces = [Foot] }, "static"),
                  })
             Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() => Sim.ModesAsync(q, type))).Code);
         await AssertCleanAsync(doc, addinBefore);
+    }
+
+    // ------------------------------------------------------------------ sim_run: thermal, sim_plot
+
+    [Fact]
+    public async Task Thermal_bar_matches_conduction_through_it_and_the_convection_off_its_end()
+    {
+        // The cantilever bar as a conductor: k = 47 W/(m·K), A = 1 cm², L = 0.1 m; heat flows along x.
+        string doc = await CantileverAsync("sim_thermal");
+        bool addinBefore = await AddinLoadedAsync(doc);
+        SimThermalLoad T(EntityRef face, double c) => new() { Kind = "temperature", Faces = [face], TemperatureC = c };
+        SimThermalLoad Conv(double h) => new() { Kind = "convection", Faces = [FreeEnd], CoefficientWm2K = h, AmbientC = 20 };
+
+        // 100 °C to 20 °C: linear, q = kΔT/L = 37 600 W/m² everywhere.
+        var two = await Sim.ThermalAsync(new SimStaticRequest { Doc = doc, Thermal = [T(FixedEnd, 100), T(FreeEnd, 20)] });
+        Assert.Equal((20.0, 100.0), (Math.Round(two.MinTemperatureC, 4), Math.Round(two.MaxTemperatureC, 4)));
+        Assert.Equal(37600, two.HeatFluxWm2![0], 37.6);
+        Assert.Equal(37600, two.HeatFluxWm2[1], 37.6);
+        Assert.Contains(two.Checks, c => c.StartsWith("temperatures 20..100 °C, within the boundaries'", StringComparison.Ordinal));
+        // 100 °C at one end, h = 100 W/(m²·K) to 20 °C off the other: q = 80/(L/k + 1/h), the end at 20 + q/h = 85.965 °C.
+        double q = 80 / (0.1 / 47 + 1 / 100.0);
+        var conv = await Sim.ThermalAsync(new SimStaticRequest { Doc = doc, Thermal = [T(FixedEnd, 100), Conv(100)] });
+        Assert.Equal(20 + q / 100, conv.MinTemperatureC, 0.01);
+        Assert.Equal(q, conv.HeatFluxWm2![1], q * 1e-3);
+        // 1 W into one end, h = 50 off the other: 10 000 W/m² through it, 220 °C at the cooled end, 241.28 °C at the heated one.
+        var heat = await Sim.ThermalAsync(new SimStaticRequest
+        {
+            Doc = doc, Thermal = [new SimThermalLoad { Kind = "heat_power", Faces = [FixedEnd], PowerW = 1 }, Conv(50)],
+        });
+        Assert.Equal(220, heat.MinTemperatureC, 0.01);
+        Assert.Equal(220 + 1e4 * 0.1 / 47, heat.MaxTemperatureC, 0.01);
+        await AssertCleanAsync(doc, addinBefore);
+
+        // A thermal study holds no fixtures or forces, and needs a sink.
+        foreach (var bad in new[]
+                 {
+                     new SimStaticRequest { Doc = doc, FixedFaces = [FixedEnd], Thermal = [T(FixedEnd, 100)] },
+                     new SimStaticRequest { Doc = doc, Thermal = [new SimThermalLoad { Kind = "heat_power", Faces = [FixedEnd], PowerW = 1 }] },
+                 })
+            Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() => Sim.ThermalAsync(bad))).Code);
+        await AssertCleanAsync(doc, addinBefore);
+    }
+
+    [Fact]
+    public async Task Plots_of_kept_studies_show_the_results_range_in_an_image()
+    {
+        string doc = await CantileverAsync("sim_plot");
+        bool addinBefore = await AddinLoadedAsync(doc);
+        var st = await StaticAsync(new SimStaticRequest
+        {
+            Doc = doc, FixedFaces = [FixedEnd], KeepStudy = true, StudyName = "MCP Plot S",
+            Loads = [new SimLoad { Kind = "force", Faces = [FreeEnd], ValueN = 100, Direction = Json("[0,-1,0]") }],
+        });
+        var vm = await Sim.PlotAsync(new SimPlotRequest { Doc = doc, Study = "MCP Plot S" });
+        Assert.Equal(("von_mises", "MPa"), (vm.Result, vm.Unit));
+        Assert.Equal(st.MaxVonMisesMpa, vm.Range![1], st.MaxVonMisesMpa * 1e-5);
+        Assert.True(vm.Png.Length > 2000 && vm.WidthPx > 0, "an image");
+        Assert.Contains(vm.Checks, c => c.StartsWith("the plot shows the results' range", StringComparison.Ordinal));
+        // Displacement in mm (CreatePlot alone gave ångström).
+        var u = await Sim.PlotAsync(new SimPlotRequest { Doc = doc, Study = "MCP Plot S", Result = "displacement", View = "front" });
+        Assert.Equal(st.MaxDisplacementMm, u.Range![1], st.MaxDisplacementMm * 1e-5);
+        var fr = await ModesAsync(new SimStaticRequest { Doc = doc, FixedFaces = [FixedEnd], Modes = 3, KeepStudy = true, StudyName = "MCP Plot F" }, "frequency");
+        var mode = await Sim.PlotAsync(new SimPlotRequest { Doc = doc, Study = "MCP Plot F", Mode = 3 });
+        Assert.Equal(("mode", 3), (mode.Result, mode.Mode));
+        Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() =>
+            Sim.PlotAsync(new SimPlotRequest { Doc = doc, Study = "MCP Plot F", Result = "temperature" }))).Code);
+        Assert.Equal(ErrorCodes.EntityAmbiguous, (await Assert.ThrowsAsync<SwException>(() => Sim.PlotAsync(new SimPlotRequest { Doc = doc }))).Code);
+        Assert.Equal(3, fr.FrequenciesHz!.Count);
+        var del = await Sim.DeleteAsync(doc, null);
+        Assert.Equal(2, del.Deleted.Count);
+        await AssertCleanAsync(doc, addinBefore);
+    }
+
+    [Fact]
+    public async Task Two_bonded_halves_in_an_assembly_bend_like_the_one_piece_cantilever()
+    {
+        // Two 50 × 10 × 10 AISI 1020 halves end to end (x 0..50 and 50..100), bonded as SOLIDWORKS bonds touching parts:
+        // under 100 N at the far end they bend like the one-piece 100 mm cantilever (0.2007 mm).
+        string dir = Path.Combine(Path.GetTempPath(), $"swmcp_sim_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var docs = new DocumentService(S);
+        var opened = new List<string>();
+        try
+        {
+            async Task<string> HalfAsync(string name)
+            {
+                string p = await NewPartAsync(name);
+                opened.Add(p);
+                var sk = new SketchService(S);
+                await sk.StartAsync(p, new EntityRef { Name = "front" }, false);
+                await sk.AddAsync(p, [new SketchEntity { Kind = "rectangle", Corners = [[0, 0], [50, 10]] }]);
+                await new FeatureService(S).ExtrudeAsync(new ExtrudeRequest { Doc = p, DepthMm = 10 });
+                await new PropertiesService(S).MaterialSetAsync(p, "AISI 1020");
+                return (await docs.SaveAsync(p, "as", Path.Combine(dir, name + ".sldprt"), false)).SavedTo!;
+            }
+            string a = await HalfAsync("half_a"), b = await HalfAsync("half_b");
+            string asm = (await docs.NewAsync("assembly", "mmgs", null, $"sim_asm_{Guid.NewGuid().ToString("N")[..6]}")).Document.Handle;
+            opened.Insert(0, asm);
+            var asmSvc = new AssemblyService(S);
+            await asmSvc.InsertAsync(new AsmInsertRequest { Doc = asm, Path = a, OriginMm = [0, 0, 0] });
+            await asmSvc.InsertAsync(new AsmInsertRequest { Doc = asm, Path = b, OriginMm = [50, 0, 0] });
+            bool addinBefore = await AddinLoadedAsync(asm);
+            var fixedEnd = new EntityRef { Component = "half_a-1", At = [0, 5, 5] };
+            var down = new SimLoad { Kind = "force", Faces = [new EntityRef { Component = "half_b-1", At = [50, 5, 5] }], ValueN = 100, Direction = Json("[0,-1,0]") };
+            var r = await StaticAsync(new SimStaticRequest { Doc = asm, FixedFaces = [fixedEnd], Loads = [down] });
+            Assert.Equal(0.200669, r.MaxDisplacementMm, 0.200669 * 0.005);
+            Assert.True(r.Reactions?.Balanced);
+            Assert.Contains(r.Checks, c => c.StartsWith("the parts' materials: 'AISI 1020'", StringComparison.Ordinal));
+            Assert.Contains(r.Checks, c => c.StartsWith("global contact between the bodies: bonded", StringComparison.Ordinal));
+            // 'material' would change the part files: refused for an assembly, before any study.
+            Assert.Equal(ErrorCodes.InvalidArgument, (await Assert.ThrowsAsync<SwException>(() =>
+                Sim.StaticAsync(new SimStaticRequest { Doc = asm, FixedFaces = [fixedEnd], Loads = [down], Material = "AISI 1020" }))).Code);
+            await AssertCleanAsync(asm, addinBefore);
+        }
+        finally
+        {
+            foreach (var h in opened)
+            {
+                try { await docs.CloseAsync(h, save: false, discard: true); }
+                catch (SwException) { /* closed already */ }
+            }
+            try { Directory.Delete(dir, recursive: true); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* best effort */ }
+        }
     }
 
     // ------------------------------------------------------------------ sim_static: oracles

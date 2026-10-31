@@ -32,6 +32,31 @@ public sealed class SimLoad
     public JsonElement? Direction { get; set; }
 }
 
+/// <summary>A thermal boundary condition of sim_run thermal (steady state).</summary>
+public sealed class SimThermalLoad
+{
+    [Description("temperature | convection | heat_power | heat_flux")]
+    public string? Kind { get; set; }
+
+    [Description("Faces it acts on.")]
+    public EntityRef[]? Faces { get; set; }
+
+    [Description("temperature: °C.")]
+    public double? TemperatureC { get; set; }
+
+    [Description("convection: h, W/(m²·K).")]
+    public double? CoefficientWm2K { get; set; }
+
+    [Description("convection: ambient, °C.")]
+    public double? AmbientC { get; set; }
+
+    [Description("heat_power: W (total).")]
+    public double? PowerW { get; set; }
+
+    [Description("heat_flux: W/m².")]
+    public double? FluxWm2 { get; set; }
+}
+
 /// <summary>A fixture of sim_static / sim_run beyond fixedFaces.</summary>
 public sealed class SimFixture
 {
@@ -58,6 +83,8 @@ public sealed record SimStaticRequest
     public string? StudyName { get; init; }
     /// <summary>sim_run frequency / buckling: how many modes (default 5 natural frequencies, 1 buckling mode).</summary>
     public int? Modes { get; init; }
+    /// <summary>sim_run thermal: temperatures, convection, heat power and heat flux on faces.</summary>
+    public IReadOnlyList<SimThermalLoad>? Thermal { get; init; }
 
     /// <summary>
     /// Live tests only (not reachable from the tool): run a study without a fixture, so the solver's own refusal and the
@@ -76,6 +103,17 @@ internal sealed record SimLoadSpec(int Index, SimLoadKind Kind, IReadOnlyList<En
 {
     public string Arg => $"loads[{Index}]";
     public string KindName => Kind switch { SimLoadKind.Pressure => "pressure", SimLoadKind.Force => "force", _ => "gravity" };
+}
+
+internal enum SimThermalKind { Temperature, Convection, HeatPower, HeatFlux }
+
+/// <summary>
+/// A validated thermal load in SI: temperature (K), convection (h in W/(m²·K) and the ambient in K), heat power (W) or
+/// heat flux (W/m²).
+/// </summary>
+internal sealed record SimThermalSpec(int Index, SimThermalKind Kind, IReadOnlyList<EntityRef> Faces, double Value, double Ambient = 0)
+{
+    public string Arg => $"thermal[{Index}]";
 }
 
 /// <summary>A validated fixture: its kind name, the swsRestraintType_e code, the surface its faces must have, and the faces.</summary>
@@ -248,6 +286,48 @@ internal static class SimulationMath
     // ------------------------------------------------------------------ frequency and buckling
 
     public const int MaxModes = 50;
+
+    public const double KelvinOffset = 273.15;
+
+    /// <summary>A global contact type (swsContactType_e): bonded 0, free 1, no_penetration 2.</summary>
+    public static string ContactName(int code) => code switch { 0 => "bonded", 1 => "free", 2 => "no_penetration", _ => $"type {code}" };
+
+    /// <summary>
+    /// sim_run thermal's boundary conditions, in SI. A steady state needs somewhere for the heat to go: at least one
+    /// temperature or convection.
+    /// </summary>
+    public static IReadOnlyList<SimThermalSpec> ParseThermal(IReadOnlyList<SimThermalLoad>? loads)
+    {
+        if (loads is not { Count: > 0 })
+            throw SwException.InvalidArgument("A thermal study needs 'thermal' loads: temperatures, convection, heat power or heat flux on faces.",
+                "e.g. thermal:[{kind:'temperature',faces:[{at:…}],temperatureC:100},{kind:'convection',faces:[…],coefficientWm2K:25,ambientC:20}].");
+        if (loads.Count > MaxLoads) throw SwException.InvalidArgument($"'thermal' has {loads.Count} entries; at most {MaxLoads} are supported.");
+        var list = new List<SimThermalSpec>();
+        for (int i = 0; i < loads.Count; i++)
+        {
+            var l = loads[i] ?? throw SwException.InvalidArgument($"'thermal[{i}]' is null.");
+            string arg = $"thermal[{i}]";
+            if (l.Faces is not { Length: > 0 }) throw SwException.InvalidArgument($"'{arg}.faces' is empty.");
+            static double Temperature(double? c, string name)
+            {
+                if (c is not double v) throw SwException.InvalidArgument($"'{name}' is required.");
+                if (!double.IsFinite(v) || v < -KelvinOffset || v > 5000) throw SwException.InvalidArgument($"'{name}' must be between -273.15 and 5000 °C (got {F(v)}).");
+                return v + KelvinOffset;
+            }
+            list.Add((l.Kind ?? "").Trim().ToLowerInvariant().Replace(' ', '_') switch
+            {
+                "temperature" => new SimThermalSpec(i, SimThermalKind.Temperature, l.Faces, Temperature(l.TemperatureC, $"{arg}.temperatureC")),
+                "convection" => new SimThermalSpec(i, SimThermalKind.Convection, l.Faces, Positive(l.CoefficientWm2K, $"{arg}.coefficientWm2K"),
+                    Temperature(l.AmbientC, $"{arg}.ambientC")),
+                "heat_power" or "power" => new SimThermalSpec(i, SimThermalKind.HeatPower, l.Faces, Positive(l.PowerW, $"{arg}.powerW")),
+                "heat_flux" or "flux" => new SimThermalSpec(i, SimThermalKind.HeatFlux, l.Faces, Positive(l.FluxWm2, $"{arg}.fluxWm2")),
+                _ => throw SwException.InvalidArgument($"'{arg}.kind' '{l.Kind}' is not supported.", "Use temperature, convection, heat_power or heat_flux."),
+            });
+        }
+        if (!list.Any(t => t.Kind is SimThermalKind.Temperature or SimThermalKind.Convection))
+            throw SwException.InvalidArgument("A steady-state thermal study needs a temperature or a convection somewhere, or the heat has nowhere to go.");
+        return list;
+    }
 
     /// <summary>sim_run's modal study types: frequency (natural frequencies) and buckling (load factors).</summary>
     public static string ModalType(string? s) => s?.Trim().ToLowerInvariant() switch
