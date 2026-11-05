@@ -68,6 +68,8 @@
   golden scenarios (plate, enclosure, edit, assembly, drawing, sheet metal).
 - Install: `tools/install.ps1` publishes into a versioned folder and registers the server with Claude Code; when Smart
   App Control blocks the exe, it registers `dotnet solidworks-mcp.dll` instead.
+- Roadmap: `ROADMAP.md` lists what is done and every planned work item (331, with approach, oracle, estimate and
+  priority) and the release plan to 1.0; `tools/roadmap_totals.py` keeps its effort table in step (checked in CI).
 - Live-tested against SOLIDWORKS 2025 SP1.2: 425 live tests across all areas pass. Fixes found that way include:
   - coupled system options (STL quality with deviation and angle) are saved and restored as one group, also after a
     crash (an STL export had left a user's STL quality at coarse);

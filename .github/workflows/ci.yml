@@ -21,6 +21,8 @@ jobs:
       - name: Repository guard (no Dassault binaries, dumps or local paths)
         run: python tools/check_repo.py
       - name: Python syntax
-        run: python -m py_compile tools/mcp_client.py tools/mcp_smoke.py tools/check_repo.py
+        run: python -m py_compile tools/mcp_client.py tools/mcp_smoke.py tools/check_repo.py tools/roadmap_totals.py
+      - name: Roadmap tables and totals
+        run: python tools/roadmap_totals.py ROADMAP.md --check
       - name: Unit tests (offline)
         run: dotnet test --project tests/SolidWorksMcp.UnitTests/SolidWorksMcp.UnitTests.csproj

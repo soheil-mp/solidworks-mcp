@@ -214,7 +214,8 @@ The server sends these rules to the client as instructions, and `sw_help` explai
 
 ## Development
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the build and test commands and the rules every tool follows. The design and
-its rationale are in [`docs/DESIGN.md`](docs/DESIGN.md).
+its rationale are in [`docs/DESIGN.md`](docs/DESIGN.md). What is done and what comes next (331 work items with their
+checks and estimates, and the release plan to 1.0) is in [ROADMAP.md](ROADMAP.md).
 
 ## License
 MIT; see [LICENSE](LICENSE). The build embeds type information from your own SOLIDWORKS installation's interop

@@ -1093,5 +1093,8 @@ What changes the plan:
 | Non-English installs | Plane aliases resolved by geometry; view ids instead of names; file locations from preferences. |
 
 ## 10. Future work
-HTTP transport, add-in mode, PDM, signed binary releases with a computed API floor. Design tables, mold tools, motion
-and rendering are milestone M9 (§7.3).
+The backlog after M9 is [`ROADMAP.md`](../ROADMAP.md) (audit of 2026-11-05): 331 work items in 25 tracks, each with its
+approach, its oracle, an estimate and a priority, and the release plan from 0.2 to 1.0. Among them: the M9 carry-over
+(fatigue, bolt and pin connectors, the factor of safety plot, motion results), HTTP transport, add-in mode, PDM, and
+signed binary releases with a computed API floor. When a track's work starts, it gets a milestone section here, as M8
+and M9 did.
