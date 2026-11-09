@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
 
 namespace SolidWorksMcp.Core.Com;
 
@@ -48,6 +49,29 @@ internal static partial class SwExt
 
     /// <summary>IDrawingDoc.ActiveDrawingView, or null.</summary>
     public static IView? DrwActiveView(this IDrawingDoc d) => (object?)d.ActiveDrawingView as IView;
+
+    /// <summary>
+    /// The sketch in edit, or null: ISketchManager.ActiveSketch, except in a drawing. There ActiveSketch always names the
+    /// active view's own sketch, or the sheet's when no view is active (checked live in 2023 SP3: the sheet's sketch on
+    /// a new drawing, the parent view's after a section view), and neither is a sketch in edit. Any other sketch is.
+    /// </summary>
+    public static ISketch? SketchInEdit(this IModelDoc2 d)
+    {
+        if (d.SketchManager?.ActiveSketch is not ISketch active) return null;
+        if (d.GetType() != (int)swDocumentTypes_e.swDocDRAWING) return active;
+        try
+        {
+            var drw = (IDrawingDoc)d;
+            string? name = ((IFeature)active).Name;
+            foreach (var v in new[] { drw.DrwActiveView(), drw.DrwSheetView() })
+                if (v?.DrwSketch() is IFeature own && string.Equals(own.Name, name, StringComparison.Ordinal)) return null;
+        }
+        catch (COMException)
+        {
+            // unknown: report it as in edit
+        }
+        return active;
+    }
 
     // ---- views
 

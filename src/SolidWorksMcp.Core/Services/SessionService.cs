@@ -121,7 +121,7 @@ public sealed class SessionService(SwSession session)
                 var infos = docs.Select(x => DocumentService.Info(ctx, x, active)).ToList();
                 var target = ctx.Documents.Target;
                 string? sketch = null;
-                if (active?.SketchManager?.ActiveSketch is ISketch s) sketch = ((IFeature)s).Name;
+                if (active?.SketchInEdit() is ISketch s) sketch = ((IFeature)s).Name;
                 var st = Partial(null!);
                 return new StatusResult
                 {

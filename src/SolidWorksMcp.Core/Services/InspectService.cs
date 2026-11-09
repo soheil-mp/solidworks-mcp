@@ -84,7 +84,7 @@ public sealed class InspectService(SwSession session)
         {
             var d = ctx.Doc;
             int type = d.GetType();
-            var sketch = d.SketchManager?.ActiveSketch;
+            var sketch = d.SketchInEdit();
             string? sketchName = sketch is null ? null : ((IFeature)sketch).Name;
             string? material = null;
             List<BodySummary>? bodies = null;

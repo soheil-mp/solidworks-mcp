@@ -1037,7 +1037,7 @@ public sealed partial class FeatureManagementService(SwSession session)
 
             if (entry.LastSketch is { } ls && !namesAfter.ContainsValue(ls)) entry.LastSketch = null;
             string? open = null;
-            if (d.SketchManager?.ActiveSketch is ISketch sketch)
+            if (d.SketchInEdit() is ISketch sketch)
             {
                 open = ((IFeature)sketch).Name;
                 entry.ServerSketch = open; // the server's own step was undone, so the sketch is the server's
@@ -1198,7 +1198,7 @@ public sealed partial class FeatureManagementService(SwSession session)
 
     private static void RequireNoOpenSketch(SwContext ctx, IModelDoc2 d, string why)
     {
-        if (d.SketchManager?.ActiveSketch is not ISketch open) return;
+        if (d.SketchInEdit() is not ISketch open) return;
         string name = ((IFeature)open).Name;
         bool ours = ctx.DocEntry.ServerSketch == name;
         throw new SwException(ErrorCodes.SketchState, $"Sketch '{name}' is open; {why}.",
