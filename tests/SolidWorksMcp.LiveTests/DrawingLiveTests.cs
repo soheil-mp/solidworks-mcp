@@ -325,6 +325,33 @@ public class DrawingLiveTests(LiveFixture fx) : LiveTest(fx)
     }
 
     [Fact]
+    public async Task A_drawing_shows_no_open_sketch_before_or_after_a_section()
+    {
+        // In a drawing SketchManager.ActiveSketch always names the sheet's or the active view's own sketch, from the new
+        // drawing on; read as a sketch in edit, it made sw_status show one open and doc_undo and doc_rebuild refuse it
+        // (SKETCH_STATE).
+        var (drw, r) = await ViewsAsync("drw_section_sketch", ["front"]);
+        await AssertNoOpenSketchAsync(drw);
+        var front = r.Views[0];
+        var b = front.ModelBoxMm!;
+        double cx = (b[0] + b[2]) / 2;
+        await Drw.SectionAsync(front.Name, [cx, b[1] - 10], [cx, b[3] + 10], null, null, drw);
+        await AssertNoOpenSketchAsync(drw); // the parent view's sketch, where the cut line went, is active now
+    }
+
+    /// <summary>sw_status and model_info show no open sketch, doc_rebuild runs, and doc_undo refuses for no sketch.</summary>
+    private async Task AssertNoOpenSketchAsync(string drw)
+    {
+        Assert.Null((await new SessionService(S).StatusAsync()).OpenSketch);
+        Assert.Null((await new InspectService(S).ModelInfoAsync(drw)).OpenSketch);
+        var m = new FeatureManagementService(S);
+        await m.RebuildAsync(drw);
+        // doc_undo in a drawing has other limits (open_items.md); what matters here is that no sketch blocks it.
+        try { await m.UndoAsync(drw, 1); }
+        catch (SwException e) { Assert.NotEqual(ErrorCodes.SketchState, e.Code); }
+    }
+
+    [Fact]
     public async Task Section_lines_that_do_not_cross_the_part_are_refused()
     {
         var (drw, r) = await ViewsAsync("drw_section_bad", ["front"]);
@@ -355,6 +382,16 @@ public class DrawingLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.True(det.Checks!.Any(c => c.Contains("visible edge")) || (det.Warnings ?? []).Any(w => w.Contains("no visible edges")),
             "the detail view result says nothing about its content");
         Assert.Contains((await Drw.InfoAsync(drw)).Sheets[0].Views!, v => v.Name == det.View.Name && v.Type == "detail");
+    }
+
+    [Fact]
+    public async Task Detail_leaves_no_sketch_open()
+    {
+        var (drw, r) = await ViewsAsync("drw_detail_sketch", ["front"]);
+        var front = r.Views[0];
+        var b = front.ModelBoxMm!;
+        await Drw.DetailAsync(front.Name, [b[2] - 5, b[3] - 5], 10, "2:1", null, null, drw);
+        await AssertNoOpenSketchAsync(drw); // the circle went into the parent view's sketch
     }
 
     [Fact]
@@ -552,6 +589,7 @@ public class DrawingLiveTests(LiveFixture fx) : LiveTest(fx)
         double bx = (bf.BoundsMm![0] + bf.BoundsMm[2]) / 2 + 20, by = (bf.BoundsMm[1] + bf.BoundsMm[3]) / 2;
         var bo = await Drw.ViewEditAsync(new DrwViewEditRequest { Doc = drw2, Kind = "broken_out", View = bf.Name, CenterMm = [bx, by], RadiusMm = 12, DepthMm = 10 });
         Assert.Contains(bo.Checks!, c => c.Contains("1 broken-out section", StringComparison.Ordinal));
+        await AssertNoOpenSketchAsync(drw2); // the circle went into the view's sketch
     }
 
     [Fact]

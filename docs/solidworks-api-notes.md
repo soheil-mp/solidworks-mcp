@@ -85,7 +85,11 @@ type libraries and writes `sldworks_api.txt`, `swconst_enums.txt`, `swcommands.t
   sketch.
   - A **3D sketch** is `Insert3DSketch(true)` (also a toggle).
   - `IModelDoc2.EditSketch()` re-opens a selected sketch (VERIFIED). `IModelDoc2.MenuCommand` doesn't exist.
-- **Active sketch.** `ISketchManager.ActiveSketch` is null when none is open.
+- **Active sketch.** `ISketchManager.ActiveSketch` is null when none is open, in parts and assemblies. **In a drawing
+  it is never null** (VERIFIED 2023 SP3): it names the sheet's own sketch from the new drawing on (`IDrawingDoc.
+  GetFirstView().GetSketch()`), and the active view's own sketch once a view is activated, as for a section line.
+  `InsertSketch(true)` does not clear it, and `ActivateSheet` only moves it back to the sheet's. Neither is a sketch in
+  edit: compare with those two before treating it as open (`SwExt.SketchInEdit`).
 - **Mass properties** return **zeros while a sketch is open**.
 - **Inference / snapping.** `ISketchManager.AddToDB = true` disables it. It persists across calls on that document.
   - With it off, a circle drawn near a helix came out as r 0.9289 instead of 1 and gained a driven dimension. With
