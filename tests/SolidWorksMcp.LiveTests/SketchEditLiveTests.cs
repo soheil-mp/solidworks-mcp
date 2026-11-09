@@ -275,6 +275,29 @@ public class SketchEditLiveTests(LiveFixture fx) : LiveTest(fx)
     }
 
     [Fact]
+    public async Task Angular_dimension_without_textAt_points_to_the_supplement_when_the_value_lands_there()
+    {
+        // The same 7.5° slope with no textAt: the default text point is in the 172.5° between the rays, and 10° set on that
+        // dimension goes to the angle across the vertex. Refused and removed, with a hint that names a textAt inside the
+        // 7.5°, which then works.
+        var (doc, _, added) = await SketchAsync("dim_angle_no_textat", "front", Line([-10, 35], [0, 35]), Line([0, 35], [240, 66.6]));
+        string l1 = Name(added, 0), l2 = Name(added, 1);
+        var ex = await Fails(ErrorCodes.VerifyFailed, () => Ed.DimensionAddAsync(doc, [Seg(l1), Seg(l2)], "angular", valueDeg: 10));
+        Assert.Contains("across the vertex", ex.Message, StringComparison.Ordinal);
+        Assert.NotNull(ex.Hint);
+        var m = System.Text.RegularExpressions.Regex.Match(ex.Hint!, @"textAt \[(-?[\d.]+), (-?[\d.]+)\]");
+        Assert.True(m.Success, $"no textAt in the hint: {ex.Hint}");
+        Assert.Empty((await Ed.InfoAsync(doc, null)).Dimensions ?? []);
+
+        double[] at = [double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
+                       double.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture)];
+        var ang = await Ed.DimensionAddAsync(doc, [Seg(l1), Seg(l2)], "angular", valueDeg: 10, textAt: at);
+        Assert.Equal(10, ang.Dimension.Value, 1e-6);
+        Assert.Equal(10, ang.Measured!.Value, 1e-4);
+        Assert.Contains(ang.Checks, c => c.Contains("supplementary", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task The_origin_takes_dimensions_and_relations()
     {
         // Top Plane: the circle center (30, 40) is 50 mm from the origin; dimension it to 40, then put the other circle's

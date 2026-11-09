@@ -407,9 +407,14 @@ public sealed class SketchEditService(SwSession session)
             var now = refs.Select(r => ItemOf(r, sketch, m2s)).ToList();
             measured = Measure(kind, now);
             if (supplement && measured is double rays) measured = Math.PI - rays;
+            // The sketch solved the value as the other angle of the two lines: the angle asked for is the one across the
+            // vertex from the dimensioned one, so the fix is a textAt inside it, not another relation.
+            bool otherAngle = kind == "angular" && !supplement && expected is not null && measured is double mo &&
+                              Math.Abs(mo - (Math.PI - t)) <= MeasureTol(kind);
             string? problem =
                 Math.Abs(back - t) > MeasureTol(kind) ? $"the dimension reads {Fmt(kind, back)}" :
                 BecameOverDefined(sketch, before.Status) ? $"the sketch became {ConstrainedName(sketch.GetConstrainedStatus())}" :
+                otherAngle ? $"the lines make {Fmt(kind, measured!.Value)} between the rays, so {Fmt(kind, t)} went to the angle across the vertex; the dimension was on the {Fmt(kind, expected!.Value)} between the rays, not the {Fmt(kind, Math.PI - expected.Value)}" :
                 measured is double m && Math.Abs(m - t) > MeasureTol(kind) ? $"the geometry measures {Fmt(kind, m)} (the sketch did not solve to it)" :
                 null;
             if (problem is not null)
@@ -417,8 +422,10 @@ public sealed class SketchEditService(SwSession session)
                 try { dim.SetSystemValue3(v0, (int)swSetValueInConfiguration_e.swSetValue_InThisConfiguration, ComArgs.Empty); }
                 catch (Exception ex) when (!ComArgs.IsDisconnect(ex)) { /* best effort */ }
                 bool gone = DeleteDimension(d, disp, feat, dimsBefore);
-                throw new SwException(ErrorCodes.VerifyFailed, $"After setting {Fmt(kind, t)}, {problem}; the old value was restored and {Removed(gone)}.",
-                    "Other relations or dimensions may fix this geometry; check sketch_info.");
+                string hint = otherAngle
+                    ? $"To set the {Fmt(kind, Math.PI - expected!.Value)} angle, pass textAt inside it, e.g. textAt {SupplementTextPoint(items)} (sketch mm)."
+                    : "Other relations or dimensions may fix this geometry; check sketch_info.";
+                throw new SwException(ErrorCodes.VerifyFailed, $"After setting {Fmt(kind, t)}, {problem}; the old value was restored and {Removed(gone)}.", hint);
             }
             checks.Add($"value reads back {Fmt(kind, back)}");
             if (measured is double mm) checks.Add($"geometry measures {Fmt(kind, mm)}");
@@ -2363,6 +2370,18 @@ public sealed class SketchEditService(SwSession session)
         var v = t - p;
         if (v.Length < 1e-9) return false;
         return Cross2(u1, v) * Cross2(v, u2) < 0;
+    }
+
+    /// <summary>
+    /// A textAt, as "[x, y]" in sketch mm, inside the supplementary angle of two lines: on the bisector between the
+    /// second line's ray and the first one's reversed, halfway along the second line's reach.
+    /// </summary>
+    private static string SupplementTextPoint(IReadOnlyList<Item> it)
+    {
+        var (p, u1, u2) = Rays(it[0], it[1]);
+        double reach = Reach(it[1], p);
+        var q = p + (u2 - u1).Normalized() * (reach > 1e-4 ? 0.5 * reach : 0.01);
+        return FormattableString.Invariant($"[{Math.Round(Units.Mm(q.X), 3)}, {Math.Round(Units.Mm(q.Y), 3)}]");
     }
 
     private static double Reach(Item l, Vec3 p) => ((l.A + l.B) / 2).DistanceTo(p);
