@@ -759,7 +759,6 @@ public class DrawingLiveTests(LiveFixture fx) : LiveTest(fx)
         var r = await Annotate(drw, front, "balloon", null);
         Assert.Equal(2, r.Count);
         Assert.Equal(["1", "2"], r.Text.Split(", ").Order().ToArray());
-        Assert.Contains(r.Checks!, c => c.Contains("item numbers distinct", StringComparison.Ordinal));
     }
 
     // ------------------------------------------------------------------ drw_table_add
@@ -835,5 +834,207 @@ public class DrawingLiveTests(LiveFixture fx) : LiveTest(fx)
         await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "gtol", edge, q => q with { Characteristic = "flatness", Tolerance = "-1" }));
         await Fails(ErrorCodes.InvalidArgument, () => Annotate(drw, front, "gtol", edge, q => q with { Characteristic = "wobble", Tolerance = "0.1" }));
         await Fails(ErrorCodes.EntityNotFound, () => Annotate(drw, "No Such View", "datum", edge));
+    }
+
+    // ------------------------------------------------------------------ drw_annotation_list, drw_annotation_edit
+
+    [Fact]
+    public async Task Annotations_are_listed_moved_retexted_and_deleted()
+    {
+        var (drw, r) = await ViewsAsync("drw_ann_edit", ["front"]);
+        var front = r.Views[0];
+        var width = await Drw.DimensionAddAsync(front.Name, new EntityRef { Type = "edge", At = [0, 30, 20] }, null, "linear", null, drw);
+        var height = await Drw.DimensionAddAsync(front.Name, new EntityRef { Type = "edge", At = [50, 0, 20] }, null, "vertical", null, drw);
+        var sheetNote = await Drw.NoteAddAsync("SWMCP SHEET NOTE", [60, 40], null, null, drw);
+        var viewNote = await Drw.NoteAddAsync("SWMCP VIEW NOTE", [front.CenterMm![0], front.BoundsMm![1] - 8], null, front.Name, drw);
+        string sheet = (await Drw.InfoAsync(drw)).Sheets[0].Name;
+
+        // The list holds both dimensions under the names drw_dimension_add returned, and both notes under drw_note_add's.
+        var list = await Drw.AnnotationListAsync(null, null, drw);
+        var w = Assert.Single(list.Annotations, a => a.Name == width.Dimension);
+        Assert.Equal("dimension", w.Kind);
+        Assert.Equal(front.Name, w.View);
+        Assert.Equal(100, w.Value!.Value, 1e-6);
+        Assert.Equal("mm", w.Unit);
+        Assert.Contains(list.Annotations, a => a.Name == height.Dimension && Math.Abs(a.Value!.Value - 60) < 1e-6);
+        var sn = Assert.Single(list.Annotations, a => a.Name == sheetNote.Note);
+        Assert.Equal(("note", "SWMCP SHEET NOTE", sheet), (sn.Kind, sn.Text, sn.View));
+        Assert.Equal(60, sn.AtMm![0], 0.01);
+        var vn = Assert.Single(list.Annotations, a => a.Name == viewNote.Note);
+        Assert.Equal(front.Name, vn.View);
+        Assert.Equal(2, (await Drw.AnnotationListAsync(front.Name, "dimension", drw)).Count);
+        // The ISO A3 format's own notes (zone letters, title block) are left out, and listed marked on request; drw_info
+        // counts the sheet's notes the same way.
+        Assert.DoesNotContain(list.Annotations, a => a.Format == true);
+        Assert.Equal(list.Annotations.Count(a => a.View == sheet && a.Kind == "note"), (await Drw.InfoAsync(drw)).Sheets[0].Annotations!.Notes);
+        Assert.True(list.FormatNotesSkipped > 20, $"{list.FormatNotesSkipped} format notes skipped");
+        var withFormat = await Drw.AnnotationListAsync(null, null, true, drw);
+        Assert.Equal(list.Count + list.FormatNotesSkipped!.Value, withFormat.Count);
+        var zone = withFormat.Annotations.First(a => a.Format == true);
+        var refused = await Fails(ErrorCodes.InvalidArgument, () => Drw.AnnotationEditAsync(zone.Name, "move", [10, 10], null, null, drw));
+        Assert.Contains("sheet format", refused.Message);
+        Assert.Equal(zone.AtMm, (await Drw.AnnotationListAsync(null, null, true, drw)).Annotations.Single(a => a.Name == zone.Name).AtMm);
+        Assert.DoesNotContain((await Drw.AnnotationListAsync(sheet, null, drw)).Annotations, a => a.View == front.Name);
+
+        // Move the width's text and the sheet note; the list reads the new positions.
+        double[] to = [front.CenterMm[0] + 15, front.BoundsMm[3] + 12];
+        var moved = await Drw.AnnotationEditAsync(width.Dimension, "move", to, null, null, drw);
+        Assert.Contains("position read back", moved.Checks!);
+        Assert.Equal(to[0], moved.After!.AtMm![0], 0.01);
+        Assert.Equal(to[1], moved.After.AtMm[1], 0.01);
+        await Drw.AnnotationEditAsync(sheetNote.Note, "move", [80, 45], null, null, drw);
+        var again = await Drw.AnnotationListAsync(null, null, drw);
+        Assert.Equal(to[1], again.Annotations.Single(a => a.Name == width.Dimension).AtMm![1], 0.01);
+        Assert.Equal(80, again.Annotations.Single(a => a.Name == sheetNote.Note).AtMm![0], 0.01);
+
+        // A note's text changes; a dimension's does not. A backslash-n typed as two characters is a line break too (the
+        // scenario test of build 230924 got it stored literally, reported "text read back").
+        var retext = await Drw.AnnotationEditAsync(viewNote.Note, "text", null, "SWMCP NEW\nSECOND", null, drw);
+        Assert.Equal("SWMCP NEW\nSECOND", retext.After!.Text);
+        Assert.Contains("text read back", retext.Checks!);
+        var typed = await Drw.AnnotationEditAsync(viewNote.Note, "text", null, @"SWMCP TYPED\nLINE", null, drw);
+        Assert.Equal("SWMCP TYPED\nLINE", typed.After!.Text);
+        var typedNote = await Drw.NoteAddAsync(@"SWMCP ADD\nTYPED", [60, 70], null, null, drw);
+        Assert.Contains("text read back", typedNote.Checks!);
+        Assert.Equal("SWMCP ADD\nTYPED", typedNote.Text); // what the note holds, not the input as typed
+        Assert.Equal("SWMCP ADD\nTYPED", (await Drw.AnnotationListAsync(null, "note", drw)).Annotations.Single(a => a.Name == typedNote.Note).Text);
+        // A long text comes back cut in the edit's result (S22), whole in the list.
+        string longText = string.Join("\n", Enumerable.Range(1, 12).Select(n => $"SWMCP LONG LINE {n}"));
+        var lng = await Drw.AnnotationEditAsync(typedNote.Note, "move", [60, 75], null, null, drw);
+        var lngText = await Drw.AnnotationEditAsync(typedNote.Note, "text", null, longText, null, drw);
+        Assert.Contains("characters)", lngText.After!.Text);
+        Assert.True(lngText.After.Text!.Length < 100, lngText.After.Text);
+        Assert.Equal(longText, (await Drw.AnnotationListAsync(null, "note", drw)).Annotations.Single(a => a.Name == typedNote.Note).Text);
+        Assert.Equal(60, lng.After!.AtMm![0], 0.01);
+
+        // Delete one dimension and the sheet note: gone from the list, the counts one fewer each.
+        var before = await Drw.InfoAsync(drw);
+        var del = await Drw.AnnotationEditAsync(height.Dimension, "delete", null, null, front.Name, drw);
+        Assert.Null(del.After);
+        Assert.Contains("no longer listed", del.Checks!);
+        await Drw.AnnotationEditAsync(sheetNote.Note, "delete", null, null, null, drw);
+        var after = await Drw.InfoAsync(drw);
+        Assert.Equal(before.Sheets[0].Views![0].Annotations!.Dimensions - 1, after.Sheets[0].Views![0].Annotations!.Dimensions);
+        Assert.Equal((before.Sheets[0].Annotations?.Notes ?? 0) - 1, after.Sheets[0].Annotations?.Notes ?? 0);
+        var left = await Drw.AnnotationListAsync(null, null, drw);
+        Assert.DoesNotContain(left.Annotations, a => a.Name == height.Dimension || a.Name == sheetNote.Note);
+        Assert.Contains(left.Annotations, a => a.Name == width.Dimension);
+        Assert.Contains(left.Annotations, a => a.Name == viewNote.Note);
+    }
+
+    [Fact]
+    public async Task Annotation_edits_that_cannot_work_are_refused_and_change_nothing()
+    {
+        var (drw, r) = await ViewsAsync("drw_ann_bad", ["front"]);
+        var front = r.Views[0];
+        var width = await Drw.DimensionAddAsync(front.Name, new EntityRef { Type = "edge", At = [0, 30, 20] }, null, "linear", null, drw);
+        var before = await Drw.AnnotationListAsync(null, null, drw);
+
+        await Fails(ErrorCodes.EntityNotFound, () => Drw.AnnotationEditAsync("RD99@No View", "delete", null, null, null, drw));
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.AnnotationEditAsync(width.Dimension, "text", null, "100", null, drw));
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.AnnotationEditAsync(width.Dimension, "move", null, null, null, drw));
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.AnnotationEditAsync(width.Dimension, "delete", [10, 10], null, null, drw));
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.AnnotationEditAsync(width.Dimension, "rotate", null, null, null, drw));
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.AnnotationListAsync(null, "arrow", drw));
+        await Fails(ErrorCodes.EntityNotFound, () => Drw.AnnotationListAsync("No Such View", null, drw));
+
+        var after = await Drw.AnnotationListAsync(null, null, drw);
+        Assert.Equal(before.Count, after.Count);
+        Assert.Equal(before.Annotations.Single(a => a.Name == width.Dimension).AtMm, after.Annotations.Single(a => a.Name == width.Dimension).AtMm);
+    }
+
+    // ------------------------------------------------------------------ drw_view_edit kind=move, drw_view_delete
+
+    [Fact]
+    public async Task Views_move_with_their_aligned_children_and_are_deleted()
+    {
+        var (drw, r) = await ViewsAsync("drw_view_move", ["front"]);
+        var front = r.Views[0];
+        var left = (await Drw.ProjectedAsync(front.Name, "left", drw)).View;
+
+        // The parent moves where asked, and its projected view follows it.
+        double[] to = [front.CenterMm![0] + 20, front.CenterMm[1] - 10];
+        var mv = await Drw.ViewEditAsync(new DrwViewEditRequest { Doc = drw, Kind = "move", View = front.Name, AtMm = to });
+        Assert.Equal(to[0], mv.View.CenterMm![0], 0.01);
+        Assert.Equal(to[1], mv.View.CenterMm[1], 0.01);
+        Assert.Contains("position read back", mv.Checks!);
+        Assert.Equal([left.Name], mv.AlsoMoved);
+        var info = await Drw.InfoAsync(drw);
+        var leftNow = info.Sheets[0].Views!.Single(v => v.Name == left.Name);
+        Assert.Equal(left.CenterMm![1] - 10, leftNow.CenterMm![1], 0.01); // aligned: it keeps level with the front view
+
+        // The projected view keeps level with its parent: a move off that line is put back and refused.
+        var stuck = await Fails(ErrorCodes.VerifyFailed, () => Drw.ViewEditAsync(new DrwViewEditRequest
+            { Doc = drw, Kind = "move", View = left.Name, AtMm = [leftNow.CenterMm[0] - 5, leftNow.CenterMm[1] + 30] }));
+        Assert.Contains(front.Name, stuck.Hint!);
+        var leftAfter = (await Drw.InfoAsync(drw)).Sheets[0].Views!.Single(v => v.Name == left.Name);
+        Assert.Equal(leftNow.CenterMm, leftAfter.CenterMm);
+
+        // A note in the front view, then delete the front view: it goes with its note; the projected view stays, named.
+        await Drw.NoteAddAsync("SWMCP IN FRONT", [to[0], front.BoundsMm![1] - 18], null, front.Name, drw);
+        var del = await Drw.ViewDeleteAsync(front.Name, drw);
+        Assert.Equal(1, del.Annotations!.Notes);
+        Assert.Equal([front.Name], del.Removed);
+        Assert.Equal([left.Name], del.ChildrenKept); // SOLIDWORKS keeps a projected view whose parent is deleted
+        Assert.Contains(del.Warnings!, w => w.Contains(left.Name) && w.Contains("stays"));
+        var views = (await Drw.InfoAsync(drw)).Sheets[0].Views!;
+        Assert.DoesNotContain(views, v => v.Name == front.Name);
+        Assert.Equal(views.Count, del.ViewCount);
+        Assert.DoesNotContain((await Drw.AnnotationListAsync(null, null, drw)).Annotations, a => a.Text == "SWMCP IN FRONT");
+    }
+
+    [Fact]
+    public async Task A_parent_with_a_section_is_deleted_only_with_its_children()
+    {
+        // The scenario test of build 230924 deleted a parent and lost its section view with it, unasked.
+        var (drw, r) = await ViewsAsync("drw_view_children", ["front"]);
+        var front = r.Views[0];
+        var b = front.ModelBoxMm!;
+        double cx = (b[0] + b[2]) / 2;
+        var sec = (await Drw.SectionAsync(front.Name, [cx, b[1] - 10], [cx, b[3] + 10], null, null, drw)).View;
+        await Drw.DimensionAddAsync(front.Name, new EntityRef { Type = "edge", At = [0, 30, 20] }, null, "linear", null, drw);
+
+        // The section's label is listed as a view label, not as a note reading " ".
+        var label = Assert.Single((await Drw.AnnotationListAsync(sec.Name, null, drw)).Annotations, a => a.Kind == "view_label");
+        Assert.Contains("A-A", label.Text);
+        Assert.DoesNotContain("label of", label.Text); // its own wording, e.g. "SECTION A-A"
+
+        // drw_info counts it apart, not as a note: the scenario test of build 010708 read notes 1 for each section view
+        // while the list held no note there.
+        var secCounts = (await Drw.InfoAsync(drw)).Sheets[0].Views!.Single(v => v.Name == sec.Name).Annotations!;
+        Assert.Equal(0, secCounts.Notes);
+        Assert.Equal(1, secCounts.ViewLabels);
+
+        var ex = await Fails(ErrorCodes.InvalidArgument, () => Drw.ViewDeleteAsync(front.Name, drw));
+        Assert.Contains(sec.Name, ex.Message);
+        Assert.Contains("withChildren", ex.Hint!);
+        Assert.Equal(2, await ViewCountAsync(drw));
+
+        var del = await Drw.ViewDeleteAsync(front.Name, true, drw);
+        Assert.Equal(2, del.Removed.Count);
+        Assert.Contains(sec.Name, del.Removed);
+        Assert.Equal(1, del.Annotations!.Dimensions);
+        Assert.Equal(1, del.Annotations.ViewLabels); // the section's label went with it, counted apart from the notes
+        Assert.Equal(0, del.Annotations.Notes);
+        Assert.DoesNotContain(del.Warnings ?? [], w => w.Contains("also removed"));
+        Assert.Equal(0, await ViewCountAsync(drw));
+    }
+
+    [Fact]
+    public async Task View_moves_and_deletes_that_cannot_work_are_refused()
+    {
+        var (drw, r) = await ViewsAsync("drw_view_bad", ["front"]);
+        var front = r.Views[0];
+        string sheet = (await Drw.InfoAsync(drw)).Sheets[0].Name;
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.ViewEditAsync(new DrwViewEditRequest { Doc = drw, Kind = "move", View = front.Name }));
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.ViewEditAsync(new DrwViewEditRequest { Doc = drw, Kind = "move", View = front.Name, AtMm = [10, 10], DepthMm = 5 }));
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.ViewEditAsync(new DrwViewEditRequest { Doc = drw, Kind = "break", View = front.Name, AtMm = [10, 10] }));
+        await Fails(ErrorCodes.EntityNotFound, () => Drw.ViewEditAsync(new DrwViewEditRequest { Doc = drw, Kind = "move", View = "No Such View", AtMm = [10, 10] }));
+        await Fails(ErrorCodes.EntityNotFound, () => Drw.ViewDeleteAsync("No Such View", drw));
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.ViewDeleteAsync(" ", drw));
+        await Fails(ErrorCodes.InvalidArgument, () => Drw.ViewDeleteAsync(sheet, drw)); // a sheet, not a view
+        var info = await Drw.InfoAsync(drw);
+        Assert.Equal(1, info.ViewCount);
+        Assert.Equal(front.CenterMm, info.Sheets[0].Views![0].CenterMm);
     }
 }

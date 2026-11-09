@@ -49,13 +49,15 @@ public sealed record DrwViewAddRequest
     public string? Label { get; init; }
 }
 
-/// <summary>Input of drw_view_edit: break a view (a long part shortened), or cut a broken-out section into it.</summary>
+/// <summary>Input of drw_view_edit: break a view (a long part shortened), cut a broken-out section into it, or move it.</summary>
 public sealed record DrwViewEditRequest
 {
     public string? Doc { get; init; }
-    /// <summary>break | broken_out.</summary>
+    /// <summary>break | broken_out | move.</summary>
     public string? Kind { get; init; }
     public string? View { get; init; }
+    /// <summary>move: the view's new centre [x, y] sheet mm.</summary>
+    public double[]? AtMm { get; init; }
     /// <summary>break: vertical (lines across a horizontal part; positions are sheet x) | horizontal (positions are sheet y).</summary>
     public string? Lines { get; init; }
     /// <summary>break: the two break-line positions, sheet mm (x for vertical lines, y for horizontal ones).</summary>
@@ -76,6 +78,8 @@ public sealed class DrwViewEditResult : ToolResult
     public required DrwView View { get; init; }
     /// <summary>The view's outline before the edit [xMin, yMin, xMax, yMax] (mm).</summary>
     public double[]? BoundsBeforeMm { get; init; }
+    /// <summary>move: other views that moved with it (aligned to it).</summary>
+    public IReadOnlyList<string>? AlsoMoved { get; init; }
     public IReadOnlyList<string>? Checks { get; init; }
 }
 
@@ -376,10 +380,19 @@ public sealed partial class DrawingService
         {
             "break" or "broken" => "break",
             "broken_out" or "breakout" or "break_out" => "broken_out",
-            null => throw SwException.InvalidArgument("'kind' is required: break or broken_out."),
-            _ => throw SwException.InvalidArgument($"Unknown kind '{q.Kind}'.", "Use break (shorten a long view) or broken_out (cut away to show inside)."),
+            "move" => "move",
+            null => throw SwException.InvalidArgument("'kind' is required: break, broken_out or move."),
+            _ => throw SwException.InvalidArgument($"Unknown kind '{q.Kind}'.", "Use break (shorten a long view), broken_out (cut away to show inside) or move."),
         };
         if (string.IsNullOrWhiteSpace(q.View)) throw SwException.InvalidArgument("'view' is required (drw_info lists the views).");
+        if (kind == "move")
+        {
+            if (q.Lines is not null || q.FromMm is not null || q.ToMm is not null || q.Style is not null || q.CenterMm is not null || q.RadiusMm is not null || q.DepthMm is not null)
+                throw SwException.InvalidArgument("Kind 'move' takes only 'atMm' (the view's new centre).");
+            Sheet2(q.AtMm, "atMm");
+            return session.RunAsync("drw_view_edit", ctx => MoveView(ctx, q), RunOptions.Write(q.Doc), ct);
+        }
+        if (q.AtMm is not null) throw SwException.InvalidArgument("'atMm' only applies to kind 'move'.");
         if (kind == "break")
         {
             if (q.CenterMm is not null || q.RadiusMm is not null || q.DepthMm is not null)

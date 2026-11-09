@@ -18,10 +18,13 @@ namespace SolidWorksMcp.Core.Services;
 public sealed class DrwCounts
 {
     public int Dimensions { get; init; }
+    /// <summary>Notes and balloons; a view's own label is not one of them (see ViewLabels).</summary>
     public int Notes { get; init; }
     public int Tables { get; init; }
     public int CenterMarks { get; init; }
     public int Other { get; init; }
+    /// <summary>The view's own label ("SECTION A-A"), drw_annotation_list's kind view_label; null when none.</summary>
+    public int? ViewLabels { get; init; }
 }
 
 /// <summary>A drawing view (sheet coordinates in mm, origin at the sheet's lower-left corner).</summary>
@@ -1375,7 +1378,7 @@ public sealed partial class DrawingService(SwSession session)
         var at = Sheet2(atMm, "atMm");
         if (heightMm is double hm && (!double.IsFinite(hm) || hm < 0.5 || hm > 500))
             throw SwException.InvalidArgument($"heightMm must be between 0.5 and 500 (got {hm}).");
-        string apiText = text.Replace("\r\n", "\n").Replace("\n", "\r\n");
+        string apiText = NoteLines(text).Replace("\n", "\r\n");
         return session.RunAsync("drw_note_add", ctx =>
         {
             var d = ctx.Doc;
@@ -1395,7 +1398,7 @@ public sealed partial class DrawingService(SwSession session)
             d.ClearSelection2(true);
 
             string got = (note.GetText() ?? "").Replace("\r\n", "\n");
-            string want = text.Replace("\r\n", "\n");
+            string want = NoteLines(text);
             if (got != want)
             {
                 // Property links ($PRP:...) and formatting tags read back evaluated; plain text must match exactly.
@@ -1425,7 +1428,8 @@ public sealed partial class DrawingService(SwSession session)
             {
                 Doc = ctx.Title(d),
                 Note = noteName,
-                Text = text,
+                // What the note holds (a typed \n read back as a line break), cut when long (S22).
+                Text = Cut(got),
                 AtMm = pos.Length >= 2 ? [Math.Round(pos[0] * 1000, 3), Math.Round(pos[1] * 1000, 3)] : null,
                 HeightMm = height is double hh ? Units.Mm(hh) : Units.Mm(note.GetHeight()),
                 View = hit?.Name,
@@ -1987,12 +1991,16 @@ public sealed partial class DrawingService(SwSession session)
     /// <summary>The annotations of a view by kind (IView.GetAnnotations, IAnnotation.GetType).</summary>
     private static DrwCounts Count(IView v)
     {
-        int dims = 0, notes = 0, tables = 0, marks = 0, other = 0;
+        int dims = 0, notes = 0, tables = 0, marks = 0, other = 0, format = 0, labels = 0;
         foreach (var a in v.DrwAnnotations())
         {
+            // The sheet format's own notes (border zones, title block) are listed on the sheet's view; they are not the drawing's.
+            if (Safe(() => a.OwnerType, -1) == (int)swAnnotationOwner_e.swAnnotationOwner_DrawingTemplate) { format++; continue; }
             switch (a.GetType())
             {
                 case (int)swAnnotationType_e.swDisplayDimension: dims++; break;
+                // A view's label is a note to SOLIDWORKS; counted apart, as drw_annotation_list lists it (kind view_label).
+                case (int)swAnnotationType_e.swNote when IsViewLabel(Safe(() => (object?)a.GetSpecificAnnotation(), null) as INote): labels++; break;
                 case (int)swAnnotationType_e.swNote: notes++; break;
                 case (int)swAnnotationType_e.swTableAnnotation: tables++; break;
                 case (int)swAnnotationType_e.swCenterMarkSym: marks++; break;
@@ -2003,10 +2011,11 @@ public sealed partial class DrawingService(SwSession session)
         return new DrwCounts
         {
             Dimensions = Math.Max(dims, SafeCount(v.GetDisplayDimensionCount)),
-            Notes = Math.Max(notes, SafeCount(v.GetNoteCount)),
+            Notes = Math.Max(notes, SafeCount(v.GetNoteCount) - format - labels),
             Tables = Math.Max(tables, SafeCount(v.GetTableAnnotationCount)),
             CenterMarks = Math.Max(marks, SafeCount(v.GetCenterMarkCount)),
             Other = other,
+            ViewLabels = labels > 0 ? labels : null,
         };
     }
 
