@@ -371,6 +371,16 @@ public sealed class SketchEditService(SwSession session)
                 $"A {kind} dimension on {labels} would over-define the sketch (SOLIDWORKS made it a driven reference dimension); {Removed(gone)}.",
                 "Delete the dimension or relation that already fixes this size (sketch_info lists them), or dimension something else.");
         }
+        // Two lines make two angles: the one between the rays toward the segments (Measure), and across the vertex its
+        // supplement. SOLIDWORKS dimensions the one whose sector holds the text point, so when textAt was put in the
+        // supplement's sector, the supplement is the angle asked for.
+        bool supplement = kind == "angular" && textAt is not null && expected is double e0 &&
+                          InSupplementSector(items, text) && Math.Abs(dim.SystemValue - (Math.PI - e0)) <= MeasureTol(kind);
+        if (supplement)
+        {
+            expected = Math.PI - expected!.Value;
+            checks.Add($"textAt lies in the supplementary angle, so {Fmt(kind, expected.Value)} is dimensioned, not the {Fmt(kind, Math.PI - expected.Value)} between the rays");
+        }
         if (expected is double e && Math.Abs(dim.SystemValue - e) > MeasureTol(kind))
         {
             // It measures something else (e.g. the other angle of two lines).
@@ -396,6 +406,7 @@ public sealed class SketchEditService(SwSession session)
             double back = dim.SystemValue;
             var now = refs.Select(r => ItemOf(r, sketch, m2s)).ToList();
             measured = Measure(kind, now);
+            if (supplement && measured is double rays) measured = Math.PI - rays;
             string? problem =
                 Math.Abs(back - t) > MeasureTol(kind) ? $"the dimension reads {Fmt(kind, back)}" :
                 BecameOverDefined(sketch, before.Status) ? $"the sketch became {ConstrainedName(sketch.GetConstrainedStatus())}" :
@@ -2338,6 +2349,20 @@ public sealed class SketchEditService(SwSession session)
             return v.Normalized();
         }
         return (p, Toward(p, l1), Toward(p, l2));
+    }
+
+    /// <summary>
+    /// True when <paramref name="t"/> (sketch coordinates) lies in a sector of the supplementary angle of two lines:
+    /// between one ray and the other ray reversed. The angle between the rays and its vertical opposite are where
+    /// cross(u1, v) and cross(v, u2) have the same sign.
+    /// </summary>
+    private static bool InSupplementSector(IReadOnlyList<Item> it, Vec3 t)
+    {
+        if (it is not [{ Kind: "line" } l1, { Kind: "line" } l2]) return false;
+        var (p, u1, u2) = Rays(l1, l2);
+        var v = t - p;
+        if (v.Length < 1e-9) return false;
+        return Cross2(u1, v) * Cross2(v, u2) < 0;
     }
 
     private static double Reach(Item l, Vec3 p) => ((l.A + l.B) / 2).DistanceTo(p);

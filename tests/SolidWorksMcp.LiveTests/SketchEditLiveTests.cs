@@ -257,6 +257,24 @@ public class SketchEditLiveTests(LiveFixture fx) : LiveTest(fx)
     }
 
     [Fact]
+    public async Task Angular_dimension_takes_the_supplement_when_textAt_is_in_it()
+    {
+        // A slope rising 7.5° from the end of a flat line: the rays from the shared vertex make 172.5°, and textAt inside
+        // the 7.5° (between the flat line extended and the slope) asks for the supplement.
+        var (doc, _, added) = await SketchAsync("dim_angle_supplement", "front", Line([-10, 35], [0, 35]), Line([0, 35], [240, 66.6]));
+        string l1 = Name(added, 0), l2 = Name(added, 1);
+        var ang = await Ed.DimensionAddAsync(doc, [Seg(l1), Seg(l2)], "angular", valueDeg: 10, textAt: [100, 42]);
+        Assert.Equal(10, ang.Dimension.Value, 1e-6);
+        Assert.Equal(10, ang.Measured!.Value, 1e-4);
+        Assert.Contains(ang.Checks, c => c.Contains("supplementary", StringComparison.Ordinal));
+        var a = await SegmentAsync(doc, l1);
+        var b = await SegmentAsync(doc, l2);
+        double Dir(SketchSegmentInfo s) => Math.Atan2(s.EndMm![1] - s.StartMm![1], s.EndMm[0] - s.StartMm[0]);
+        double between = Math.Abs(Dir(a) - Dir(b)) * 180 / Math.PI % 180;
+        Assert.True(Math.Abs(between - 10) < 1e-3 || Math.Abs(between - 170) < 1e-3, $"angle between the lines is {between}°");
+    }
+
+    [Fact]
     public async Task The_origin_takes_dimensions_and_relations()
     {
         // Top Plane: the circle center (30, 40) is 50 mm from the origin; dimension it to 40, then put the other circle's
