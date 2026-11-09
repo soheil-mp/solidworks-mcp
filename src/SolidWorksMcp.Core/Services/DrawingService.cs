@@ -821,6 +821,7 @@ public sealed partial class DrawingService(SwSession session)
                 // Informational: GetFaceHatchCount / GetSolidHatchCount read 0 for a hatched section of a solid block live, so a
                 // zero proves nothing; the view's direction (above) and extents (modelBoxMm) are the checks.
                 if (hatches > 0) checks.Add($"{hatches} hatched cut face(s)");
+                else ctx.Warn($"'{info.Name}' reads no hatched cut faces; check in a screenshot that the cut line crosses the part.");
                 OverlapCheck(ctx, sheet, [sv], checks);
                 return new DrwViewResult { Doc = ctx.Title(d), View = info with { Parent = hit.Name }, Label = lb, Checks = checks };
             }
@@ -1846,17 +1847,21 @@ public sealed partial class DrawingService(SwSession session)
     }
 
     /// <summary>
-    /// Draws a sketch entity in the active view at sheet coordinates. The verified recipe passes sheet coordinates; when
-    /// the view's sketch has its own transform, a selection at the sheet point tells which interpretation SOLIDWORKS used,
-    /// and the entity is redrawn through the transform if needed.
+    /// Draws a sketch entity in the active view at sheet coordinates: the caller's sheet points are mapped into the view
+    /// sketch's coordinates (<see cref="SheetToViewSketch"/>) before SOLIDWORKS sees them.
     /// </summary>
     private static ISketchSegment DrawInView(SwContext ctx, IModelDoc2 d, ViewHit hit, string what, Func<Xform, ISketchSegment?> draw,
         (double X, double Y) probe, List<string> checks)
     {
-        // With the view active and AddToDB on, sketch entities take sheet coordinates (m). A selection pick at the sheet
-        // point to confirm the segment (SelectByID2) deactivated the view live, so the next entities and the section or
-        // detail command lost it: the segment's owner sketch is compared with the view's instead.
-        var seg = draw(Xform.Identity)
+        // With the view active and AddToDB on, SOLIDWORKS takes the entities in the view sketch's coordinates,
+        // (sheet - IView.Position) / view scale, not in sheet coordinates (checked live in 2023 SP3: a cut line asked
+        // at sheet x = 320 in a 1:1 view centred at x = 215 landed there only when passed as x = 105). A section of a
+        // uniform block hides this, since its extents are the same wherever the cut lands.
+        // A selection pick at the sheet point to confirm the segment (SelectByID2) deactivated the view live, so the
+        // next entities and the section or detail command lost it: the segment's owner sketch is compared with the
+        // view's instead.
+        var map = SheetToViewSketch(ctx, hit);
+        var seg = draw(map)
                   ?? throw new SwException(ErrorCodes.FeatureFailed, $"SOLIDWORKS did not draw the {what} in '{hit.Name}'.",
                       "Check that the view can be activated (drw_info) and is not locked.");
         string? owner = SketchName(seg.GetSketch()), mine = SketchName(hit.View.DrwSketch());
@@ -1865,6 +1870,37 @@ public sealed partial class DrawingService(SwSession session)
         else
             checks.Add($"{what} drawn in '{hit.Name}'");
         return seg;
+    }
+
+    /// <summary>
+    /// Sheet (m) → the view sketch's coordinates (m): p' = (p - IView.Position) / scale, rotated back by IView.Angle.
+    /// Identity when the view's position or scale cannot be read.
+    /// </summary>
+    private static Xform SheetToViewSketch(SwContext ctx, ViewHit hit)
+    {
+        double[] pos;
+        double s, a;
+        try
+        {
+            pos = hit.View.DrwPosition();
+            s = hit.View.ScaleDecimal;
+            a = hit.View.Angle;
+        }
+        catch (COMException)
+        {
+            ctx.Warn($"Could not read the position or scale of '{hit.Name}'; the points are passed as sheet coordinates.");
+            return Xform.Identity;
+        }
+        if (pos.Length < 2 || !double.IsFinite(s) || s <= 0)
+        {
+            ctx.Warn($"Could not read the position or scale of '{hit.Name}'; the points are passed as sheet coordinates.");
+            return Xform.Identity;
+        }
+        if (!double.IsFinite(a)) a = 0;
+        // Row-vector layout (Xform): x' = s'(x·r0 + y·r3) + tx, y' = s'(x·r1 + y·r4) + ty; rotation by -a.
+        double c = Math.Cos(-a), sn = Math.Sin(-a), si = 1 / s;
+        double tx = -si * (pos[0] * c - pos[1] * sn), ty = -si * (pos[0] * sn + pos[1] * c);
+        return new Xform([c, sn, 0, -sn, c, 0, 0, 0, 1, tx, ty, 0, si, 0, 0, 0]);
     }
 
     private static string? SketchName(ISketch? sk)
