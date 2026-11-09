@@ -986,11 +986,17 @@ public sealed partial class DrawingService(SwSession session)
 
     // ================================================================== drw_dimension_add
 
-    /// <summary>An entity of the view's model seen on the sheet (m): a point, a line, a circle or another curve.</summary>
-    private sealed record OnSheet(string Kind, Vec3 P0, Vec3 P1, Vec3 Mid, Vec3? Center, double? Radius, bool FaceOn, string Label)
+    /// <summary>
+    /// An entity of the view's model seen on the sheet (m): a point, a line, a circle or another curve. A circle's
+    /// <paramref name="Axis"/> is its axis on the sheet, a unit vector.
+    /// </summary>
+    private sealed record OnSheet(string Kind, Vec3 P0, Vec3 P1, Vec3 Mid, Vec3? Center, double? Radius, bool FaceOn, string Label,
+        Vec3? Axis = null)
     {
         public Vec3 Pick => Kind == "point" ? P0 : Mid;
         public (double X, double Y) Dir2 => (P1.X - P0.X, P1.Y - P0.Y);
+        /// <summary>A circle seen exactly edge-on, its axis in the sheet plane: drawn as a straight segment of its diameter.</summary>
+        public bool EdgeOn => Kind == "circle" && Axis is Vec3 ax && Math.Abs(ax.Z) < 1e-6;
     }
 
     public Task<DrwDimensionResult> DimensionAddAsync(string? view, EntityRef? a, EntityRef? b, string? kind, double[]? textAtMm, string? doc,
@@ -1071,20 +1077,58 @@ public sealed partial class DrawingService(SwSession session)
             }
             bool angular = k == "angular" || dim.GetType() == (int)swDimensionParamType_e.swDimensionParamTypeDoubleAngular;
             double v = dim.SystemValue;
+            bool Matches(double e) => angular
+                ? Math.Abs(v - e) < 1e-5 || Math.Abs(v - (Math.PI - e)) < 1e-5
+                : Math.Abs(v - e) <= Math.Max(1e-6, 1e-6 * Math.Abs(e));
+            string? arcs = null;
+            if (gb is not null && !angular && (ga.Kind == "circle" || gb.Kind == "circle"))
+            {
+                // A circle is measured at its centre, or face-on at its near or far side: the dimension's arc end conditions,
+                // read back from it (S20: these went unchecked). Two circles: if the order does not fit, the other order.
+                var (endA, endB) = ArcEnds(dim, ga, gb);
+                expected = Expected(k, ga, gb, s, endA, endB);
+                if (ga.Kind == "circle" && gb.Kind == "circle" && endA != endB && expected is double e1 && !Matches(e1) &&
+                    Expected(k, ga, gb, s, endB, endA) is double e2 && Matches(e2))
+                {
+                    expected = e2;
+                    (endA, endB) = (endB, endA);
+                }
+                arcs = string.Join(", ", new[] { ArcEndText("a", ga, endA), ArcEndText("b", gb, endB) }.OfType<string>());
+            }
+            string made = k;
+            if (gb is null && ga.Kind == "circle" && k is "linear" or "horizontal" or "vertical" && ga.Radius is double r &&
+                MadeAs(dd) is { } m)
+            {
+                // A distance on a single circle: SOLIDWORKS makes a diameter or a radius of it, compared as those are (S20).
+                made = m;
+                expected = m == "diameter" ? 2 * r : r;
+                checks.Add($"SOLIDWORKS made a {m} dimension of the circle for kind {k}");
+            }
+            else if (gb is null && ga.EdgeOn && expected is not null && ShowsDiameter(dd))
+            {
+                // A circle seen edge-on is drawn as a segment of its diameter: SOLIDWORKS makes a linear dimension with Ø (S20 c).
+                checks.Add($"SOLIDWORKS made a {k} dimension with Ø across the circle, seen edge-on");
+            }
             if (expected is double e)
             {
-                bool ok = angular
-                    ? Math.Abs(v - e) < 1e-5 || Math.Abs(v - (Math.PI - e)) < 1e-5
-                    : Math.Abs(v - e) <= Math.Max(1e-6, 1e-6 * Math.Abs(e));
-                if (!ok)
+                if (!Matches(e))
                 {
                     bool gone = DeleteDimension(d, dd);
                     throw new SwException(ErrorCodes.VerifyFailed,
-                        $"SOLIDWORKS dimensioned {Show(v, angular)} instead of the {k} {Show(e, angular)} of {ra.Label}{(rb is null ? "" : $" and {rb.Label}")}; " +
+                        $"SOLIDWORKS dimensioned {Show(v, angular)} instead of the {made} {Show(e, angular)} of {ra.Label}{(rb is null ? "" : $" and {rb.Label}")}" +
+                        $"{(arcs is null ? "" : $" ({arcs})")}; " +
                         (gone ? "the dimension was removed." : "the dimension could not be removed."),
-                        "Pass textAtMm next to the quantity you want (beside a length, inside an angle), or use kind horizontal / vertical.");
+                        MismatchHint(k, ga, gb));
                 }
-                checks.Add($"value {Show(v, angular)} matches the geometry");
+                checks.Add($"value {Show(v, angular)} matches the geometry{(arcs is null ? "" : $" ({arcs})")}");
+            }
+            else
+            {
+                // Say so rather than return an unchecked value as if it were checked (S20).
+                static string Of(OnSheet g) => g.Kind != "circle" || g.FaceOn ? $"a {g.Kind}"
+                    : g.EdgeOn ? "a circle seen edge-on" : "a circle seen at an angle";
+                ctx.Warn($"The value {Show(v, angular)} was not compared with the geometry: no expected {made} value is computed for " +
+                         $"{(gb is null ? $"{Of(ga)} alone" : $"{Of(ga)} and {Of(gb)}")} in this view. Check it against the model.");
             }
             int after = Count(hit.View).Dimensions;
             if (after == before + 1) checks.Add($"'{hit.Name}' has {after} dimension(s)");
@@ -1095,7 +1139,7 @@ public sealed partial class DrawingService(SwSession session)
             {
                 Doc = ctx.Title(d),
                 View = hit.Name,
-                Kind = k,
+                Kind = made,
                 Dimension = FeatureVerifier.ShortName(dim.FullName),
                 Value = angular ? Units.Deg(v) : Units.Mm(v),
                 Unit = angular ? "deg" : "mm",
@@ -1161,8 +1205,9 @@ public sealed partial class DrawingService(SwSession session)
                 }
                 if (g.Curve == "circle" && g.Center is Vec3 c && g.Axis is Vec3 ax)
                 {
-                    bool faceOn = Math.Abs(t.ApplyVector(ax).Normalized().Z) > 1 - 1e-6;
-                    return new OnSheet("circle", p0, p1, m, t.ApplyPoint(c), g.Radius, faceOn, r.Label);
+                    var axis = t.ApplyVector(ax).Normalized();
+                    bool faceOn = Math.Abs(axis.Z) > 1 - 1e-6;
+                    return new OnSheet("circle", p0, p1, m, t.ApplyPoint(c), g.Radius, faceOn, r.Label, axis);
                 }
                 return new OnSheet("curve", p0, p1, m, null, null, false, r.Label);
             }
@@ -1179,13 +1224,113 @@ public sealed partial class DrawingService(SwSession session)
         return s > 0 && double.IsFinite(s) ? s : viewScale;
     }
 
-    /// <summary>The quantity a dimension of this kind should read, from the geometry on the sheet (m or rad), when it is clear.</summary>
-    private static double? Expected(string kind, OnSheet a, OnSheet? b, double scale)
+    private const int ArcCentre = (int)swArcEndCondition_e.swArcEndConditionCenter;
+    private const int ArcMin = (int)swArcEndCondition_e.swArcEndConditionMin;
+    private const int ArcMax = (int)swArcEndCondition_e.swArcEndConditionMax;
+
+    /// <summary>
+    /// The arc end condition of each of the two entities (centre, min, max), as the dimension holds them (index 1 and 2
+    /// in selection order). With one circle, its condition is whichever index carries one; none read is the centre.
+    /// </summary>
+    private static (int A, int B) ArcEnds(IDimension dim, OnSheet a, OnSheet b)
+    {
+        int Read(int i)
+        {
+            try
+            {
+                int c = dim.GetArcEndCondition(i);
+                return c is ArcCentre or ArcMin or ArcMax ? c : 0;
+            }
+            catch (COMException e) when (!ComArgs.IsDisconnect(e))
+            {
+                return 0;
+            }
+        }
+        int c1 = Read(1), c2 = Read(2);
+        if (a.Kind == "circle" && b.Kind == "circle") return (c1 == 0 ? ArcCentre : c1, c2 == 0 ? ArcCentre : c2);
+        int own = a.Kind == "circle" ? c1 : c2, other = a.Kind == "circle" ? c2 : c1;
+        int end = own != 0 ? own : other != 0 ? other : ArcCentre;
+        return a.Kind == "circle" ? (end, ArcCentre) : (ArcCentre, end);
+    }
+
+    /// <summary>"diameter" or "radial" when SOLIDWORKS made the display dimension so (IDisplayDimension.Type2), else null.</summary>
+    private static string? MadeAs(IDisplayDimension dd)
+    {
+        try
+        {
+            return dd.Type2 switch
+            {
+                (int)swDimensionType_e.swDiameterDimension => "diameter",
+                (int)swDimensionType_e.swRadialDimension => "radial",
+                _ => null,
+            };
+        }
+        catch (COMException e) when (!ComArgs.IsDisconnect(e))
+        {
+            return null;
+        }
+    }
+
+    /// <summary>True when the dimension's text carries the diameter sign (&lt;MOD-DIAM&gt;, read live as its prefix).</summary>
+    private static bool ShowsDiameter(IDisplayDimension dd)
+    {
+        foreach (var which in new[] { swDimensionTextParts_e.swDimensionTextPrefix, swDimensionTextParts_e.swDimensionTextAll })
+        {
+            try
+            {
+                if (dd.GetText((int)which) is { } t && t.Contains("<MOD-DIAM>", StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            catch (COMException e) when (!ComArgs.IsDisconnect(e))
+            {
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The hint of a dimension whose value does not match the geometry. A horizontal or vertical one already says its
+    /// direction, so it is not told to use one: with a circle seen edge-on, SOLIDWORKS did not measure that direction to it.
+    /// </summary>
+    private static string MismatchHint(string kind, OnSheet a, OnSheet? b)
+    {
+        if (kind is not ("horizontal" or "vertical"))
+            return "Pass textAtMm next to the quantity you want (beside a length, inside an angle), or use kind horizontal / vertical.";
+        var edgeOn = new[] { a, b }.FirstOrDefault(g => g is { Kind: "circle", FaceOn: false });
+        return edgeOn is not null
+            ? $"SOLIDWORKS did not make a {kind} dimension to the centre of {edgeOn.Label}, a circle seen edge-on in this view. " +
+              "Dimension to a vertex or a straight edge instead, or in a view where the circle is seen face-on."
+            : $"SOLIDWORKS did not make a {kind} dimension between these. Pick vertices or straight edges that carry it, or use kind linear.";
+    }
+
+    private static string? ArcEndText(string arg, OnSheet g, int end) => g.Kind != "circle" ? null
+        : $"'{arg}' to its {(end == ArcMin ? "near side" : end == ArcMax ? "far side" : "centre")}";
+
+    /// <summary>
+    /// A circle as a dimension measures it: a point at its centre, and the radius to add (far side) or take off (near
+    /// side, both only face-on). False when that is not known: a near or far side of a circle not seen face-on.
+    /// </summary>
+    private static bool AtArcEnd(OnSheet g, int end, out OnSheet drawn, out double offset)
+    {
+        drawn = g;
+        offset = 0;
+        if (g.Kind != "circle" || g.Center is not Vec3 c) return true;
+        drawn = g with { Kind = "point", P0 = c, P1 = c, Mid = c };
+        if (end is ArcMin or ArcMax)
+        {
+            if (!g.FaceOn || g.Radius is not double r) return false;
+            offset = end == ArcMin ? -r : r;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// The quantity a dimension of this kind should read, from the geometry on the sheet (m or rad), when it is clear. A
+    /// circle among two entities is measured at its arc end (<see cref="AtArcEnd"/>), the centre unless given.
+    /// </summary>
+    private static double? Expected(string kind, OnSheet a, OnSheet? b, double scale, int endA = ArcCentre, int endB = ArcCentre)
     {
         if (scale <= 0) return null;
         static double Len((double X, double Y) v) => Math.Sqrt(v.X * v.X + v.Y * v.Y);
-        static bool IsVertical(OnSheet g) => g.Kind == "line" && Math.Abs(g.Dir2.X) < 1e-9 * Math.Max(1, Len(g.Dir2)) + 1e-9;
-        static bool IsHorizontal(OnSheet g) => g.Kind == "line" && Math.Abs(g.Dir2.Y) < 1e-9 * Math.Max(1, Len(g.Dir2)) + 1e-9;
         switch (kind)
         {
             case "radial": return a.Radius;
@@ -1201,6 +1346,17 @@ public sealed partial class DrawingService(SwSession session)
         }
         if (b is null)
         {
+            if (a.EdgeOn && a.Radius is double r && a.Axis is Vec3 ax)
+            {
+                // Seen edge-on, a circle is a segment of its diameter across its axis on the sheet: (-ay, ax) (S20 c).
+                double n = Math.Sqrt(ax.X * ax.X + ax.Y * ax.Y);
+                return kind switch
+                {
+                    "horizontal" => 2 * r * Math.Abs(ax.Y) / n,
+                    "vertical" => 2 * r * Math.Abs(ax.X) / n,
+                    _ => 2 * r,
+                };
+            }
             if (a.Kind != "line") return null;
             return kind switch
             {
@@ -1209,7 +1365,18 @@ public sealed partial class DrawingService(SwSession session)
                 _ => Flat(a.P0).DistanceTo(Flat(a.P1)) / scale,
             };
         }
-        // Two entities: points, and lines that are parallel (distance) or a point and a line.
+        // Two entities: points (a circle at its arc end), and lines that are parallel (distance) or a point and a line.
+        if (!AtArcEnd(a, endA, out var pa, out double offA) || !AtArcEnd(b, endB, out var pb, out double offB)) return null;
+        double side = offA + offB;
+        return PairDistance(kind, pa, pb, scale) is double dist && dist + side > 1e-9 ? dist + side : null;
+    }
+
+    /// <summary>The distance a dimension of this kind reads between two points, two parallel lines or a point and a line.</summary>
+    private static double? PairDistance(string kind, OnSheet a, OnSheet b, double scale)
+    {
+        static double Len((double X, double Y) v) => Math.Sqrt(v.X * v.X + v.Y * v.Y);
+        static bool IsVertical(OnSheet g) => g.Kind == "line" && Math.Abs(g.Dir2.X) < 1e-9 * Math.Max(1, Len(g.Dir2)) + 1e-9;
+        static bool IsHorizontal(OnSheet g) => g.Kind == "line" && Math.Abs(g.Dir2.Y) < 1e-9 * Math.Max(1, Len(g.Dir2)) + 1e-9;
         bool aLine = a.Kind == "line", bLine = b.Kind == "line";
         bool aPt = a.Kind == "point", bPt = b.Kind == "point";
         if (aPt && bPt)

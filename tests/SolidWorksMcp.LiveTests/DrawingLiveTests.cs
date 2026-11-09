@@ -464,6 +464,107 @@ public class DrawingLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.Contains("part", model.Hint);
     }
 
+    [Fact]
+    public async Task Dimensions_to_hole_edges_are_checked_at_the_hole_centres()
+    {
+        // S20: a dimension with a circular edge in it came back with no expected value and no warning. The block with its
+        // Ø20 hole at the origin, plus a Ø6 x 10 drill on the front face at (30, 15).
+        var (doc, path) = await BlockAsync("drw_dim_holes", hole: true);
+        await new PartFeatureService(S).HoleAsync(new HoleRequest { Doc = doc, Points = [[30, 15, 20]], Type = "drill", DiameterMm = 6, End = "blind", DepthMm = 10 });
+        await Docs.SaveAsync(doc, "inPlace", null, false);
+        string drw = await DrawingAsync("drw_dim_holes");
+        var front = (await Drw.ViewsStandardAsync(path, ["front"], null, drw)).Views.Single().Name;
+        var right = new EntityRef { Type = "edge", At = [50, 0, 20] };
+        var top = new EntityRef { Type = "edge", At = [0, 30, 20] };
+        var big = new EntityRef { Type = "edge", At = [10, 0, 20] };
+        var small = new EntityRef { Type = "edge", At = [33, 15, 20] };
+
+        async Task Checked(EntityRef a, EntityRef b, string kind, double mm, string arcs)
+        {
+            var r = await Drw.DimensionAddAsync(front, a, b, kind, null, drw);
+            Assert.Equal(mm, r.Value, 1e-6);
+            Assert.True(r.Expected is double e && Math.Abs(e - mm) < 1e-6, $"{kind}: expected {r.Expected?.ToString() ?? "none"}, wanted {mm}");
+            Assert.Contains(r.Checks!, c => c.Contains("matches the geometry") && c.Contains(arcs));
+            Assert.DoesNotContain(r.Warnings ?? [], w => w.Contains("not compared"));
+        }
+
+        await Checked(right, big, "horizontal", 50, "'b' to its centre");          // a line to a hole edge
+        await Checked(top, small, "vertical", 15, "'b' to its centre");
+        await Checked(big, top, "linear", 30, "'a' to its centre");
+        await Checked(big, small, "horizontal", 30, "'a' to its centre, 'b' to its centre"); // two hole edges
+        await Checked(big, small, "vertical", 15, "'a' to its centre, 'b' to its centre");
+        await Checked(big, small, "linear", Math.Sqrt(30 * 30 + 15 * 15), "'a' to its centre, 'b' to its centre");
+    }
+
+    [Fact]
+    public async Task Linear_on_a_single_hole_edge_is_checked_as_what_SOLIDWORKS_made()
+    {
+        // S20 (a): SOLIDWORKS makes linear on one circle a diameter; it came back kind linear, unchecked, with a garbled warning.
+        var (drw, r) = await ViewsAsync("drw_dim_circle", ["front"], hole: true);
+        var dim = await Drw.DimensionAddAsync(r.Views[0].Name, new EntityRef { Type = "edge", At = [10, 0, 20] }, null, "linear", null, drw);
+        Assert.True(dim.Kind is "diameter" or "radial", $"kind {dim.Kind}");
+        double want = dim.Kind == "diameter" ? 20 : 10;
+        Assert.Equal(want, dim.Value, 1e-6);
+        Assert.True(dim.Expected is double e && Math.Abs(e - want) < 1e-6, $"expected {dim.Expected?.ToString() ?? "none"}, wanted {want}");
+        Assert.Contains(dim.Checks!, c => c.Contains("matches the geometry"));
+        Assert.Contains(dim.Checks!, c => c.Contains($"made a {dim.Kind} dimension of the circle for kind linear"));
+        Assert.DoesNotContain(dim.Warnings ?? [], w => w.Contains("not compared"));
+    }
+
+    [Fact]
+    public async Task A_direction_not_made_to_edge_on_circles_is_refused_with_a_hint_that_says_so()
+    {
+        // S20 (b): in a section view a hole's edge is seen edge-on. A horizontal between two of them that SOLIDWORKS measured
+        // otherwise was refused with a hint to use horizontal / vertical, which the call already did.
+        var (doc, path) = await BlockAsync("drw_dim_edge_on", hole: true);
+        await new PartFeatureService(S).HoleAsync(new HoleRequest { Doc = doc, Points = [[30, 0, 20]], Type = "drill", DiameterMm = 6, End = "blind", DepthMm = 10 });
+        await Docs.SaveAsync(doc, "inPlace", null, false);
+        string drw = await DrawingAsync("drw_dim_edge_on");
+        var front = (await Drw.ViewsStandardAsync(path, ["front"], null, drw)).Views.Single();
+        var b = front.ModelBoxMm!;
+        double cy = (b[1] + b[3]) / 2; // the block's y = 0, through both holes' centres
+        var sec = (await Drw.SectionAsync(front.Name, [b[0] - 10, cy], [b[2] + 10, cy], null, null, drw)).View;
+        Assert.True(sec.Orientation is "top" or "bottom", $"the section looks {sec.Orientation ?? "along another direction"}");
+        // The kept half's side of the cut: one of the two picks below lies on it.
+        double side = sec.Orientation == "top" ? -1 : 1;
+        var bigBack = new EntityRef { Type = "edge", At = [0, 10 * side, 0] };      // Ø20 at z 0, centre (0, 0) on the sheet's x, z
+        var drillFloor = new EntityRef { Type = "edge", At = [30, 3 * side, 10] }; // Ø6 drill's floor edge at z 10, centre (30, 10)
+
+        var v = await Drw.DimensionAddAsync(sec.Name, bigBack, drillFloor, "vertical", null, drw);
+        Assert.True(v.Expected is double ev && Math.Abs(ev - 10) < 1e-6, $"vertical: expected {v.Expected?.ToString() ?? "none"}, value {v.Value}");
+
+        var ex = await Fails(ErrorCodes.VerifyFailed, () => Drw.DimensionAddAsync(sec.Name, bigBack, drillFloor, "horizontal", null, drw));
+        Assert.Contains("seen edge-on", ex.Hint);
+        Assert.DoesNotContain("use kind horizontal / vertical", ex.Hint);
+    }
+
+    [Fact]
+    public async Task A_single_circle_seen_edge_on_is_checked_as_its_diameter()
+    {
+        // S20 (c): in a section view the Ø20 hole's back edge is drawn as a segment of its diameter. SOLIDWORKS makes linear
+        // and horizontal on it a linear dimension with Ø (live: Type2 linear, prefix <MOD-DIAM>, 20 mm); they came back
+        // unchecked with a warning.
+        var (drw, r) = await ViewsAsync("drw_dim_edge_on_circle", ["front"], hole: true);
+        var front = r.Views[0];
+        var b = front.ModelBoxMm!;
+        double cy = (b[1] + b[3]) / 2;
+        var sec = (await Drw.SectionAsync(front.Name, [b[0] - 10, cy], [b[2] + 10, cy], null, null, drw)).View;
+        Assert.True(sec.Orientation is "top" or "bottom", $"the section looks {sec.Orientation ?? "along another direction"}");
+        double side = sec.Orientation == "top" ? -1 : 1;
+        var back = new EntityRef { Type = "edge", At = [0, 10 * side, 0] };
+
+        foreach (var kind in new[] { "linear", "horizontal" })
+        {
+            var dim = await Drw.DimensionAddAsync(sec.Name, back, null, kind, null, drw);
+            Assert.Equal(kind, dim.Kind);
+            Assert.Equal(20, dim.Value, 1e-6);
+            Assert.True(dim.Expected is double e && Math.Abs(e - 20) < 1e-6, $"{kind}: expected {dim.Expected?.ToString() ?? "none"}, wanted 20");
+            Assert.Contains(dim.Checks!, c => c.Contains("matches the geometry"));
+            Assert.Contains(dim.Checks!, c => c.Contains("with Ø across the circle, seen edge-on"));
+            Assert.DoesNotContain(dim.Warnings ?? [], w => w.Contains("not compared"));
+        }
+    }
+
     // ------------------------------------------------------------------ M8 WP2: sheets, flat-pattern / auxiliary views, breaks
 
     [Fact]
