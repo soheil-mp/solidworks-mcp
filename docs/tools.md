@@ -122,7 +122,7 @@ Saves the target document. mode: inPlace (existing file), as (Save As: the docum
 
 ### `doc_undo` — Undo (destructive)
 
-Undoes the last SOLIDWORKS undo steps (one feature creation is one step), only in documents this server may edit, only while nobody else changed them since the server's last change, and never more steps than the server made. Returns the features removed or restored and the volume change.
+Undoes the last SOLIDWORKS undo steps (one feature creation is one step), only in documents this server may edit, only while nobody else changed them since the server's last change, and never more steps than the server made. Parts and assemblies only: refused in drawings (NOT_SUPPORTED), where what an undo takes back can't be checked. Returns the features removed or restored and the volume change.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|

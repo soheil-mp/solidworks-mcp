@@ -640,6 +640,30 @@ public class DrawingLiveTests(LiveFixture fx) : LiveTest(fx)
         await Fails(ErrorCodes.EntityNotFound, () => Drw.NoteAddAsync("x", [10, 10], null, "No Such View", drw));
     }
 
+    // ------------------------------------------------------------------ doc_undo in a drawing
+
+    [Fact]
+    public async Task Undo_in_a_drawing_is_refused_and_takes_nothing_back()
+    {
+        // A section puts a server step on record; without the refusal, EditUndo2 after the note removed the note and
+        // doc_undo reported VERIFY_FAILED "Nothing changed" (2023 SP3). Before the section it refused NOT_OWNED, blaming the user.
+        var (drw, r) = await ViewsAsync("drw_undo", ["front"]);
+        var front = r.Views[0];
+        var b = front.ModelBoxMm!;
+        double cx = (b[0] + b[2]) / 2;
+        await Drw.SectionAsync(front.Name, [cx, b[1] - 10], [cx, b[3] + 10], null, null, drw);
+        await Drw.NoteAddAsync("SWMCP UNDO", [100, 50], null, null, drw);
+        var before = await Drw.InfoAsync(drw);
+
+        var ex = await Fails(ErrorCodes.NotSupported, () => new FeatureManagementService(S).UndoAsync(drw, 1));
+        Assert.Contains("drawings", ex.Message);
+        Assert.Contains("drw_info", ex.Hint!);
+
+        var after = await Drw.InfoAsync(drw);
+        Assert.Equal(before.ViewCount, after.ViewCount);
+        Assert.Equal(before.Sheets[0].Annotations?.Notes ?? 0, after.Sheets[0].Annotations?.Notes ?? 0);
+    }
+
     // ------------------------------------------------------------------ drw_bom_add
 
     [Fact]

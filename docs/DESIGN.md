@@ -244,7 +244,9 @@ call. They come back in `warnings[]`.
   restarted server re-claims what it created.
 - **Undo.** `doc_undo` is allowed only when the document's update stamp still equals the one recorded after the server's
   last write, and only up to the number of server operations since then. Each mutating tool is wrapped in a named undo
-  object (to verify live).
+  object (to verify live). Refused in drawings (`NOT_SUPPORTED`): there most changes leave the update stamp as it was,
+  and the check after the undo sees features and geometry only, so an undo that removed a note was reported as nothing
+  changed.
 
 ### 3.8 Entity references (selection model)
 ```jsonc

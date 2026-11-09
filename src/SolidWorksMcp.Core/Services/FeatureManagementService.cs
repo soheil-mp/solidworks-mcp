@@ -998,6 +998,15 @@ public sealed partial class FeatureManagementService(SwSession session)
         {
             var d = ctx.Doc;
             var entry = ctx.DocEntry;
+            // Refused before anything is undone: in a drawing most changes (a projected view, a note) leave the update stamp
+            // as it was, so the server's steps can't be counted, and the snapshot below sees features and geometry only.
+            // Live on 2023 SP3, EditUndo2 left a section view in place, and after a note it removed the note while the
+            // snapshot reported that nothing changed.
+            if (d.GetType() == (int)swDocumentTypes_e.swDocDRAWING)
+                throw new SwException(ErrorCodes.NotSupported,
+                    $"doc_undo doesn't undo in drawings ('{entry.Title}'): the server can't tell which drawing changes are its own " +
+                    "undo steps, nor check what an undo took back (a view, a dimension, a note).",
+                    "Ask the user to undo in SOLIDWORKS (Ctrl+Z), then read the drawing back with drw_info; or make the drawing again.");
             if (entry.Class is not (DocClass.Owned or DocClass.Adopted))
                 throw new SwException(ErrorCodes.NotOwned, $"'{entry.Title}' is the user's document; the server doesn't undo in it.");
             RequireNoOpenSketch(ctx, d, "undo would act on the sketch edits");
