@@ -379,9 +379,10 @@ public sealed class SketchEditService(SwSession session)
         if (supplement)
         {
             expected = Math.PI - expected!.Value;
-            // The sizes are the lines' as drawn, before any value is set: named as what they are now, not as a value to use.
-            checks.Add($"textAt lies in the supplementary angle, so the dimension is on the angle that is now {Fmt(kind, expected.Value)}, " +
-                       $"not on the one between the rays, now {Fmt(kind, Math.PI - expected.Value)}");
+            // The sizes are the lines' as drawn, before the value is set: named as what they were, not as a value to use. The
+            // result is read after the change, so "was" (the refusal's hint, given before any change, keeps "now"; S6).
+            checks.Add($"textAt lies in the supplementary angle, so the dimension is on the angle that was {Fmt(kind, expected.Value)}, " +
+                       $"not on the one between the rays, then {Fmt(kind, Math.PI - expected.Value)}");
         }
         if (expected is double e && Math.Abs(dim.SystemValue - e) > MeasureTol(kind))
         {

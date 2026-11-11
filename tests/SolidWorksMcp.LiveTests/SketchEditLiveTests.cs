@@ -287,7 +287,8 @@ public class SketchEditLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.NotNull(ex.Hint);
         var m = System.Text.RegularExpressions.Regex.Match(ex.Hint!, @"textAt \[(-?[\d.]+), (-?[\d.]+)\]");
         Assert.True(m.Success, $"no textAt in the hint: {ex.Hint}");
-        // The 7.5° is the slope as drawn, not a value to pass: the hint and the check name it as what the angle is now.
+        // The 7.5° is the slope as drawn, not a value to pass: the hint names it as what the angle is now, and the accepted
+        // call's check, read after the change, as what it was (S6).
         Assert.Matches(@"the angle that is now 7[.,]5\d*°", ex.Hint!);
         Assert.Empty((await Ed.InfoAsync(doc, null)).Dimensions ?? []);
 
@@ -297,7 +298,7 @@ public class SketchEditLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.Equal(10, ang.Dimension.Value, 1e-6);
         Assert.Equal(10, ang.Measured!.Value, 1e-4);
         Assert.Contains(ang.Checks, c => c.Contains("supplementary", StringComparison.Ordinal) &&
-                                         System.Text.RegularExpressions.Regex.IsMatch(c, @"the angle that is now 7[.,]5\d*°"));
+                                         System.Text.RegularExpressions.Regex.IsMatch(c, @"the angle that was 7[.,]5\d*°, not on the one between the rays, then 172[.,]4\d*°"));
     }
 
     [Fact]
