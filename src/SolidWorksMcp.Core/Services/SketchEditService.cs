@@ -379,7 +379,9 @@ public sealed class SketchEditService(SwSession session)
         if (supplement)
         {
             expected = Math.PI - expected!.Value;
-            checks.Add($"textAt lies in the supplementary angle, so {Fmt(kind, expected.Value)} is dimensioned, not the {Fmt(kind, Math.PI - expected.Value)} between the rays");
+            // The sizes are the lines' as drawn, before any value is set: named as what they are now, not as a value to use.
+            checks.Add($"textAt lies in the supplementary angle, so the dimension is on the angle that is now {Fmt(kind, expected.Value)}, " +
+                       $"not on the one between the rays, now {Fmt(kind, Math.PI - expected.Value)}");
         }
         if (expected is double e && Math.Abs(dim.SystemValue - e) > MeasureTol(kind))
         {
@@ -423,7 +425,7 @@ public sealed class SketchEditService(SwSession session)
                 catch (Exception ex) when (!ComArgs.IsDisconnect(ex)) { /* best effort */ }
                 bool gone = DeleteDimension(d, disp, feat, dimsBefore);
                 string hint = otherAngle
-                    ? $"To set the {Fmt(kind, Math.PI - expected!.Value)} angle, pass textAt inside it, e.g. textAt {SupplementTextPoint(items)} (sketch mm)."
+                    ? $"To set the angle that is now {Fmt(kind, Math.PI - expected!.Value)}, pass textAt inside it, e.g. textAt {SupplementTextPoint(items)} (sketch mm)."
                     : "Other relations or dimensions may fix this geometry; check sketch_info.";
                 throw new SwException(ErrorCodes.VerifyFailed, $"After setting {Fmt(kind, t)}, {problem}; the old value was restored and {Removed(gone)}.", hint);
             }

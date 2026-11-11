@@ -287,6 +287,8 @@ public class SketchEditLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.NotNull(ex.Hint);
         var m = System.Text.RegularExpressions.Regex.Match(ex.Hint!, @"textAt \[(-?[\d.]+), (-?[\d.]+)\]");
         Assert.True(m.Success, $"no textAt in the hint: {ex.Hint}");
+        // The 7.5° is the slope as drawn, not a value to pass: the hint and the check name it as what the angle is now.
+        Assert.Matches(@"the angle that is now 7[.,]5\d*°", ex.Hint!);
         Assert.Empty((await Ed.InfoAsync(doc, null)).Dimensions ?? []);
 
         double[] at = [double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
@@ -294,7 +296,8 @@ public class SketchEditLiveTests(LiveFixture fx) : LiveTest(fx)
         var ang = await Ed.DimensionAddAsync(doc, [Seg(l1), Seg(l2)], "angular", valueDeg: 10, textAt: at);
         Assert.Equal(10, ang.Dimension.Value, 1e-6);
         Assert.Equal(10, ang.Measured!.Value, 1e-4);
-        Assert.Contains(ang.Checks, c => c.Contains("supplementary", StringComparison.Ordinal));
+        Assert.Contains(ang.Checks, c => c.Contains("supplementary", StringComparison.Ordinal) &&
+                                         System.Text.RegularExpressions.Regex.IsMatch(c, @"the angle that is now 7[.,]5\d*°"));
     }
 
     [Fact]
