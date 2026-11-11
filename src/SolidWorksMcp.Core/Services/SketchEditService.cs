@@ -371,6 +371,19 @@ public sealed class SketchEditService(SwSession session)
                 $"A {kind} dimension on {labels} would over-define the sketch (SOLIDWORKS made it a driven reference dimension); {Removed(gone)}.",
                 "Delete the dimension or relation that already fixes this size (sketch_info lists them), or dimension something else.");
         }
+        // Two lines make two angles: the one between the rays toward the segments (Measure), and across the vertex its
+        // supplement. SOLIDWORKS dimensions the one whose sector holds the text point, so when textAt was put in the
+        // supplement's sector, the supplement is the angle asked for.
+        bool supplement = kind == "angular" && textAt is not null && expected is double e0 &&
+                          InSupplementSector(items, text) && Math.Abs(dim.SystemValue - (Math.PI - e0)) <= MeasureTol(kind);
+        if (supplement)
+        {
+            expected = Math.PI - expected!.Value;
+            // The sizes are the lines' as drawn, before the value is set: named as what they were, not as a value to use. The
+            // result is read after the change, so "was" (the refusal's hint, given before any change, keeps "now"; S6).
+            checks.Add($"textAt lies in the supplementary angle, so the dimension is on the angle that was {Fmt(kind, expected.Value)}, " +
+                       $"not on the one between the rays, then {Fmt(kind, Math.PI - expected.Value)}");
+        }
         if (expected is double e && Math.Abs(dim.SystemValue - e) > MeasureTol(kind))
         {
             // It measures something else (e.g. the other angle of two lines).
@@ -396,9 +409,15 @@ public sealed class SketchEditService(SwSession session)
             double back = dim.SystemValue;
             var now = refs.Select(r => ItemOf(r, sketch, m2s)).ToList();
             measured = Measure(kind, now);
+            if (supplement && measured is double rays) measured = Math.PI - rays;
+            // The sketch solved the value as the other angle of the two lines: the angle asked for is the one across the
+            // vertex from the dimensioned one, so the fix is a textAt inside it, not another relation.
+            bool otherAngle = kind == "angular" && !supplement && expected is not null && measured is double mo &&
+                              Math.Abs(mo - (Math.PI - t)) <= MeasureTol(kind);
             string? problem =
                 Math.Abs(back - t) > MeasureTol(kind) ? $"the dimension reads {Fmt(kind, back)}" :
                 BecameOverDefined(sketch, before.Status) ? $"the sketch became {ConstrainedName(sketch.GetConstrainedStatus())}" :
+                otherAngle ? $"the lines make {Fmt(kind, measured!.Value)} between the rays, so {Fmt(kind, t)} went to the angle across the vertex; the dimension was on the {Fmt(kind, expected!.Value)} between the rays, not the {Fmt(kind, Math.PI - expected.Value)}" :
                 measured is double m && Math.Abs(m - t) > MeasureTol(kind) ? $"the geometry measures {Fmt(kind, m)} (the sketch did not solve to it)" :
                 null;
             if (problem is not null)
@@ -406,8 +425,10 @@ public sealed class SketchEditService(SwSession session)
                 try { dim.SetSystemValue3(v0, (int)swSetValueInConfiguration_e.swSetValue_InThisConfiguration, ComArgs.Empty); }
                 catch (Exception ex) when (!ComArgs.IsDisconnect(ex)) { /* best effort */ }
                 bool gone = DeleteDimension(d, disp, feat, dimsBefore);
-                throw new SwException(ErrorCodes.VerifyFailed, $"After setting {Fmt(kind, t)}, {problem}; the old value was restored and {Removed(gone)}.",
-                    "Other relations or dimensions may fix this geometry; check sketch_info.");
+                string hint = otherAngle
+                    ? $"To set the angle that is now {Fmt(kind, Math.PI - expected!.Value)}, pass textAt inside it, e.g. textAt {SupplementTextPoint(items)} (sketch mm)."
+                    : "Other relations or dimensions may fix this geometry; check sketch_info.";
+                throw new SwException(ErrorCodes.VerifyFailed, $"After setting {Fmt(kind, t)}, {problem}; the old value was restored and {Removed(gone)}.", hint);
             }
             checks.Add($"value reads back {Fmt(kind, back)}");
             if (measured is double mm) checks.Add($"geometry measures {Fmt(kind, mm)}");
@@ -2338,6 +2359,32 @@ public sealed class SketchEditService(SwSession session)
             return v.Normalized();
         }
         return (p, Toward(p, l1), Toward(p, l2));
+    }
+
+    /// <summary>
+    /// True when <paramref name="t"/> (sketch coordinates) lies in a sector of the supplementary angle of two lines:
+    /// between one ray and the other ray reversed. The angle between the rays and its vertical opposite are where
+    /// cross(u1, v) and cross(v, u2) have the same sign.
+    /// </summary>
+    private static bool InSupplementSector(IReadOnlyList<Item> it, Vec3 t)
+    {
+        if (it is not [{ Kind: "line" } l1, { Kind: "line" } l2]) return false;
+        var (p, u1, u2) = Rays(l1, l2);
+        var v = t - p;
+        if (v.Length < 1e-9) return false;
+        return Cross2(u1, v) * Cross2(v, u2) < 0;
+    }
+
+    /// <summary>
+    /// A textAt, as "[x, y]" in sketch mm, inside the supplementary angle of two lines: on the bisector between the
+    /// second line's ray and the first one's reversed, halfway along the second line's reach.
+    /// </summary>
+    private static string SupplementTextPoint(IReadOnlyList<Item> it)
+    {
+        var (p, u1, u2) = Rays(it[0], it[1]);
+        double reach = Reach(it[1], p);
+        var q = p + (u2 - u1).Normalized() * (reach > 1e-4 ? 0.5 * reach : 0.01);
+        return FormattableString.Invariant($"[{Math.Round(Units.Mm(q.X), 3)}, {Math.Round(Units.Mm(q.Y), 3)}]");
     }
 
     private static double Reach(Item l, Vec3 p) => ((l.A + l.B) / 2).DistanceTo(p);
