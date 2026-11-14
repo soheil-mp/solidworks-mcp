@@ -943,6 +943,30 @@ public class DrawingLiveTests(LiveFixture fx) : LiveTest(fx)
         Assert.Equal(before.Annotations.Single(a => a.Name == width.Dimension).AtMm, after.Annotations.Single(a => a.Name == width.Dimension).AtMm);
     }
 
+    [Fact]
+    public async Task Deleting_a_dimension_names_the_others_solidworks_moved()
+    {
+        var (drw, r) = await ViewsAsync("drw_del_stack", ["front"], hole: true);
+        var front = r.Views[0];
+        double x = front.CenterMm![0], y0 = front.BoundsMm![1];
+        // A stack below the view, as in the scenario test: text at 10, 18 and 26 mm under it.
+        var dims = new List<DrwDimensionResult>();
+        foreach (var (at, to, dy) in new (double[] At, double[]? To, double Dy)[] { ([0, -30, 20], null, 10), ([0, 30, 20], null, 18), ([-50, 0, 20], [50, 0, 20], 26) })
+            dims.Add(await Drw.DimensionAddAsync(front.Name, new EntityRef { Type = "edge", At = at }, to is null ? null : new EntityRef { Type = "edge", At = to },
+                "horizontal", [x, y0 - dy], drw));
+        var before = (await Drw.AnnotationListAsync(front.Name, "dimension", drw)).Annotations;
+
+        var del = await Drw.AnnotationEditAsync(dims[0].Dimension, "delete", null, null, null, drw);
+        var after = (await Drw.AnnotationListAsync(front.Name, "dimension", drw)).Annotations;
+        var shifted = after.Where(a => before.Single(b => b.Name == a.Name).AtMm is { } p && (Math.Abs(p[0] - a.AtMm![0]) > 0.01 || Math.Abs(p[1] - a.AtMm[1]) > 0.01))
+            .Select(a => a.Name).OrderBy(n => n).ToList();
+        Assert.NotEmpty(shifted); // SOLIDWORKS closes up the stack
+        Assert.Equal(shifted, del.OthersMoved!.Select(m => m.Name).OrderBy(n => n).ToList());
+        var m0 = del.OthersMoved![0];
+        Assert.Equal(after.Single(a => a.Name == m0.Name).AtMm!, m0.AfterMm);
+        Assert.Contains(del.Warnings ?? [], w => w.Contains("SOLIDWORKS moved") && w.Contains(m0.Name));
+    }
+
     // ------------------------------------------------------------------ drw_view_edit kind=move, drw_view_delete
 
     [Fact]

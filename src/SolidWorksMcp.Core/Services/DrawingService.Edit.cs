@@ -55,7 +55,18 @@ public sealed class DrwAnnotationEditResult : ToolResult
     public required DrwAnnotationItem Before { get; init; }
     /// <summary>The annotation read back after the call (absent after a delete).</summary>
     public DrwAnnotationItem? After { get; init; }
+    /// <summary>A delete: the other annotations SOLIDWORKS moved with it (a stack of dimensions closes up), not put back.</summary>
+    public IReadOnlyList<DrwAnnotationMoved>? OthersMoved { get; init; }
     public IReadOnlyList<string>? Checks { get; init; }
+}
+
+/// <summary>An annotation that moved without being asked to: where it was and where it is.</summary>
+public sealed class DrwAnnotationMoved
+{
+    public required string Name { get; init; }
+    public required string View { get; init; }
+    public required double[] BeforeMm { get; init; }
+    public required double[] AfterMm { get; init; }
 }
 
 public sealed class DrwViewDeleteResult : ToolResult
@@ -306,7 +317,7 @@ public sealed partial class DrawingService
             return act switch
             {
                 "move" => MoveAnnotation(ctx, d, hit, to, checks),
-                "delete" => DeleteOne(ctx, d, drw, hit, view, checks),
+                "delete" => DeleteOne(ctx, d, drw, hit, view, all, checks),
                 _ => SetNoteText(ctx, d, hit, text!, checks),
             };
         }, RunOptions.Write(doc), ct);
@@ -339,7 +350,7 @@ public sealed partial class DrawingService
     }
 
     /// <summary>Selects the annotation and deletes it; verified: it is no longer listed and the view holds one fewer.</summary>
-    private static DrwAnnotationEditResult DeleteOne(SwContext ctx, IModelDoc2 d, IDrawingDoc drw, Ann hit, string? view, List<string> checks)
+    private static DrwAnnotationEditResult DeleteOne(SwContext ctx, IModelDoc2 d, IDrawingDoc drw, Ann hit, string? view, List<Ann> all, List<string> checks)
     {
         int countBefore = Annotations([hit.Owner], hit.Item.Sheet).Count;
         if (!DeleteAnnotation(d, hit.A))
@@ -354,7 +365,23 @@ public sealed partial class DrawingService
         if (countAfter == countBefore - 1) checks.Add($"'{hit.Item.View}' went from {countBefore} to {countAfter} annotation(s)");
         else ctx.Warn($"'{hit.Item.View}' went from {countBefore} to {countAfter} annotation(s), not one fewer.");
         checks.Add("no longer listed");
-        return new DrwAnnotationEditResult { Doc = ctx.Title(d), Action = "delete", Before = Brief(hit.Item), Checks = checks };
+        // SOLIDWORKS closes up a stack of dimensions when one goes (S24): name each that moved, before and after.
+        var moved = new List<DrwAnnotationMoved>();
+        int stayed = 0;
+        foreach (var o in all.Where(a => a != hit && a.Item.AtMm is { Length: >= 2 }))
+        {
+            var now = after.FirstOrDefault(a => a.Item.View == o.Item.View && string.Equals(a.Item.Name, o.Item.Name, StringComparison.OrdinalIgnoreCase));
+            if (now?.Item.AtMm is not { Length: >= 2 } p) continue;
+            if (Math.Abs(p[0] - o.Item.AtMm![0]) > 0.01 || Math.Abs(p[1] - o.Item.AtMm[1]) > 0.01)
+                moved.Add(new DrwAnnotationMoved { Name = o.Item.Name, View = o.Item.View, BeforeMm = o.Item.AtMm, AfterMm = p });
+            else stayed++;
+        }
+        if (moved.Count > 0)
+            ctx.Warn($"SOLIDWORKS moved {moved.Count} other annotation(s) with the delete: " +
+                     string.Join(", ", moved.Take(6).Select(m => $"'{m.Name}' [{Fmt(m.BeforeMm)}] -> [{Fmt(m.AfterMm)}]")) +
+                     (moved.Count > 6 ? $" and {moved.Count - 6} more" : "") + " mm. They were left there (drw_annotation_edit move puts one back).");
+        else if (stayed > 0) checks.Add($"the other {stayed} annotation(s) stayed where they were");
+        return new DrwAnnotationEditResult { Doc = ctx.Title(d), Action = "delete", Before = Brief(hit.Item), OthersMoved = moved.Count > 0 ? moved : null, Checks = checks };
     }
 
     /// <summary>INote.SetText on a note; verified by reading the text back, else the old text is put back.</summary>
