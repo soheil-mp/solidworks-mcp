@@ -563,6 +563,13 @@ public class DrawingLiveTests(LiveFixture fx) : LiveTest(fx)
             Assert.Contains(dim.Checks!, c => c.Contains("with Ø across the circle, seen edge-on"));
             Assert.DoesNotContain(dim.Warnings ?? [], w => w.Contains("not compared"));
         }
+
+        // S20 (d): the edge is drawn horizontally, so there is no vertical dimension of it. The refusal's hint told to
+        // check that the entity can carry the dimension, "a circle for radial/diameter"; it now says why and what to use.
+        var ex = await Fails(ErrorCodes.FeatureFailed, () => Drw.DimensionAddAsync(sec.Name, back, null, "vertical", null, drw));
+        Assert.Contains("seen edge-on", ex.Hint);
+        Assert.Contains("Use kind linear or horizontal", ex.Hint);
+        Assert.DoesNotContain("can carry this kind", ex.Hint);
     }
 
     // ------------------------------------------------------------------ M8 WP2: sheets, flat-pattern / auxiliary views, breaks

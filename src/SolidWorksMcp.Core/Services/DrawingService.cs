@@ -1053,9 +1053,17 @@ public sealed partial class DrawingService(SwSession session)
             var dd = d.DrwAddDimension(k, Units.M(tp.X), Units.M(tp.Y));
             d.ClearSelection2(true);
             if (dd is null)
+            {
+                // A circle seen edge-on is a straight segment of its diameter: across that segment there is nothing to
+                // dimension (S20 d). The general hint read as if the call should have worked.
+                string across = k == "vertical" ? "horizontal" : "vertical";
+                string hint = gb is null && ga.EdgeOn && k is "horizontal" or "vertical" && expected is double none && none < 1e-9
+                    ? $"{ga.Label} is a circle seen edge-on in this view, drawn as a {across} segment of its diameter, so it has no " +
+                      $"{k} extent. Use kind linear or {across} for its diameter (Ø), or dimension it face-on in another view."
+                    : "Check that the entities can carry this kind of dimension (two parallel lines or two points for a distance, a circle for radial/diameter).";
                 throw new SwException(ErrorCodes.FeatureFailed,
-                    $"SOLIDWORKS created no {k} dimension on {ra.Label}{(rb is null ? "" : $" and {rb.Label}")} in '{hit.Name}'.",
-                    "Check that the entities can carry this kind of dimension (two parallel lines or two points for a distance, a circle for radial/diameter).");
+                    $"SOLIDWORKS created no {k} dimension on {ra.Label}{(rb is null ? "" : $" and {rb.Label}")} in '{hit.Name}'.", hint);
+            }
             var dim = dd.GetDimension2(0);
             if (dim is null)
             {
