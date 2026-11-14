@@ -10,7 +10,7 @@
   - verified feature creation with automatic rollback;
   - entity references by id, point, query and name;
   - compact input schemas (the EntityRef fields are explained once, in the server instructions).
-- Tools (161):
+- Tools (164):
   - session: `sw_status`, `sw_connect`, `sw_help`, `dialog_list`, `dialog_respond`;
   - documents: `doc_new` (part, assembly, drawing), `doc_open` (native files and STEP/IGES/Parasolid/SAT/STL imports),
     `doc_list`, `doc_activate`, `doc_save`, `doc_close`, `doc_rebuild`, `doc_undo`, `doc_units_set`, `doc_pack` (Pack and Go,
@@ -51,9 +51,10 @@
     (screws into holes by their centres, with washers and nuts, mated and seated; the bolt length through a nut),
     `asm_structure` (form and dissolve subassemblies);
   - drawing: `drw_sheet_setup`, `drw_sheet_add`, `drw_views_standard`, `drw_view_projected`, `drw_view_section`, `drw_view_detail`,
-    `drw_view_add` (flat-pattern and auxiliary views), `drw_view_edit` (broken views, broken-out sections),
-    `drw_dimensions_auto`, `drw_dimension_add` (also hole callouts), `drw_note_add`, `drw_annotation_add` (datum, surface finish, tolerance frame, weld symbol,
-    balloons), `drw_table_add` (hole, weldment cut-list and revision tables), `drw_bom_add`, `drw_center_marks`, `drw_info`;
+    `drw_view_add` (flat-pattern and auxiliary views), `drw_view_edit` (move a view, broken views, broken-out sections),
+    `drw_view_delete`, `drw_dimensions_auto`, `drw_dimension_add` (also hole callouts), `drw_note_add`, `drw_annotation_add` (datum, surface finish, tolerance frame, weld symbol,
+    balloons), `drw_table_add` (hole, weldment cut-list and revision tables), `drw_bom_add`, `drw_center_marks`, `drw_info`,
+    `drw_annotation_list`, `drw_annotation_edit` (move or delete a dimension, note or symbol, change a note's text);
   - export: `model_export`, `model_export_all` (release package: a STEP per model, a PDF per drawing, a flat DXF per
     sheet-metal part, the BOM);
   - properties: `material_list`, `material_set`, `material_add` (custom materials), `prop_list`, `prop_set`, `prop_delete`, `equation_list`,

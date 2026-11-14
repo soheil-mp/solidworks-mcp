@@ -496,7 +496,11 @@ configuration), `asm_component_move`, `asm_interference` ([a, b, volumeMm3, cent
 `drw_views_standard` (returns {front, top, right, iso} with names and bounds), `drw_view_add`, `drw_view_projected`,
 `drw_view_section`, `drw_view_detail`, `drw_dimensions_auto` (count per view), `drw_dimension_add` (a batch, model-space
 refs, auto placement, visibility checked), `drw_note_add`, `drw_bom_add` (part or assembly view; anchors or [x, y]),
-`drw_balloons`, `drw_center_marks`, `drw_info` (sheet, border and title-block rectangles, views, annotation counts).
+`drw_balloons`, `drw_center_marks`, `drw_info` (sheet, border and title-block rectangles, views, annotation counts),
+`drw_annotation_list` (name, kind, view, text or value, position; the sheet format's notes only on request),
+`drw_annotation_edit` (move, delete, a note's text, each read back; the format's notes refused), `drw_view_edit` kind move
+(aligned views follow; a move off the alignment is refused and put back), `drw_view_delete` (section, detail and
+auxiliary children only with `withChildren`; the views that went and the projected children that stay).
 
 ### 4.11 Export (toolset `export`) — M1
 `model_export`: step (AP203/214/242), iges, parasolid, stl (binary or ascii, quality), 3mf, pdf/dwg/dxf (drawings, M4),
