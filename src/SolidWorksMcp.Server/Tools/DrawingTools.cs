@@ -173,7 +173,11 @@ public sealed class DrawingTools(SwSession session)
     [McpServerTool(Name = "drw_dimension_add", Title = "Drawing dimension", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Dimension edges or vertices of the view's model in a drawing view (a reference dimension): linear, horizontal, vertical, " +
                  "radial, diameter, angular, or a hole callout (Hole Wizard holes: size, depth, thread). References are in model mm, e.g. " +
-                 "a:{type:'edge',at:[0,30,20]}. Verified: the value SOLIDWORKS reads equals the geometry, otherwise removed. Tolerances: " +
+                 "a:{type:'edge',at:[0,30,20]}. Verified: the value SOLIDWORKS reads equals the geometry (a circle at its centre, or its " +
+                 "near or far side as the dimension's arc condition says), otherwise removed; linear on a single circle is checked as the " +
+                 "diameter or radius SOLIDWORKS makes of it, and kind says which; on a circle seen edge-on, as the diameter it is drawn " +
+                 "across (Ø); a value that could not be compared " +
+                 "comes with a warning. Tolerances: " +
                  "dimension_tolerance_set with the returned name.")]
     public async Task<string> DrwDimensionAdd(
         [Description("View name (drw_info lists views).")] string view,
